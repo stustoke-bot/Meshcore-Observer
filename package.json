@@ -15,7 +15,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@michaelhart/meshcore-decoder": "^1.6.4",
+    "@michaelhart/meshcore-decoder": "github:michaelhart/meshcore-decoder",
     "express": "^5.2.1",
     "mqtt": "^5.10.3"
   }
