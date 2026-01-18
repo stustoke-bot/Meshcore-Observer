@@ -923,9 +923,34 @@
     }
 
     @media (max-width: 860px) {
-      .app { grid-template-columns: 1fr; }
+      body { height: auto; overflow: auto; }
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        height: auto;
+        padding: 12px;
+      }
+      .topbar {
+        height: auto;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 12px;
+      }
+      .brand-logo { width: 180px; height: 50px; }
+      .nav { flex-wrap: wrap; gap: 8px; }
       .sidebar-panel { display: none; }
+      .panel { min-height: auto; }
+      .content { min-height: 50vh; }
+      .messages { max-height: 60vh; }
+      .analysis { grid-template-rows: 220px auto; }
+      #routeMap { min-height: 220px; }
+      .rank-body { grid-template-columns: 1fr; }
+      .rank-map { min-height: 280px; }
+      .rf-body { grid-template-columns: 1fr; }
+      .rf-table { overflow-x: auto; }
+      .rf-row { min-width: 760px; }
       .observer-body { grid-template-columns: 1fr; }
+      .observer-map { height: 260px; }
     }
   </style>
 </head>
