@@ -37,7 +37,7 @@
 
     .app {
       display: grid;
-      grid-template-rows: 64px 1fr;
+      grid-template-rows: auto 1fr;
       grid-template-columns: 280px 1fr 420px;
       gap: 16px;
       padding: 16px;
@@ -65,6 +65,7 @@
       align-items: center;
       justify-content: space-between;
       padding: 0 18px;
+      min-height: 84px;
     }
 
     .brand {
@@ -76,8 +77,8 @@
     }
 
     .brand-logo {
-      width: 560px;
-      height: 90px;
+      width: clamp(240px, 34vw, 560px);
+      height: 72px;
       border-radius: 12px;
       display: grid;
       place-items: center;
