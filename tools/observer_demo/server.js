@@ -12,6 +12,7 @@ const devicesPath = path.join(dataDir, "devices.json");
 const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
+const ingestLogPath = path.join(dataDir, "ingest.log");
 const indexPath = path.join(__dirname, "index.html");
 const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
@@ -729,6 +730,12 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/observers") {
     const payload = readJsonSafe(observersPath, { byId: {}, updatedAt: null });
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/ingest-log") {
+    const limit = Number(u.searchParams.get("limit") || 200);
+    const lines = await tailLines(ingestLogPath, limit);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ lines }));
   }
 
   if (u.pathname === "/api/rf-latest") {

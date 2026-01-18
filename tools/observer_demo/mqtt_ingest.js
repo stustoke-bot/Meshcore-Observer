@@ -12,6 +12,7 @@ const dataDir = path.join(projectRoot, "data");
 const observerPath = path.join(dataDir, "observer.ndjson");
 const observerStatusPath = path.join(dataDir, "observers.json");
 const devicesPath = path.join(dataDir, "devices.json");
+const ingestLogPath = path.join(dataDir, "ingest.log");
 const GPS_WARN_KM = 50;
 const ESTIMATE_MIN_HOURS = 4;
 const ESTIMATE_MIN_RSSI = -75;
@@ -52,6 +53,12 @@ function toNumber(value) {
 function appendObserver(record) {
   ensureDataDir();
   fs.appendFileSync(observerPath, JSON.stringify(record) + "\n");
+}
+
+function logIngest(level, message) {
+  ensureDataDir();
+  const line = `${new Date().toISOString()} ${level} ${message}`;
+  fs.appendFileSync(ingestLogPath, line + "\n");
 }
 
 function readJsonSafe(p, def) {
@@ -168,12 +175,15 @@ const client = mqtt.connect(mqttUrl, {
 
 client.on("connect", () => {
   console.log(`(mqtt-ingest) connected ${mqttUrl}`);
+  logIngest("INFO", `connected ${mqttUrl}`);
   client.subscribe(mqttTopic, { qos: 0 }, (err) => {
     if (err) {
       console.error("(mqtt-ingest) subscribe failed", err.message);
+      logIngest("ERROR", `subscribe failed ${err.message}`);
       return;
     }
     console.log(`(mqtt-ingest) subscribed ${mqttTopic}`);
+    logIngest("INFO", `subscribed ${mqttTopic}`);
   });
 });
 
@@ -213,8 +223,13 @@ client.on("message", (topic, payload) => {
 
   appendObserver(record);
   updateObserverStatus(record);
+  logIngest(
+    "MSG",
+    `observer=${record.observerId} rssi=${record.rssi ?? "?"} len=${record.len ?? "?"}`
+  );
 });
 
 client.on("error", (err) => {
   console.error("(mqtt-ingest) error", err.message);
+  logIngest("ERROR", err.message);
 });
