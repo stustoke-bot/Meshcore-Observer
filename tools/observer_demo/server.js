@@ -317,7 +317,7 @@ async function buildRepeaterRank() {
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
 
-  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr}
+  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHop24h}
 
   if (fs.existsSync(decodedPath)) {
     const rl = readline.createInterface({
@@ -341,7 +341,7 @@ async function buildRepeaterRank() {
       if (!ts) continue;
       if (now - ts.getTime() > windowMs) continue;
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null });
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHop24h: 0 });
       const s = stats.get(pub);
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -351,6 +351,8 @@ async function buildRepeaterRank() {
       if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
       if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
+      const hopCount = Array.isArray(decoded?.path) ? decoded.path.length : (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
+      if (hopCount === 0) s.zeroHop24h += 1;
       const msgKey = String(rec.messageHash || rec.hash || rec.id || "unknown");
       s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
     }
@@ -383,7 +385,7 @@ async function buildRepeaterRank() {
       if (!ts) continue;
       if (now - ts.getTime() > windowMs) continue;
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null });
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHop24h: 0 });
       const s = stats.get(pub);
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -393,6 +395,8 @@ async function buildRepeaterRank() {
       if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
       if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
+      const hopCount = Array.isArray(decoded?.path) ? decoded.path.length : (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
+      if (hopCount === 0) s.zeroHop24h += 1;
       const msgKey = String(rec.frameHash || hex.slice(0, 16) || "unknown");
       s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
     }
@@ -411,7 +415,7 @@ async function buildRepeaterRank() {
     .filter(([, d]) => d && d.isRepeater)
     .map(([key, d]) => {
       const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || key;
-      const s = stats.get(pub) || { total24h: 0, msgCounts: new Map(), rssi: [], snr: [] };
+      const s = stats.get(pub) || { total24h: 0, msgCounts: new Map(), rssi: [], snr: [], zeroHop24h: 0 };
       const lastSeen = s.lastSeenTs ? s.lastSeenTs.toISOString() : (d.lastSeen || null);
       const lastSeenDate = parseIso(lastSeen);
       const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
@@ -463,6 +467,7 @@ async function buildRepeaterRank() {
         avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
         avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
         total24h: s.total24h,
+        zeroHop24h: s.zeroHop24h || 0,
         uniqueMsgs,
         avgRepeats: Number(avgRepeats.toFixed(2)),
         score: Math.round(score),
