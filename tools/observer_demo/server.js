@@ -11,6 +11,7 @@ const dataDir = path.join(projectRoot, "data");
 const devicesPath = path.join(dataDir, "devices.json");
 const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
+const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const indexPath = path.join(__dirname, "index.html");
@@ -63,6 +64,18 @@ function loadKeys() {
   } catch {
     return { channels: [] };
   }
+}
+
+function getRfSourcePath() {
+  if (fs.existsSync(rfPath)) return rfPath;
+  if (fs.existsSync(observerPath)) return observerPath;
+  return rfPath;
+}
+
+function getHex(rec) {
+  if (rec && typeof rec.hex === "string") return rec.hex;
+  if (rec && typeof rec.payloadHex === "string") return rec.payloadHex;
+  return null;
 }
 
 function saveKeys(obj) {
@@ -314,13 +327,14 @@ async function buildChannelMessages() {
   }
 
   const keyStore = buildKeyStore(keyCfg);
-  const tail = await tailLines(rfPath, CHANNEL_TAIL_LINES);
+  const sourcePath = getRfSourcePath();
+  const tail = await tailLines(sourcePath, CHANNEL_TAIL_LINES);
   if (!tail.length) {
     return { channels: Array.from(channelMap.values()), messages: [] };
   }
   let baseNow = Date.now();
   try {
-    const stat = fs.statSync(rfPath);
+    const stat = fs.statSync(sourcePath);
     if (Number.isFinite(stat.mtimeMs)) baseNow = stat.mtimeMs;
   } catch {}
   let maxNumericTs = null;
@@ -336,11 +350,12 @@ async function buildChannelMessages() {
   for (const line of tail) {
     let rec;
     try { rec = JSON.parse(line); } catch { continue; }
-    if (!rec.hex) continue;
+    const hex = getHex(rec);
+    if (!hex) continue;
 
     let decoded;
     try {
-      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
     } catch {
       continue;
     }
@@ -354,7 +369,7 @@ async function buildChannelMessages() {
     const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
     if (!chName) continue;
 
-    const msgHash = String(decoded.messageHash || rec.hex.slice(0, 16) || "unknown");
+    const msgHash = String(decoded.messageHash || hex.slice(0, 16) || "unknown");
     const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");
     const sender = String(payload.decrypted.sender || "unknown");
@@ -441,7 +456,8 @@ async function buildMeshScore() {
     return ts && (now - ts.getTime()) <= 24 * 60 * 60 * 1000;
   });
 
-  const lines = await tailLines(rfPath, 5000);
+  const sourcePath = getRfSourcePath();
+  const lines = await tailLines(sourcePath, 5000);
   const buckets = new Map(); // date -> {messages, msgCounts}
   const keyCfg = loadKeys();
   const keyStore = buildKeyStore(keyCfg);
@@ -449,10 +465,11 @@ async function buildMeshScore() {
   for (const line of lines) {
     let rec;
     try { rec = JSON.parse(line); } catch { continue; }
-    if (!rec.hex) continue;
+    const hex = getHex(rec);
+    if (!hex) continue;
     let decoded;
     try {
-      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
     } catch {
       continue;
     }
@@ -467,7 +484,7 @@ async function buildMeshScore() {
     const key = day.toISOString().slice(0, 10);
     if (!buckets.has(key)) buckets.set(key, { messages: 0, msgCounts: new Map() });
     const b = buckets.get(key);
-    const msgHash = String(decoded.messageHash || rec.hex.slice(0, 16) || "unknown");
+    const msgHash = String(decoded.messageHash || hex.slice(0, 16) || "unknown");
     b.messages += 1;
     b.msgCounts.set(msgHash, (b.msgCounts.get(msgHash) || 0) + 1);
   }
@@ -519,7 +536,8 @@ async function buildMeshScore() {
 }
 
 async function buildRfLatest(limit) {
-  const lines = await tailLines(rfPath, limit || 80);
+  const sourcePath = getRfSourcePath();
+  const lines = await tailLines(sourcePath, limit || 80);
   const keyCfg = loadKeys();
   const keyStore = buildKeyStore(keyCfg);
   const devices = readJsonSafe(devicesPath, { byPub: {} });
@@ -533,10 +551,11 @@ async function buildRfLatest(limit) {
   for (const line of lines) {
     let rec;
     try { rec = JSON.parse(line); } catch { continue; }
-    if (!rec.hex) continue;
+    const hex = getHex(rec);
+    if (!hex) continue;
     let decoded = null;
     try {
-      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
     } catch {
       decoded = null;
     }
@@ -554,8 +573,8 @@ async function buildRfLatest(limit) {
     const appData = payloadDecoded?.appData || null;
     const appFlags = typeof appData?.flags === "number" ? appData.flags : null;
     const advertName = typeof appData?.name === "string" ? appData.name : null;
-    const hash = (decoded && decoded.messageHash) ? String(decoded.messageHash) : (rec.fp || rec.hex.slice(0, 16) || null);
-    const len = rec.len ?? rec.reported_len ?? (rec.hex ? Math.floor(rec.hex.length / 2) : null);
+    const hash = (decoded && decoded.messageHash) ? String(decoded.messageHash) : (rec.fp || hex.slice(0, 16) || null);
+    const len = rec.len ?? rec.reported_len ?? (hex ? Math.floor(hex.length / 2) : null);
     const payloadBytes = decoded?.payload?.raw ? Math.floor(decoded.payload.raw.length / 2) : null;
     items.push({
       ts: rec.archivedAt || rec.ts || null,
