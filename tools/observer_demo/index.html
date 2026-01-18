@@ -1127,8 +1127,10 @@
             </div>
           </div>
           <div class="observer-actions">
-            <esp-web-install-button id="observerFlash" manifest="observer-manifest.json">Install</esp-web-install-button>
-            <esp-web-install-button id="observerFlashVerbose" manifest="observer-manifest.json">Install (Logging)</esp-web-install-button>
+            <button class="btn" type="button" id="observerFlashBtn">Install</button>
+            <button class="btn" type="button" id="observerFlashVerboseBtn">Install (Logging)</button>
+            <esp-web-install-button id="observerFlash" manifest="observer-manifest.json" style="display:none"></esp-web-install-button>
+            <esp-web-install-button id="observerFlashVerbose" manifest="observer-manifest.json" style="display:none"></esp-web-install-button>
           </div>
           <div class="observer-status" id="observerStatus">Install flashes firmware and auto-sends Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
@@ -2304,6 +2306,32 @@
 
     wireInstallLogging(document.getElementById("observerFlash"), false);
     wireInstallLogging(document.getElementById("observerFlashVerbose"), true);
+
+    const observerFlashBtn = document.getElementById("observerFlashBtn");
+    const observerFlashVerboseBtn = document.getElementById("observerFlashVerboseBtn");
+    const observerFlash = document.getElementById("observerFlash");
+    const observerFlashVerbose = document.getElementById("observerFlashVerbose");
+
+    if (observerFlashBtn && observerFlash) {
+      observerFlashBtn.addEventListener("click", () => {
+        observerAutoConfig = true;
+        const logEl = document.getElementById("installLog");
+        if (logEl) logEl.classList.remove("active");
+        observerFlash.click();
+      });
+    }
+
+    if (observerFlashVerboseBtn && observerFlashVerbose) {
+      observerFlashVerboseBtn.addEventListener("click", () => {
+        observerAutoConfig = true;
+        const logEl = document.getElementById("installLog");
+        if (logEl) {
+          logEl.textContent = "Verbose install log started...";
+          logEl.classList.add("active");
+        }
+        observerFlashVerbose.click();
+      });
+    }
 
     const rangeTabs = document.getElementById("meshRangeTabs");
     if (rangeTabs) {
