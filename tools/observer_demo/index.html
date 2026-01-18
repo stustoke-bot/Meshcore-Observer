@@ -76,9 +76,9 @@
     }
 
     .brand-logo {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
+      width: 160px;
+      height: 48px;
+      border-radius: 12px;
       display: grid;
       place-items: center;
       overflow: hidden;
@@ -401,6 +401,12 @@
     .rank-item.hidden {
       opacity: 0.45;
       filter: grayscale(0.4);
+    }
+
+    .rank-item.focused {
+      border-color: rgba(0, 122, 255, 0.4);
+      background: rgba(0, 122, 255, 0.1);
+      box-shadow: 0 10px 24px rgba(0, 122, 255, 0.18);
     }
 
     .rank-item .hide-toggle {
@@ -926,13 +932,12 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-logo">
-          <img src="meshrank.png" alt="MeshRank logo"/>
+        <div class="brand">
+          <div class="brand-logo">
+            <img src="meshrank.png" alt="MeshRank logo"/>
+          </div>
+          <span class="status-dot" id="serverStatus" title="Server status"></span>
         </div>
-        <div>MeshRank</div>
-        <span class="status-dot" id="serverStatus" title="Server status"></span>
-      </div>
       <nav class="nav">
         <a href="#" class="active" data-view="channels">Channels</a>
         <a href="#" data-view="rank">Repeater Rank</a>
@@ -2045,8 +2050,6 @@
 
     function buildRankPopupHtml(r) {
       const impact = Math.min(100, Math.max(0, r.score || 0));
-      const isHidden = isRepeaterHidden(r);
-      const checkedAttr = isHidden ? "checked" : "";
       return `
         <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
           <div style="font-weight:700;margin-bottom:6px;">${r.name}</div>
@@ -2055,10 +2058,6 @@
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
-          <div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">
-            <label><input class="hide-toggle" type="checkbox" data-pub="${(r.pub || "").toUpperCase()}" ${checkedAttr}/> Hide on map</label>
-            <button class="btn hide-save" type="button" data-pub="${(r.pub || "").toUpperCase()}">Save</button>
-          </div>
           <div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">Network impact</div>
           <div style="height:8px;border-radius:999px;background:rgba(0,122,255,0.12);overflow:hidden;">
             <div style="height:100%;width:${impact}%;background:linear-gradient(90deg,#34c759,#007aff);"></div>
@@ -2070,7 +2069,11 @@
     function openRankPopup(r, skipPan) {
       if (!r) return;
       const listItem = document.querySelector(`.rank-item[data-pub="${(r.pub || "").toUpperCase()}"]`);
-      if (listItem) listItem.scrollIntoView({ block: "center", behavior: "smooth" });
+      document.querySelectorAll(".rank-item.focused").forEach((el) => el.classList.remove("focused"));
+      if (listItem) {
+        listItem.classList.add("focused");
+        listItem.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
       const lat = r.gps?.lat;
       const lon = r.gps?.lon;
       const hasGps = Number.isFinite(lat) && Number.isFinite(lon);
@@ -2084,7 +2087,6 @@
           const targetZoom = Math.max(rankMap.getZoom(), 8);
           rankMap.setView(marker.getLatLng(), targetZoom, { animate: true });
         }
-        bindPopupHideToggle(marker.getPopup(), r);
         return;
       }
 
@@ -2097,62 +2099,7 @@
           const targetZoom = Math.max(rankMap.getZoom(), 8);
           rankMap.setView([lat, lon], targetZoom, { animate: true });
         }
-        bindPopupHideToggle(popup, r);
       }
-    }
-
-    function bindPopupHideToggle(popup, r) {
-      if (!popup) return;
-      popup.on("add", () => {
-        const el = popup.getElement();
-        if (!el) return;
-        if (el.dataset.bound === "1") return;
-        el.dataset.bound = "1";
-
-        async function saveHide(pub, hidden) {
-          const res = await fetch("/api/repeater-hide", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pub, hidden })
-          });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const data = await res.json();
-          const saved = !!data.hidden;
-          if (appData.rankData) {
-            appData.rankData.items = appData.rankData.items.map((item) =>
-              item.pub === pub ? { ...item, hiddenOnMap: saved } : item
-            );
-          }
-          renderRankWithOptions(appData.rankData, { preserveView: true });
-          return saved;
-        }
-
-        el.addEventListener("click", async (e) => {
-          const btn = e.target.closest(".hide-save");
-          if (!btn) return;
-          e.stopPropagation();
-          e.preventDefault();
-          const toggle = el.querySelector(".hide-toggle");
-          const pub = btn.dataset.pub;
-          if (!pub) return;
-          try {
-            const original = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = "Saving...";
-            await saveHide(pub, !!toggle?.checked);
-            btn.textContent = "Saved";
-            rankMap.closePopup(popup);
-            setTimeout(() => {
-              btn.disabled = false;
-              btn.textContent = original;
-            }, 800);
-          } catch (err) {
-            btn.disabled = false;
-            btn.textContent = "Save";
-            alert("Failed to update hide flag: " + (err?.message || err));
-          }
-        });
-      });
     }
 
 
