@@ -94,6 +94,8 @@ String observerId;
 String observerName;
 float observerLat = OBSERVER_LAT;
 float observerLon = OBSERVER_LON;
+bool wifiWasConnected = false;
+bool mqttWasConnected = false;
 
 // ================= UTILITIES =================
 static inline void toHex(const uint8_t *data, size_t len, char *out) {
@@ -233,6 +235,9 @@ void setup() {
   delay(400);
 
   loadConfig();
+  Serial.println("[observer] boot");
+  Serial.print("[observer] ssid=");
+  Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
 
   WiFi.mode(WIFI_STA);
   if (wifiSsid.length()) {
@@ -258,6 +263,17 @@ void setup() {
 void loop() {
   handleSerialConfig();
 
+  if (WiFi.status() == WL_CONNECTED && !wifiWasConnected) {
+    wifiWasConnected = true;
+    Serial.print("[observer] wifi connected ip=");
+    Serial.println(WiFi.localIP());
+  }
+
+  if (WiFi.status() != WL_CONNECTED && wifiWasConnected) {
+    wifiWasConnected = false;
+    Serial.println("[observer] wifi disconnected");
+  }
+
   if (WiFi.status() == WL_CONNECTED && !mqttClient.connected()) {
     String clientId = "obs-" + observerId;
     if (mqttUser.length()) {
@@ -266,8 +282,19 @@ void loop() {
       mqttClient.connect(clientId.c_str());
     }
     if (mqttClient.connected()) {
+      if (!mqttWasConnected) {
+        mqttWasConnected = true;
+        Serial.print("[observer] mqtt connected ");
+        Serial.print(mqttHost);
+        Serial.print(":");
+        Serial.println(mqttPort);
+      }
       spoolFlush();
     }
+  }
+  if (!mqttClient.connected() && mqttWasConnected) {
+    mqttWasConnected = false;
+    Serial.println("[observer] mqtt disconnected");
   }
   mqttClient.loop();
 
