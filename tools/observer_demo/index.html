@@ -64,6 +64,7 @@
       display: flex;
       align-items: center;
       justify-content: flex-start;
+      flex-wrap: wrap;
       padding: 0 18px;
       gap: 18px;
       min-height: 84px;
@@ -75,17 +76,15 @@
       gap: 10px;
       font-weight: 700;
       letter-spacing: 0.2px;
-      flex: 1 1 auto;
+      flex: 0 0 auto;
     }
 
     .brand-logo {
-      width: clamp(520px, 70vw, 1400px);
-      height: 120px;
+      width: clamp(520px, 80vw, 1600px);
+      height: 140px;
       border-radius: 12px;
-      display: grid;
-      place-items: center;
+      display: block;
       overflow: hidden;
-      background: url("/meshrank.png?v=1.1.1") left center / contain no-repeat;
       border: none;
     }
 
@@ -95,7 +94,7 @@
       object-fit: contain;
       object-position: left center;
       display: block;
-      min-width: 420px;
+      min-width: 480px;
     }
 
     .status-dot {
@@ -725,8 +724,18 @@
     body.view-observer .analysis-panel,
     body.view-observer .rank-panel,
     body.view-observer .meshscore-panel,
-    body.view-observer .rf-panel { display: none; }
+    body.view-observer .rf-panel,
+    body.view-observer .observer-rank-panel { display: none; }
     body.view-observer .observer-panel { display: flex; }
+
+    body.view-observer-rank .sidebar-panel,
+    body.view-observer-rank .content,
+    body.view-observer-rank .analysis-panel,
+    body.view-observer-rank .rank-panel,
+    body.view-observer-rank .meshscore-panel,
+    body.view-observer-rank .rf-panel,
+    body.view-observer-rank .observer-panel { display: none; }
+    body.view-observer-rank .observer-rank-panel { display: flex; }
 
     .row {
       display: flex;
@@ -949,11 +958,10 @@
       }
       .topbar {
         height: auto;
-        flex-wrap: wrap;
         gap: 10px;
         padding: 12px;
       }
-      .brand-logo { width: min(100%, 360px); height: 72px; }
+      .brand-logo { width: min(100%, 560px); height: 88px; }
       .nav { flex-wrap: wrap; gap: 8px; }
       .sidebar-panel { display: none; }
       .panel { min-height: auto; }
@@ -968,6 +976,8 @@
       .rf-row { min-width: 760px; }
       .observer-body { grid-template-columns: 1fr; }
       .observer-map { height: 260px; }
+      .observer-rank-body { grid-template-columns: 1fr; }
+      .observer-rank-map { min-height: 280px; }
     }
   </style>
 </head>
@@ -985,6 +995,7 @@
         <a href="#" data-view="meshscore">MeshRank</a>
         <a href="#" data-view="rf">MeshFlow</a>
         <a href="#" data-view="observer">Become an Observer</a>
+        <a href="#" data-view="observer-rank">Observer Rank</a>
       </nav>
     </header>
 
@@ -1166,7 +1177,7 @@
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
               <div class="observer-step"><strong>2</strong> Download the latest observer firmware below.</div>
-              <div class="observer-step"><strong>3</strong> Go to https://flasher.meshcore.co.uk/, scroll to Custom Firmware, select the downloaded file, enable Erase, then flash. Press RST when done.</div>
+              <div class="observer-step"><strong>3</strong> Visit https://flasher.meshcore.co.uk/, scroll to Custom Firmware, select the downloaded file, enable Erase, then flash. Press RST when done.</div>
               <div class="observer-step"><strong>4</strong> Enter your Wi-Fi credentials and click the button below, then reboot the node.</div>
               <div class="observer-step"><strong>5</strong> Within a few minutes you should see your node in Current Observers.</div>
               <div class="observer-step"><strong>6</strong> As traffic builds, the server will geolocate your node automatically.</div>
@@ -1209,9 +1220,34 @@
             <div style="font-weight:700;">Current Observers</div>
             <div id="observerList" class="rf-list"></div>
           </div>
-          <div class="observer-card">
-            <div style="font-weight:700;">Ingest log</div>
-            <div id="observerLog" class="observer-log">Waiting for MQTT traffic...</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel observer-rank-panel">
+      <div class="title">Observer Rank <span class="chip" id="observerRankUpdated">--</span></div>
+      <div class="rank-summary">
+        <div class="summary-card">
+          <div>Total observers</div>
+          <strong id="observerRankTotal">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>Active (&lt;1h)</div>
+          <strong id="observerRankActive">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>Packets today</div>
+          <strong id="observerRankPackets">0</strong>
+        </div>
+      </div>
+      <div class="rank-body observer-rank-body">
+        <div class="rank-map observer-rank-map">
+          <div id="observerRankMap"></div>
+        </div>
+        <div class="rank-list">
+          <input class="rank-search" id="observerRankSearch" type="text" placeholder="Search observers"/>
+          <div class="rank-scroll" id="observerRankScroll">
+            <div id="observerRankList"></div>
           </div>
         </div>
       </div>
@@ -1253,7 +1289,8 @@
       lastReadByChannel: {},
       rfPackets: [],
       rfSelected: null,
-      rfLastSig: ""
+      rfLastSig: "",
+      observerRank: null
     };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
@@ -1699,10 +1736,19 @@
           const data = await fetchObservers();
           renderObserverMap(data);
           renderObserverList(data);
-          const logData = await fetchIngestLog();
-          renderIngestLog(logData);
         } catch {}
       }, 5000);
+
+      setInterval(async () => {
+        const activeObserverRank = document.body.classList.contains("view-observer-rank");
+        if (!activeObserverRank) return;
+        try {
+          const data = await fetchObserverRank();
+          appData.observerRank = data;
+          renderObserverRank(data);
+          renderObserverRankMap(data);
+        } catch {}
+      }, 15000);
     }
 
     boot();
@@ -1713,6 +1759,9 @@
     let meshRangeDays = 7;
     let observerMap;
     let observerLayer;
+    let observerRankMap;
+    let observerRankLayer;
+    let observerRankRadiusLayer;
 
     function initRankMap() {
       rankMap = L.map("rankMap", { zoomControl: true }).setView([54.0, -2.5], 6);
@@ -1737,14 +1786,26 @@
       observerLayer = L.layerGroup().addTo(observerMap);
     }
 
+    function initObserverRankMap() {
+      const el = document.getElementById("observerRankMap");
+      if (!el) return;
+      observerRankMap = L.map("observerRankMap", { zoomControl: true }).setView([54.0, -2.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(observerRankMap);
+      observerRankLayer = L.layerGroup().addTo(observerRankMap);
+      observerRankRadiusLayer = L.layerGroup().addTo(observerRankMap);
+    }
+
     async function fetchObservers() {
       const res = await fetch("/api/observers?_ts=" + Date.now(), { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
 
-    async function fetchIngestLog() {
-      const res = await fetch("/api/ingest-log?limit=80", { cache: "no-store" });
+    async function fetchObserverRank() {
+      const res = await fetch("/api/observer-rank?_ts=" + Date.now(), { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
@@ -1819,16 +1880,61 @@
       }).join("");
     }
 
-    function renderIngestLog(data) {
-      const el = document.getElementById("observerLog");
-      if (!el) return;
-      const lines = data?.lines || [];
-      if (!lines.length) {
-        el.textContent = "No ingest events yet.";
-        return;
-      }
-      el.textContent = lines.join("\n");
-      el.scrollTop = el.scrollHeight;
+    function renderObserverRank(data) {
+      const list = document.getElementById("observerRankList");
+      if (!list || !data?.items) return;
+      const query = (document.getElementById("observerRankSearch")?.value || "").trim().toLowerCase();
+      const items = data.items.filter((o) => !query || String(o.name || o.id).toLowerCase().includes(query));
+      list.innerHTML = items.length
+        ? items.map((o) => `
+            <div class="rank-item">
+              <div class="rank-main">
+                <strong>${o.name || o.id}</strong>
+                <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}</div>
+                <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
+              </div>
+              <div class="rank-score" style="color:${o.scoreColor}">${o.score}</div>
+            </div>
+          `).join("")
+        : "<div class='rank-item'>No observers yet.</div>";
+
+      document.getElementById("observerRankUpdated").textContent = data.updatedAt
+        ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "--";
+      document.getElementById("observerRankTotal").textContent = data.items.length;
+      document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 1).length;
+      document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + o.packetsToday, 0);
+    }
+
+    function renderObserverRankMap(data) {
+      if (!observerRankMap || !observerRankLayer || !observerRankRadiusLayer || !data?.items) return;
+      observerRankLayer.clearLayers();
+      observerRankRadiusLayer.clearLayers();
+      const points = [];
+      data.items.forEach((o) => {
+        if (!o.gps) return;
+        const latlng = [o.gps.lat, o.gps.lon];
+        points.push(latlng);
+        const marker = L.circleMarker(latlng, {
+          radius: 7,
+          weight: 2,
+          color: o.scoreColor,
+          fillColor: o.scoreColor,
+          fillOpacity: 0.9
+        }).bindPopup(`${o.name || o.id} | ${o.packetsToday} pkts today`);
+        marker.addTo(observerRankLayer);
+        if (o.coverageKm > 0) {
+          const circle = L.circle(latlng, {
+            radius: o.coverageKm * 1000,
+            color: o.scoreColor,
+            weight: 1,
+            fillColor: o.scoreColor,
+            fillOpacity: 0.08
+          });
+          circle.addTo(observerRankRadiusLayer);
+        }
+      });
+      if (points.length) observerRankMap.fitBounds(points, { padding: [20, 20] });
     }
 
     function formatDateTime(value) {
@@ -2190,7 +2296,8 @@
           document.body.classList.toggle("view-rank", view === "rank");
           document.body.classList.toggle("view-meshscore", view === "meshscore");
           document.body.classList.toggle("view-rf", view === "rf");
-          document.body.classList.toggle("view-observer", view === "observer");
+      document.body.classList.toggle("view-observer", view === "observer");
+      document.body.classList.toggle("view-observer-rank", view === "observer-rank");
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
@@ -2233,7 +2340,25 @@
             setTimeout(() => observerMap.invalidateSize(), 80);
           }
         }
+        if (view === "observer-rank") {
+          if (!observerRankMap) initObserverRankMap();
+          if (observerRankMap) {
+            setTimeout(() => observerRankMap.invalidateSize(), 80);
+          }
+          try {
+            const data = await fetchObserverRank();
+            appData.observerRank = data;
+            renderObserverRank(data);
+            renderObserverRankMap(data);
+          } catch {}
+        }
       });
+    });
+
+    document.getElementById("observerRankSearch")?.addEventListener("input", () => {
+      if (!appData.observerRank) return;
+      renderObserverRank(appData.observerRank);
+      renderObserverRankMap(appData.observerRank);
     });
 
     function buildObserverEnvSnippet() {

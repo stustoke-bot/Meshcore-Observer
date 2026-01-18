@@ -26,6 +26,9 @@ const RANK_REFRESH_MS = 15 * 60 * 1000;
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
 
+let observerRankCache = { updatedAt: null, items: [] };
+let observerRankRefresh = null;
+
 let ChannelCrypto;
 try {
   ({ ChannelCrypto } = require("@michaelhart/meshcore-decoder/dist/crypto/channel-crypto"));
@@ -139,6 +142,18 @@ function buildKeyStore(cfg) {
   return MeshCoreDecoder.createKeyStore({ channelSecrets });
 }
 
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function normalizePathHash(val) {
   if (typeof val === "number" && Number.isFinite(val)) {
     return val.toString(16).toUpperCase().padStart(2, "0");
@@ -161,6 +176,138 @@ async function tailLines(filePath, limit) {
     if (buf.length > limit) buf.shift();
   }
   return buf;
+}
+
+async function buildObserverRank() {
+  const observers = readJsonSafe(observersPath, { byId: {} });
+  const byId = observers.byId || {};
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const repeatersByPub = new Map();
+  for (const d of Object.values(byPub)) {
+    if (!d?.gps || !Number.isFinite(d.gps.lat) || !Number.isFinite(d.gps.lon)) continue;
+    repeatersByPub.set(String(d.pub || d.publicKey || d.pubKey || "").toUpperCase(), d.gps);
+  }
+
+  const now = Date.now();
+  const windowMs = 24 * 60 * 60 * 1000;
+  const stats = new Map();
+
+  for (const entry of Object.values(byId)) {
+    if (!entry?.id) continue;
+    stats.set(entry.id, {
+      id: entry.id,
+      name: entry.name || entry.id,
+      firstSeen: entry.firstSeen || null,
+      lastSeen: entry.lastSeen || null,
+      gps: entry.gps || null,
+      packetsToday: 0,
+      repeaters: new Set()
+    });
+  }
+
+  if (fs.existsSync(observerPath)) {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(observerPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+
+    for await (const line of rl) {
+      const t = line.trim();
+      if (!t) continue;
+      let rec;
+      try { rec = JSON.parse(t); } catch { continue; }
+      const id = String(rec.observerId || rec.observerName || "observer").trim();
+      if (!stats.has(id)) {
+        stats.set(id, {
+          id,
+          name: rec.observerName || id,
+          firstSeen: rec.archivedAt || null,
+          lastSeen: rec.archivedAt || null,
+          gps: rec.gps || null,
+          packetsToday: 0,
+          repeaters: new Set()
+        });
+      }
+      const s = stats.get(id);
+      const ts = parseIso(rec.archivedAt);
+      if (ts) {
+        if (!s.firstSeen || ts < new Date(s.firstSeen)) s.firstSeen = ts.toISOString();
+        if (!s.lastSeen || ts > new Date(s.lastSeen)) s.lastSeen = ts.toISOString();
+        if (now - ts.getTime() <= windowMs) s.packetsToday += 1;
+      }
+      if (!s.gps && rec.gps) s.gps = rec.gps;
+
+      const hex = getHex(rec);
+      if (!hex) continue;
+      let decoded;
+      try {
+        decoded = MeshCoreDecoder.decode(String(hex).toUpperCase());
+      } catch {
+        continue;
+      }
+      const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+      if (payloadType !== "Advert") continue;
+      const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
+      const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
+      if (!pub) continue;
+      const gps = repeatersByPub.get(String(pub).toUpperCase());
+      if (gps) s.repeaters.add(String(pub).toUpperCase());
+    }
+  }
+
+  function scoreFor(o) {
+    const uptimeScore = clamp(o.uptimeHours / 48, 0, 1);
+    const trafficScore = clamp(o.packetsToday / 2000, 0, 1);
+    return Math.round((uptimeScore * 0.6 + trafficScore * 0.4) * 100);
+  }
+
+  function colorForAge(ageHours) {
+    if (ageHours <= 1) return "#34c759";
+    if (ageHours <= 6) return "#ff9500";
+    if (ageHours <= 24) return "#ff3b30";
+    return "#8e8e93";
+  }
+
+  const items = [];
+  for (const s of stats.values()) {
+    const lastSeen = s.lastSeen ? new Date(s.lastSeen).getTime() : 0;
+    const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
+    const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
+    const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
+    const gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
+    let coverageKm = 0;
+    if (gps && s.repeaters.size) {
+      let maxKm = 0;
+      for (const pub of s.repeaters) {
+        const rptGps = repeatersByPub.get(pub);
+        if (!rptGps) continue;
+        const km = haversineKm(gps.lat, gps.lon, rptGps.lat, rptGps.lon);
+        if (km > maxKm) maxKm = km;
+      }
+      coverageKm = Math.round(maxKm * 10) / 10;
+    }
+    const coverageCount = s.repeaters.size;
+    const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
+    const scoreColor = colorForAge(ageHours);
+    items.push({
+      id: s.id,
+      name: s.name || s.id,
+      gps,
+      lastSeen: s.lastSeen,
+      firstSeen: s.firstSeen,
+      ageHours,
+      uptimeHours,
+      packetsToday: s.packetsToday,
+      coverageKm,
+      coverageCount,
+      score,
+      scoreColor
+    });
+  }
+
+  items.sort((a, b) => (b.score - a.score) || (b.packetsToday - a.packetsToday));
+  return { updatedAt: new Date().toISOString(), items };
 }
 
 async function buildRepeaterRank() {
@@ -809,10 +956,19 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
-  if (u.pathname === "/api/ingest-log") {
-    const limit = Number(u.searchParams.get("limit") || 200);
-    const lines = await tailLines(ingestLogPath, limit);
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ lines }));
+  if (u.pathname === "/api/observer-rank") {
+    const now = Date.now();
+    const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+    const force = u.searchParams.get("refresh") === "1";
+    if (force || !last || now - last >= 5 * 60 * 1000) {
+      if (!observerRankRefresh) {
+        observerRankRefresh = buildObserverRank()
+          .then((data) => { observerRankCache = data; })
+          .finally(() => { observerRankRefresh = null; });
+      }
+      await observerRankRefresh;
+    }
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(observerRankCache));
   }
 
   if (u.pathname === "/api/rf-latest") {
