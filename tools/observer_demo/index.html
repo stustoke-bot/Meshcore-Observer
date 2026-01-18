@@ -2279,6 +2279,13 @@
       }
     }
 
+    const observerSendBtn = document.getElementById("observerSendConfig");
+    if (observerSendBtn) {
+      observerSendBtn.addEventListener("click", () => {
+        sendObserverConfig();
+      });
+    }
+
     function wireInstallLogging(button, verbose) {
       if (!button) return;
       const logEl = document.getElementById("installLog");
