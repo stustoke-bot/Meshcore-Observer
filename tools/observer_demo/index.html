@@ -2268,6 +2268,39 @@
       observerSendConfig.addEventListener("click", sendObserverConfig);
     }
 
+    function wireInstallLogging(button, verbose) {
+      if (!button) return;
+      const logEl = document.getElementById("installLog");
+      const append = (msg) => {
+        if (!logEl) return;
+        logEl.classList.toggle("active", !!verbose);
+        if (!verbose) return;
+        const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.textContent = (logEl.textContent || "").trim();
+        logEl.textContent = (logEl.textContent ? logEl.textContent + "\n" : "") + line;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      button.addEventListener("state-changed", (ev) => {
+        append(`state ${ev.detail?.state || "unknown"}`);
+      });
+      button.addEventListener("log", (ev) => {
+        append(ev.detail?.message || "log event");
+      });
+      button.addEventListener("error", (ev) => {
+        append(`error ${ev.detail?.message || "unknown"}`);
+      });
+      button.addEventListener("click", () => {
+        if (logEl) {
+          logEl.textContent = verbose ? "Verbose install log started..." : "Verbose install log ready.";
+          logEl.classList.toggle("active", !!verbose);
+        }
+      });
+    }
+
+    wireInstallLogging(document.getElementById("observerFlash"), false);
+    wireInstallLogging(document.getElementById("observerFlashVerbose"), true);
+
     const rangeTabs = document.getElementById("meshRangeTabs");
     if (rangeTabs) {
       rangeTabs.addEventListener("click", async (e) => {
