@@ -25,6 +25,9 @@
 #define SF         8
 #define CR_DENOM   8        // 4/8
 
+// ================= FIRMWARE VERSION =================
+#define OBSERVER_FW_VER "1.1.0"
+
 // ================= CONFIG DEFAULTS =================
 #ifndef OBSERVER_WIFI_SSID
 #define OBSERVER_WIFI_SSID ""
@@ -219,7 +222,7 @@ static inline void handleSerialConfig() {
         observerName = buffer.substring(14);
         saveConfig();
       } else if (buffer == "status") {
-        Serial.println("{\"ok\":true,\"ssid\":\"" + wifiSsid + "\",\"host\":\"" + mqttHost + "\",\"port\":" + String(mqttPort) + ",\"id\":\"" + observerId + "\",\"name\":\"" + observerName + "\",\"lat\":" + String(observerLat, 6) + ",\"lon\":" + String(observerLon, 6) + "}");
+        Serial.println("{\"ok\":true,\"fw\":\"" OBSERVER_FW_VER "\",\"ssid\":\"" + wifiSsid + "\",\"host\":\"" + mqttHost + "\",\"port\":" + String(mqttPort) + ",\"id\":\"" + observerId + "\",\"name\":\"" + observerName + "\",\"lat\":" + String(observerLat, 6) + ",\"lon\":" + String(observerLon, 6) + "}");
       }
       buffer = "";
       continue;
@@ -236,6 +239,7 @@ void setup() {
 
   loadConfig();
   Serial.println("[observer] boot");
+  Serial.println(String("[observer] fw=") + OBSERVER_FW_VER);
   Serial.print("[observer] ssid=");
   Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
 
@@ -313,6 +317,8 @@ void loop() {
   float snr = radio.getSNR();
   int state = radio.readData(buf, len);
   int ptype = (len > 0) ? buf[0] : -1;
+  Serial.printf("[observer] rx len=%d rssi=%.1f snr=%.2f crc=%s\n",
+                len, rssi, snr, (state == RADIOLIB_ERR_NONE ? "ok" : "bad"));
 
   String frameHash = sha256Hex(buf, len);
   char payloadHex[512];
