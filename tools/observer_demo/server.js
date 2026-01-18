@@ -458,6 +458,7 @@ async function buildRepeaterRank() {
 
       return {
         pub,
+        hashByte: nodeHashFromPub(pub),
         name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
         gps: d.gps || null,
         lastSeen,
