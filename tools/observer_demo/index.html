@@ -1157,11 +1157,19 @@
       <div class="observer-body">
           <div class="observer-card">
             <div style="font-weight:700;">Bring your observer online</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+              Repeaters can be configured to forward packets, but that adds load and can reduce stability.
+              The Observer Node is a dedicated bridge between RF traffic and the internet. It runs silently,
+              can sit anywhere with good Wi-Fi and RF reception, and sends data to MeshRank while powered.
+              To keep support simple we only build firmware for Heltec V3.
+            </div>
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
-              <div class="observer-step"><strong>2</strong> Click the link to install observer firmware via flasher or download the .bin from GitHub.</div>
-              <div class="observer-step"><strong>3</strong> Enter your Wi-Fi credentials and click the button below.</div>
-              <div class="observer-step"><strong>4</strong> Reboot the node.</div>
+              <div class="observer-step"><strong>2</strong> Download the latest observer firmware below.</div>
+              <div class="observer-step"><strong>3</strong> Go to https://flasher.meshcore.co.uk/, scroll to Custom Firmware, select the downloaded file, enable Erase, then flash. Press RST when done.</div>
+              <div class="observer-step"><strong>4</strong> Enter your Wi-Fi credentials and click the button below, then reboot the node.</div>
+              <div class="observer-step"><strong>5</strong> Within a few minutes you should see your node in Current Observers.</div>
+              <div class="observer-step"><strong>6</strong> As traffic builds, the server will geolocate your node automatically.</div>
             </div>
           <div class="observer-grid">
             <div>
