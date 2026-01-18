@@ -207,6 +207,48 @@ async function buildRepeaterRank() {
       const msgKey = String(rec.messageHash || rec.hash || rec.id || "unknown");
       s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
     }
+  } else if (fs.existsSync(observerPath)) {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(observerPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+
+    for await (const line of rl) {
+      const t = line.trim();
+      if (!t) continue;
+      let rec;
+      try { rec = JSON.parse(t); } catch { continue; }
+      const hex = getHex(rec);
+      if (!hex) continue;
+      let decoded;
+      try {
+        decoded = MeshCoreDecoder.decode(String(hex).toUpperCase());
+      } catch {
+        continue;
+      }
+      const payloadTypeName = Utils.getPayloadTypeName(decoded.payloadType);
+      if (payloadTypeName !== "Advert") continue;
+      const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
+      if (!adv || typeof adv !== "object") continue;
+      const pub = adv.publicKey || adv.pub || adv.pubKey;
+      if (!pub) continue;
+      const ts = parseIso(rec.archivedAt);
+      if (!ts) continue;
+      if (now - ts.getTime() > windowMs) continue;
+
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null });
+      const s = stats.get(pub);
+      s.total24h += 1;
+      if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
+      if (!s.rssi) s.rssi = [];
+      if (!s.snr) s.snr = [];
+      if (Number.isFinite(rec.rssi)) s.rssi.push(rec.rssi);
+      if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
+      if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
+      if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
+      const msgKey = String(rec.frameHash || hex.slice(0, 16) || "unknown");
+      s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
+    }
   }
 
   function trimmedMean(list, trimRatio) {
