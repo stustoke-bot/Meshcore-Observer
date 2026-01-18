@@ -642,6 +642,22 @@ const server = http.createServer(async (req, res) => {
       const payload = await buildChannelMessages();
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels }));
     }
+    if (req.method === "DELETE") {
+      try {
+        const name = String(u.searchParams.get("name") || "").trim();
+        if (!name) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "name required" }));
+        }
+        const cfg = loadKeys();
+        const before = cfg.channels || [];
+        const after = before.filter((c) => String(c.name || "") !== name);
+        cfg.channels = after;
+        saveKeys(cfg);
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, removed: before.length - after.length }));
+      } catch (err) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      }
+    }
     if (req.method === "POST") {
       if (!ChannelCrypto) {
         return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel crypto unavailable" }));

@@ -76,14 +76,14 @@
     }
 
     .brand-logo {
-      width: 320px;
-      height: 64px;
+      width: 520px;
+      height: 80px;
       border-radius: 12px;
       display: grid;
       place-items: center;
       overflow: hidden;
-      background: #ffffff;
-      border: 1px solid rgba(0,0,0,0.06);
+      background: transparent;
+      border: none;
     }
 
     .brand-logo img {
@@ -407,10 +407,6 @@
       border-color: rgba(0, 122, 255, 0.4);
       background: rgba(0, 122, 255, 0.1);
       box-shadow: 0 10px 24px rgba(0, 122, 255, 0.18);
-    }
-
-    .rank-item .hide-toggle {
-      accent-color: var(--blue);
     }
 
     .rank-item .row {
@@ -762,6 +758,16 @@
       gap: 8px;
     }
 
+    .channel-remove {
+      border: 0;
+      background: transparent;
+      color: #ff3b30;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+    }
+
     .slider {
       width: 100%;
     }
@@ -774,7 +780,7 @@
 
     .observer-body {
       display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 16px;
       padding: 16px;
       min-height: 0;
@@ -862,6 +868,11 @@
       overflow: hidden;
     }
 
+    .observer-map .leaflet-container {
+      width: 100%;
+      height: 100%;
+    }
+
     .observer-legend {
       display: flex;
       align-items: center;
@@ -936,7 +947,7 @@
         gap: 10px;
         padding: 12px;
       }
-      .brand-logo { width: 180px; height: 50px; }
+      .brand-logo { width: 260px; height: 64px; }
       .nav { flex-wrap: wrap; gap: 8px; }
       .sidebar-panel { display: none; }
       .panel { min-height: auto; }
@@ -1143,7 +1154,7 @@
             <div style="font-weight:700;">Bring your observer online</div>
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
-              <div class="observer-step"><strong>2</strong> Install observer firmware via flasher or download the .bin from GitHub.</div>
+              <div class="observer-step"><strong>2</strong> Click the link to install observer firmware via flasher or download the .bin from GitHub.</div>
               <div class="observer-step"><strong>3</strong> Enter your Wi-Fi credentials and click the button below.</div>
               <div class="observer-step"><strong>4</strong> Reboot the node.</div>
             </div>
@@ -1163,13 +1174,14 @@
           </div>
           <div class="observer-actions">
             <a class="btn" id="observerFlashLink" href="https://flasher.meshcore.co.uk/?manifest=https://meshrank.net/observer-manifest.json" target="_blank" rel="noopener">Open MeshCore Flasher</a>
-            <a class="btn" id="observerGithubLink" href="https://github.com/stustoke-bot/Meshcore-Observer/releases" target="_blank" rel="noopener">Download from GitHub</a>
+            <a class="btn" id="observerBinLink" href="/observer-merged.bin?v=2" target="_blank" rel="noopener">Download observer .bin</a>
             <button class="btn" type="button" id="observerSendConfig">Send Wi-Fi config</button>
           </div>
           <div class="observer-status" id="observerStatus">Flash via MeshCore flasher, then send Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
           <div style="font-size:12px;color:var(--muted);">Location is estimated automatically from strong repeater signals.</div>
         </div>
+        <div class="observer-right">
           <div class="observer-card">
             <div style="font-weight:700;">Current Observer Coverage</div>
             <div class="observer-legend">
@@ -1180,7 +1192,6 @@
             <div style="font-size:12px;color:var(--muted);">Location pending observers stay off the map until validated.</div>
             <div id="observerMap" class="observer-map"></div>
           </div>
-        <div class="observer-right">
           <div class="observer-card">
             <div style="font-weight:700;">Current Observers</div>
             <div id="observerList" class="rf-list"></div>
@@ -1271,6 +1282,7 @@
           <div style="display:grid;gap:6px;justify-items:end;">
             <div class="muted">${ch.time}</div>
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
+            <button class="channel-remove" type="button" data-name="${ch.name}">Remove</button>
           </div>
         `;
         row.addEventListener("click", () => {
@@ -1285,6 +1297,18 @@
           saveReadState();
           renderChannels();
           loadMessages(true);
+        });
+        row.querySelector(".channel-remove").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const name = e.currentTarget.dataset.name;
+          if (!name) return;
+          if (!confirm(`Remove ${name}?`)) return;
+          try {
+            await fetch(`/api/channels?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+            await loadChannels();
+          } catch {
+            alert("Unable to remove channel.");
+          }
         });
         el.appendChild(row);
       });
@@ -1739,6 +1763,9 @@
       if (points.length) {
         observerMap.fitBounds(points, { padding: [20, 20] });
       }
+      if (observerMap) {
+        observerMap.invalidateSize();
+      }
     }
 
     function renderObserverList(data) {
@@ -1985,7 +2012,7 @@
     }
 
     function renderRank(data) {
-      renderRankWithOptions(data, {});
+      renderRankWithOptions(data, { preserveView: true });
     }
 
     function scrollRankItemToTop(pub) {
@@ -2038,10 +2065,6 @@
           <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
           <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
-          <div class="row">
-            <label><input class="hide-toggle" type="checkbox" data-pub="${(r.pub || "").toUpperCase()}" ${isHidden ? "checked" : ""}/> Hide on map</label>
-            <button class="btn hide-save" type="button" data-pub="${(r.pub || "").toUpperCase()}">Save</button>
-          </div>
           ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
           ${observerBadge}
         `;
@@ -2094,10 +2117,14 @@
 
     function openRankPopup(r, skipPan) {
       if (!r) return;
+      const list = document.getElementById("rankList");
       const listItem = document.querySelector(`.rank-item[data-pub="${(r.pub || "").toUpperCase()}"]`);
       document.querySelectorAll(".rank-item.focused").forEach((el) => el.classList.remove("focused"));
       if (listItem) {
         listItem.classList.add("focused");
+        if (list && list.firstChild !== listItem) {
+          list.prepend(listItem);
+        }
         listItem.scrollIntoView({ block: "start", behavior: "smooth" });
       }
       const lat = r.gps?.lat;
@@ -2175,6 +2202,13 @@
               renderRfList();
             }
           } catch {}
+        }
+
+        if (view === "observer") {
+          if (!observerMap) initObserverMap();
+          if (observerMap) {
+            setTimeout(() => observerMap.invalidateSize(), 80);
+          }
         }
       });
     });
@@ -2340,50 +2374,16 @@
     }
 
     const rankList = document.getElementById("rankList");
-    if (rankList) {
-      rankList.addEventListener("click", async (e) => {
-        const btn = e.target.closest(".hide-save");
-        if (!btn) return;
-        e.preventDefault();
-        const pub = btn.getAttribute("data-pub");
-        if (!pub) return;
-        const wrapper = btn.closest(".rank-item");
-        const toggle = wrapper?.querySelector(".hide-toggle");
-        const hidden = !!toggle?.checked;
-        const original = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = "Saving...";
-        try {
-          const res = await fetch("/api/repeater-hide", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pub, hidden })
-          });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const data = await res.json();
-          const saved = !!data.hidden;
-          if (wrapper) wrapper.classList.toggle("hidden", saved);
-          if (appData.rankData) {
-            appData.rankData.items = appData.rankData.items.map((item) =>
-              item.pub === pub ? { ...item, hiddenOnMap: saved } : item
-            );
-          }
-          btn.textContent = "Saved";
-        } catch (err) {
-          btn.textContent = "Error";
-          alert("Failed to update hide flag: " + (err?.message || err));
-        }
-        setTimeout(() => {
-          btn.disabled = false;
-          btn.textContent = original;
-        }, 800);
-      });
-    }
 
     const rfSearch = document.getElementById("rfSearch");
     const rfTypeFilter = document.getElementById("rfTypeFilter");
     if (rfSearch) rfSearch.addEventListener("input", renderRfList);
     if (rfTypeFilter) rfTypeFilter.addEventListener("change", renderRfList);
+
+    window.addEventListener("resize", () => {
+      if (observerMap) observerMap.invalidateSize();
+      if (rankMap) rankMap.invalidateSize();
+    });
   </script>
 </body>
 </html>
