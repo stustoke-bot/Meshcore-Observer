@@ -1268,18 +1268,25 @@
     function renderChannels() {
       const el = document.getElementById("channels");
       el.innerHTML = "";
-      appData.channels.forEach((ch, idx) => {
+      const list = appData.channels.length
+        ? appData.channels
+        : [{ id: "public", name: "#public", snippet: "No channels yet.", time: "--" }];
+      list.forEach((ch, idx) => {
         const unread = appData.unreadByChannel[ch.id] || 0;
+        const displayName = ch.name || "#unknown";
+        const avatarChar = (displayName[1] || displayName[0] || "?").toUpperCase();
+        const snippet = ch.snippet || "No recent messages.";
+        const time = ch.time || "--";
         const row = document.createElement("div");
         row.className = "channel" + (ch.id === activeChannelId ? " active" : "") + (unread ? " unread" : "");
         row.innerHTML = `
-          <div class="avatar" style="background:${colors[idx % colors.length]}">${ch.name[1].toUpperCase()}</div>
+          <div class="avatar" style="background:${colors[idx % colors.length]}">${avatarChar}</div>
           <div>
-            <div class="name">${ch.name}</div>
-            <div class="snippet">${ch.snippet}</div>
+            <div class="name">${displayName}</div>
+            <div class="snippet">${snippet}</div>
           </div>
           <div style="display:grid;gap:6px;justify-items:end;">
-            <div class="muted">${ch.time}</div>
+            <div class="muted">${time}</div>
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
             <button class="channel-remove" type="button" data-name="${ch.name}">Remove</button>
           </div>
@@ -1534,6 +1541,9 @@
         if (!exists) activeChannelId = appData.channels[0].id;
         const active = appData.channels.find((c) => c.id === activeChannelId);
         if (active) document.getElementById("activeChannel").textContent = active.name;
+      } else {
+        activeChannelId = "public";
+        document.getElementById("activeChannel").textContent = "#public";
       }
       renderChannels();
     }
