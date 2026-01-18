@@ -1111,7 +1111,7 @@
       <div class="observer-body">
         <div class="observer-card">
           <div style="font-weight:700;">Bring your observer online</div>
-          <div style="font-size:12px;color:var(--muted);">1) Plug in the observer. 2) Flash firmware. 3) Send Wi-Fi config.</div>
+          <div style="font-size:12px;color:var(--muted);">1) Plug in the observer. 2) Install firmware (Wi-Fi config is sent automatically).</div>
           <div class="observer-grid">
             <div>
               <label for="observerName">Observer name</label>
@@ -1127,11 +1127,10 @@
             </div>
           </div>
           <div class="observer-actions">
-            <esp-web-install-button id="observerFlash" manifest="observer-manifest.json"></esp-web-install-button>
-            <esp-web-install-button id="observerFlashVerbose" manifest="observer-manifest.json">Install (Verbose)</esp-web-install-button>
-            <button class="btn" id="observerSendConfig" type="button">Send Wi-Fi config</button>
+            <esp-web-install-button id="observerFlash" manifest="observer-manifest.json">Install</esp-web-install-button>
+            <esp-web-install-button id="observerFlashVerbose" manifest="observer-manifest.json">Install (Logging)</esp-web-install-button>
           </div>
-          <div class="observer-status" id="observerStatus">Flash uses WebSerial (Chrome/Edge). MQTT is fixed to `meshrank.net:8883` TLS.</div>
+          <div class="observer-status" id="observerStatus">Install flashes firmware and auto-sends Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
           <div style="font-size:12px;color:var(--muted);">Location is estimated automatically from strong repeater signals.</div>
         </div>
@@ -2240,6 +2239,8 @@
       el.style.color = isError ? "#ff3b30" : "var(--muted)";
     }
 
+    let observerAutoConfig = false;
+
     async function sendObserverConfig() {
       if (!navigator.serial) {
         setObserverStatus("WebSerial not available in this browser.", true);
@@ -2263,11 +2264,6 @@
       }
     }
 
-    const observerSendConfig = document.getElementById("observerSendConfig");
-    if (observerSendConfig) {
-      observerSendConfig.addEventListener("click", sendObserverConfig);
-    }
-
     function wireInstallLogging(button, verbose) {
       if (!button) return;
       const logEl = document.getElementById("installLog");
@@ -2282,7 +2278,14 @@
       };
 
       button.addEventListener("state-changed", (ev) => {
-        append(`state ${ev.detail?.state || "unknown"}`);
+        const rawState = ev.detail?.state || "unknown";
+        append(`state ${rawState}`);
+        const state = String(rawState).toLowerCase();
+        const isDone = ["finished", "installed", "done"].includes(state);
+        if (observerAutoConfig && isDone) {
+          observerAutoConfig = false;
+          sendObserverConfig();
+        }
       });
       button.addEventListener("log", (ev) => {
         append(ev.detail?.message || "log event");
@@ -2291,6 +2294,7 @@
         append(`error ${ev.detail?.message || "unknown"}`);
       });
       button.addEventListener("click", () => {
+        observerAutoConfig = true;
         if (logEl) {
           logEl.textContent = verbose ? "Verbose install log started..." : "Verbose install log ready.";
           logEl.classList.toggle("active", !!verbose);
