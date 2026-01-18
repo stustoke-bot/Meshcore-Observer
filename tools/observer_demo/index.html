@@ -1143,7 +1143,7 @@
             <div style="font-weight:700;">Bring your observer online</div>
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
-              <div class="observer-step"><strong>2</strong> Click the link to install observer firmware via flasher.</div>
+              <div class="observer-step"><strong>2</strong> Install observer firmware via flasher or download the .bin from GitHub.</div>
               <div class="observer-step"><strong>3</strong> Enter your Wi-Fi credentials and click the button below.</div>
               <div class="observer-step"><strong>4</strong> Reboot the node.</div>
             </div>
@@ -1163,10 +1163,8 @@
           </div>
           <div class="observer-actions">
             <a class="btn" id="observerFlashLink" href="https://flasher.meshcore.co.uk/?manifest=https://meshrank.net/observer-manifest.json" target="_blank" rel="noopener">Open MeshCore Flasher</a>
+            <a class="btn" id="observerGithubLink" href="https://github.com/stustoke-bot/Meshcore-Observer/releases" target="_blank" rel="noopener">Download from GitHub</a>
             <button class="btn" type="button" id="observerSendConfig">Send Wi-Fi config</button>
-          </div>
-          <div style="font-size:12px;color:var(--muted);">
-            Need a single file? <a class="analyze" href="observer-merged.bin" download>Download observer firmware (.bin)</a>
           </div>
           <div class="observer-status" id="observerStatus">Flash via MeshCore flasher, then send Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
