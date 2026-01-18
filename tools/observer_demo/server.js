@@ -201,6 +201,8 @@ async function buildObserverRank() {
       firstSeen: entry.firstSeen || null,
       lastSeen: entry.lastSeen || null,
       gps: entry.gps || null,
+      locSource: entry.locSource || null,
+      bestRepeaterPub: entry.bestRepeaterPub || null,
       packetsToday: 0,
       repeaters: new Set()
     });
@@ -275,7 +277,12 @@ async function buildObserverRank() {
     const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
     const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
     const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
-    const gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
+    let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
+    let locSource = s.locSource;
+    if (!gps && s.bestRepeaterPub && repeatersByPub.has(String(s.bestRepeaterPub).toUpperCase())) {
+      gps = repeatersByPub.get(String(s.bestRepeaterPub).toUpperCase());
+      locSource = locSource || s.bestRepeaterPub;
+    }
     let coverageKm = 0;
     if (gps && s.repeaters.size) {
       let maxKm = 0;
@@ -301,6 +308,7 @@ async function buildObserverRank() {
       packetsToday: s.packetsToday,
       coverageKm,
       coverageCount,
+      locSource,
       score,
       scoreColor
     });
