@@ -1,0 +1,2297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MeshRank</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    :root {
+      --ink: #0a0b0e;
+      --paper: #f2f2f7;
+      --panel: #ffffff;
+      --line: rgba(60, 60, 67, 0.12);
+      --blue: #007aff;
+      --blue-dark: #0a60d1;
+      --green: #34c759;
+      --green-dark: #248a3d;
+      --muted: rgba(60, 60, 67, 0.6);
+      --shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background:
+        radial-gradient(1000px 520px at 85% -10%, rgba(0, 122, 255, 0.14) 0%, rgba(0, 122, 255, 0) 60%),
+        radial-gradient(900px 520px at -10% 15%, rgba(52, 199, 89, 0.12) 0%, rgba(52, 199, 89, 0) 60%),
+        var(--paper);
+      color: var(--ink);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: 64px 1fr;
+      grid-template-columns: 280px 1fr 420px;
+      gap: 16px;
+      padding: 16px;
+      height: 100vh;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #ffffff;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+
+    .brand-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+      background: #ff3b30;
+      box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.15);
+    }
+
+    .status-dot.ok {
+      background: #34c759;
+      box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.15);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .nav a {
+      color: inherit;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 10px;
+    }
+
+    .nav a.active {
+      color: var(--ink);
+      background: rgba(0, 122, 255, 0.12);
+    }
+
+    .sidebar {
+      padding: 14px 12px;
+      gap: 10px;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .title.column {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .chip {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: rgba(0, 122, 255, 0.1);
+      color: var(--blue);
+      padding: 6px 10px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: rgba(0, 122, 255, 0.18);
+    }
+
+    .channel {
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+
+    .channel.active {
+      background: #e8f0ff;
+      border-color: rgba(11, 95, 255, 0.2);
+    }
+
+    .channel.unread .name {
+      font-weight: 800;
+    }
+
+    .badge-bubble {
+      min-width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #007aff;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .channel .name {
+      font-weight: 700;
+    }
+
+    .channel .snippet {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .content {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .messages {
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow: auto;
+    }
+
+    .message {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 12px;
+      animation: slideIn 400ms ease-out;
+    }
+
+    .message .meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      max-width: 520px;
+      color: #fff;
+      font-weight: 500;
+      line-height: 1.35;
+      box-shadow: 0 10px 24px rgba(10, 11, 14, 0.16);
+    }
+
+    .bubble.mesh {
+      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+    }
+
+    .bubble.observer {
+      background: linear-gradient(135deg, var(--green), var(--green-dark));
+    }
+
+    .bubble.mixed {
+      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+      outline: 2px solid var(--green);
+    }
+
+    .msg-footer {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .analyze {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .analyze:hover { text-decoration: underline; }
+
+    .analysis {
+      display: grid;
+      grid-template-rows: 240px 1fr;
+      min-height: 0;
+    }
+
+    .rank-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .rank-body {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .rank-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fafafa;
+    }
+
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #ffffff;
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .summary-card strong {
+      font-size: 16px;
+      color: var(--ink);
+    }
+
+    .rank-map {
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      min-height: 360px;
+    }
+
+    #rankMap {
+      width: 100%;
+      height: 100%;
+      min-height: 360px;
+    }
+
+    .rank-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .rank-search {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      background: #ffffff;
+      outline: none;
+      box-shadow: 0 6px 16px rgba(10, 11, 14, 0.06);
+      margin-bottom: 6px;
+    }
+
+    .rank-scroll {
+      overflow: auto;
+      padding-right: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .rank-search::placeholder {
+      color: rgba(60, 60, 67, 0.45);
+    }
+
+    .rank-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 4px;
+      background: #fafafa;
+    }
+
+
+    .rank-item.hidden {
+      opacity: 0.45;
+      filter: grayscale(0.4);
+    }
+
+    .rank-item .hide-toggle {
+      accent-color: var(--blue);
+    }
+
+    .rank-item .row {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rank-item .score {
+      font-weight: 700;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .rank-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .meshscore-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .rf-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .rf-body {
+      display: grid;
+      grid-template-columns: 1.4fr 0.9fr;
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .rf-table {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .rf-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .rf-input {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .rf-list {
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .rf-row {
+      display: grid;
+      grid-template-columns: 90px 110px 90px 140px minmax(160px, 2fr) 140px 60px 60px 60px 60px;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      cursor: pointer;
+      align-items: center;
+    }
+
+    .rf-row:hover {
+      background: #f7f7f7;
+    }
+
+    .rf-row.rf-header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f4f6fb;
+      font-weight: 700;
+      color: #5b6b84;
+      cursor: default;
+    }
+
+    .rf-type {
+      font-weight: 700;
+      color: #fff;
+      border-radius: 8px;
+      padding: 2px 6px;
+      display: inline-flex;
+      justify-content: center;
+      background: #007aff;
+      font-size: 11px;
+    }
+
+    .rf-detail {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: #ffffff;
+      overflow: auto;
+      min-height: 0;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .rf-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fafafa;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rf-summary strong {
+      display: block;
+      color: var(--ink);
+      font-size: 14px;
+      margin-top: 2px;
+    }
+
+    .rf-hex {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      background: #f7f7f7;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      word-break: break-all;
+    }
+
+    .rf-kv {
+      font-size: 12px;
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+    }
+
+    .meshscore-body {
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+      overflow: auto;
+    }
+
+    .meshscore-hero {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #ffffff;
+      display: grid;
+      gap: 10px;
+    }
+
+    .meshscore-cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .meshscore-chart {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: #ffffff;
+      display: grid;
+      gap: 10px;
+    }
+
+    .range-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .range-tabs button {
+      border: 1px solid var(--line);
+      background: #f7f7f7;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .range-tabs button.active {
+      background: rgba(0, 122, 255, 0.12);
+      color: var(--blue);
+    }
+
+    .meshscore-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    #routeMap {
+      height: 100%;
+      width: 100%;
+      background: repeating-linear-gradient(
+        135deg,
+        rgba(10, 11, 14, 0.04),
+        rgba(10, 11, 14, 0.04) 14px,
+        transparent 14px,
+        transparent 28px
+      );
+    }
+
+    .analysis-body {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: auto;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 9999;
+    }
+
+    .modal.open {
+      display: flex;
+    }
+
+    .modal-card {
+      width: min(420px, 100%);
+      background: var(--panel);
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .field input {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    body.view-channels .rank-panel,
+    body.view-channels .meshscore-panel { display: none; }
+    body.view-channels .sidebar-panel,
+    body.view-channels .content,
+    body.view-channels .analysis-panel { display: flex; }
+
+    body.view-rank .sidebar-panel,
+    body.view-rank .content,
+    body.view-rank .analysis-panel,
+    body.view-rank .meshscore-panel { display: none; }
+    body.view-rank .rank-panel { display: flex; }
+
+    body.view-meshscore .sidebar-panel,
+    body.view-meshscore .content,
+    body.view-meshscore .analysis-panel,
+    body.view-meshscore .rank-panel { display: none; }
+    body.view-meshscore .meshscore-panel { display: flex; }
+
+    body.view-rf .sidebar-panel,
+    body.view-rf .content,
+    body.view-rf .analysis-panel,
+    body.view-rf .rank-panel,
+    body.view-rf .meshscore-panel { display: none; }
+    body.view-rf .rf-panel { display: flex; }
+
+    body.view-observer .sidebar-panel,
+    body.view-observer .content,
+    body.view-observer .analysis-panel,
+    body.view-observer .rank-panel,
+    body.view-observer .meshscore-panel,
+    body.view-observer .rf-panel { display: none; }
+    body.view-observer .observer-panel { display: flex; }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .badge {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-weight: 600;
+      color: var(--ink);
+      background: #f7f7f7;
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .list-item {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      background: #fafafa;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .slider {
+      width: 100%;
+    }
+
+    .observer-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .observer-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .observer-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #ffffff;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .observer-right {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .observer-steps {
+      display: grid;
+      gap: 12px;
+    }
+
+    .observer-step {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #fafafa;
+      display: grid;
+      gap: 6px;
+    }
+
+    .observer-step strong {
+      font-size: 14px;
+    }
+
+    .observer-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .observer-grid label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .observer-grid input,
+    .observer-grid select {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 10px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+    }
+
+    .observer-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .observer-map {
+      width: 100%;
+      height: 360px;
+      border-radius: 16px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+
+    .observer-legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .observer-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .observer-legend i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #34c759;
+    }
+
+    .observer-legend i.warn { background: #ff9500; }
+    .observer-legend i.bad { background: #ff3b30; }
+
+    .observer-status {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media (max-width: 1200px) {
+      .app { grid-template-columns: 240px 1fr; }
+      .analysis-panel { display: none; }
+    }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar-panel { display: none; }
+      .observer-body { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo">
+          <img src="meshrank.png" alt="MeshRank logo"/>
+        </div>
+        <div>MeshRank</div>
+        <span class="status-dot" id="serverStatus" title="Server status"></span>
+      </div>
+      <nav class="nav">
+        <a href="#" class="active" data-view="channels">Channels</a>
+        <a href="#" data-view="rank">Repeater Rank</a>
+        <a href="#" data-view="meshscore">MeshRank</a>
+        <a href="#" data-view="rf">MeshFlow</a>
+        <a href="#" data-view="observer">Become an Observer</a>
+      </nav>
+    </header>
+
+    <section class="panel sidebar-panel">
+      <div class="title column">
+        <span>Channels <span class="chip">UK Mesh</span></span>
+        <button class="btn" id="addChannelBtn">Add Channel</button>
+      </div>
+      <div class="sidebar">
+        <div id="channels"></div>
+      </div>
+    </section>
+
+    <section class="panel content">
+      <div class="title">Public <span class="chip" id="activeChannel">#public</span></div>
+      <div class="messages" id="messages"></div>
+    </section>
+
+    <section class="panel analysis-panel">
+      <div class="title">Route Path <span class="chip" id="routeKey">none</span></div>
+      <div class="analysis">
+        <div id="routeMap"></div>
+        <div class="analysis-body">
+          <div class="row"><span>Message key</span><span id="routeMessage">-</span></div>
+          <div class="row"><span>Source</span><span id="routeSource">-</span></div>
+          <div class="row"><span>Confidence</span><span id="routeConfidence">-</span></div>
+          <div class="row"><span>Path depth</span><span id="routeDepth">-</span></div>
+
+          <input id="depthSlider" class="slider" type="range" min="1" max="16" value="8"/>
+
+          <div class="row"><span>Packets heard</span><span class="badge" id="routeCount">0</span></div>
+          <div class="list" id="routeList"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel rank-panel">
+      <div class="title">Repeater Rank <span class="chip" id="rankUpdated">--</span></div>
+      <div class="rank-summary">
+        <div class="summary-card">
+          <div>Total repeaters</div>
+          <strong id="rankTotal">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>Active (24h)</div>
+          <strong id="rankActive">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>MeshRank today</div>
+          <strong id="rankMeshToday">0</strong>
+          <div style="font-size:11px;color:var(--muted);">Yesterday: <span id="rankMeshYesterday">0</span></div>
+        </div>
+      </div>
+      <div class="rank-body">
+        <div class="rank-map">
+          <div id="rankMap"></div>
+        </div>
+        <div class="rank-list">
+          <input class="rank-search" id="rankSearch" type="text" placeholder="Search repeaters"/>
+          <div class="rank-scroll" id="rankScroll">
+            <div id="rankList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel meshscore-panel">
+      <div class="title">MeshRank <span class="chip" id="meshUpdated">--</span></div>
+      <div class="meshscore-body">
+        <div class="meshscore-hero">
+          <div style="font-weight:700;">MeshRank tracks network health using active repeaters, message volume, and repeat reliability.</div>
+          <div style="font-size:12px;color:var(--muted);">Scores update from live RF logs and decoded mesh traffic. Higher scores mean wider coverage, better repeat density, and more reliable delivery.</div>
+        </div>
+        <div class="meshscore-cards">
+          <div class="summary-card">
+            <div>MeshRank today</div>
+            <strong id="meshToday">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>MeshRank yesterday</div>
+            <strong id="meshYesterday">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Change</div>
+            <strong id="meshDelta">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Messages (24h)</div>
+            <strong id="meshMessages">0</strong>
+          </div>
+        </div>
+        <div class="meshscore-chart">
+          <div class="range-tabs" id="meshRangeTabs">
+            <button data-range="7" class="active">7d</button>
+            <button data-range="30">30d</button>
+            <button data-range="90">90d</button>
+            <button data-range="365">1y</button>
+          </div>
+          <svg id="meshChart" viewBox="0 0 600 220" width="100%" height="220" style="background:#f7f7f7;border-radius:12px;">
+            <polyline id="meshLine" fill="none" stroke="#007aff" stroke-width="3" points=""></polyline>
+            <polyline id="meshArea" fill="rgba(0,122,255,0.12)" stroke="none" points=""></polyline>
+          </svg>
+        </div>
+        <div class="meshscore-grid">
+          <div class="summary-card">
+            <div>Total devices</div>
+            <strong id="meshDevices">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Repeaters active</div>
+            <strong id="meshRepeaters">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Room servers</div>
+            <strong id="meshRooms">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Chat nodes</div>
+            <strong id="meshChat">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Companion nodes</div>
+            <strong id="meshCompanions">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Mesh msgs today</div>
+            <strong id="meshMsgsToday">0</strong>
+          </div>
+          <div class="summary-card">
+            <div>Observer msgs today</div>
+            <strong id="meshMsgsObserver">0</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel rf-panel">
+      <div class="title">MeshFlow <span class="chip" id="rfCount">0 packets</span></div>
+      <div class="rf-body">
+        <div class="rf-table">
+          <div class="rf-controls">
+            <input class="rf-input" id="rfSearch" type="text" placeholder="Search hash or hex"/>
+            <select class="rf-input" id="rfTypeFilter">
+              <option value="">All types</option>
+              <option value="Advert">Advert</option>
+              <option value="GroupText">GroupText</option>
+              <option value="Request">Request</option>
+              <option value="Response">Response</option>
+              <option value="Path">Path</option>
+              <option value="Ack">Ack</option>
+            </select>
+            <span class="chip" id="rfUpdated">--</span>
+          </div>
+          <div class="rf-summary">
+            <div>Total packets<strong id="rfTotal">0</strong></div>
+            <div>CRC ok<strong id="rfOk">0</strong></div>
+            <div>CRC bad<strong id="rfBad">0</strong></div>
+            <div>Top type<strong id="rfTopType">--</strong></div>
+          </div>
+          <div class="rf-list" id="rfList"></div>
+        </div>
+        <div class="rf-detail" id="rfDetail">
+          <div class="rf-kv">Select a packet to inspect its payload.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel observer-panel">
+      <div class="title">Become an Observer <span class="chip">Quick setup</span></div>
+      <div class="observer-body">
+        <div class="observer-card">
+          <div style="font-weight:700;">Bring your observer online</div>
+          <div style="font-size:12px;color:var(--muted);">1) Plug in the observer. 2) Flash firmware. 3) Send Wi-Fi config.</div>
+          <div class="observer-grid">
+            <div>
+              <label for="observerName">Observer name</label>
+              <input id="observerName" type="text" placeholder="Observer name"/>
+            </div>
+            <div>
+              <label for="observerWifi">Wi-Fi SSID</label>
+              <input id="observerWifi" type="text" placeholder="MyWiFi"/>
+            </div>
+            <div>
+              <label for="observerPass">Wi-Fi password</label>
+              <input id="observerPass" type="password" placeholder="password"/>
+            </div>
+          </div>
+          <div class="observer-actions">
+            <esp-web-install-button id="observerFlash" manifest="observer-manifest.json"></esp-web-install-button>
+            <button class="btn" id="observerSendConfig" type="button">Send Wi-Fi config</button>
+          </div>
+          <div class="observer-status" id="observerStatus">Flash uses WebSerial (Chrome/Edge). MQTT is fixed to `meshrank.net:8883` TLS.</div>
+          <div style="font-size:12px;color:var(--muted);">Location is estimated automatically from strong repeater signals.</div>
+        </div>
+        <div class="observer-card">
+          <div style="font-weight:700;">Select Serial Port</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+            Open Device Manager &rarr; Ports (COM &amp; LPT), then plug/unplug the device to see which COM port appears.
+          </div>
+        </div>
+        <div class="observer-right">
+          <div class="observer-card">
+            <div style="font-weight:700;">Observer coverage</div>
+            <div class="observer-legend">
+              <span><i></i> Active &lt; 1h</span>
+              <span><i class="warn"></i> Idle 1–24h</span>
+              <span><i class="bad"></i> Idle 24–48h</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">Location pending observers stay off the map until validated.</div>
+            <div id="observerMap" class="observer-map"></div>
+          </div>
+          <div class="observer-card">
+            <div style="font-weight:700;">Current Observers</div>
+            <div id="observerList" class="rf-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal" id="channelModal">
+    <div class="modal-card">
+      <strong>Add Channel</strong>
+      <div class="field">
+        <label for="channelName"># Channel name</label>
+        <input id="channelName" type="text" placeholder="#public"/>
+      </div>
+      <div class="field">
+        <label for="channelSecret">Secret (32 hex chars)</label>
+        <input id="channelSecret" type="text" placeholder="8b3387e9c5cdea6ac9e4edbaa115cd72"/>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="cancelChannel">Cancel</button>
+        <button class="btn" id="saveChannel">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="https://unpkg.com/esp-web-tools@9.1.0/dist/web/install-button.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    document.body.classList.add("view-channels");
+    const appData = {
+      channels: [],
+      messages: [],
+      lastChannelsSig: "",
+      lastMessagesSig: "",
+      renderedIdsByChannel: {},
+      meshScore: null,
+      rankData: null,
+      rankFilter: "",
+      unreadByChannel: {},
+      lastReadByChannel: {},
+      rfPackets: [],
+      rfSelected: null,
+      rfLastSig: ""
+    };
+
+    const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function hasValidGps(r) {
+      const lat = r?.gps?.lat;
+      const lon = r?.gps?.lon;
+      return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0);
+    }
+
+    function isRepeaterHidden(r) {
+      return !!r?.hiddenOnMap || !hasValidGps(r);
+    }
+
+    function confidence(msg) {
+      const repeats = msg.repeats || 1;
+      const repeatScore = clamp(repeats / 8, 0, 1);
+      const score = 100 * clamp(0.7 * repeatScore + 0.3, 0, 1);
+      return Math.round(score);
+    }
+
+    let activeChannelId = "public";
+
+    function renderChannels() {
+      const el = document.getElementById("channels");
+      el.innerHTML = "";
+      appData.channels.forEach((ch, idx) => {
+        const unread = appData.unreadByChannel[ch.id] || 0;
+        const row = document.createElement("div");
+        row.className = "channel" + (ch.id === activeChannelId ? " active" : "") + (unread ? " unread" : "");
+        row.innerHTML = `
+          <div class="avatar" style="background:${colors[idx % colors.length]}">${ch.name[1].toUpperCase()}</div>
+          <div>
+            <div class="name">${ch.name}</div>
+            <div class="snippet">${ch.snippet}</div>
+          </div>
+          <div style="display:grid;gap:6px;justify-items:end;">
+            <div class="muted">${ch.time}</div>
+            ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
+          </div>
+        `;
+        row.addEventListener("click", () => {
+          activeChannelId = ch.id;
+          document.getElementById("activeChannel").textContent = ch.name;
+          const latest = appData.messages
+            .filter((msg) => msg.channelId === activeChannelId)
+            .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
+            .reduce((a, b) => Math.max(a, b), 0);
+          if (latest) appData.lastReadByChannel[activeChannelId] = latest;
+          appData.unreadByChannel[activeChannelId] = 0;
+          saveReadState();
+          renderChannels();
+          loadMessages(true);
+        });
+        el.appendChild(row);
+      });
+    }
+
+    function renderMessages(full) {
+      const el = document.getElementById("messages");
+      const filtered = appData.messages.filter((msg) => msg.channelId === activeChannelId);
+      const key = activeChannelId;
+      if (full) {
+        el.innerHTML = "";
+        appData.renderedIdsByChannel[key] = new Set();
+      }
+      const rendered = appData.renderedIdsByChannel[key] || new Set();
+
+      filtered.forEach((msg, idx) => {
+        if (rendered.has(msg.id)) return;
+        const row = document.createElement("div");
+        row.className = "message";
+        const conf = confidence(msg);
+        const observerList = msg.observerHits ? msg.observerHits.join(", ") : "";
+        row.innerHTML = `
+          <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
+          <div>
+            <div class="meta">
+              <strong>${msg.sender}</strong>
+              <span>${msg.ts}</span>
+              <span class="badge">${msg.type}</span>
+            </div>
+            <div class="bubble ${msg.type}">${msg.body}</div>
+            <div class="msg-footer">
+              <span>Repeater hops heard: ${msg.repeats || 0}</span>
+              <span>Confidence: ${conf}%</span>
+              <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
+            </div>
+          </div>
+        `;
+        el.appendChild(row);
+        rendered.add(msg.id);
+      });
+      appData.renderedIdsByChannel[key] = rendered;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    let map;
+    let routeLayer;
+
+    function initMap() {
+      map = L.map("routeMap", { zoomControl: true }).setView([52.2, -1.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+      routeLayer = L.layerGroup().addTo(map);
+    }
+
+    function showRoute(msgId) {
+      const msg = appData.messages.find((m) => m.id === msgId);
+      if (!msg) return;
+
+      document.getElementById("routeKey").textContent = msg.id;
+      document.getElementById("routeMessage").textContent = msg.id;
+      document.getElementById("routeSource").textContent = msg.type;
+      document.getElementById("routeConfidence").textContent = confidence(msg) + "%";
+
+      const depth = Math.max(1, msg.path.length || 1);
+      const slider = document.getElementById("depthSlider");
+      slider.max = Math.max(6, depth);
+      slider.value = Math.min(8, slider.max);
+      document.getElementById("routeDepth").textContent = slider.value + " hops";
+
+      routeLayer.clearLayers();
+
+      const list = document.getElementById("routeList");
+      list.innerHTML = "";
+      const lines = msg.path && msg.path.length ? msg.path : ["no route data"];
+      const names = msg.pathNames && msg.pathNames.length ? msg.pathNames : [];
+      lines.forEach((node, idx) => {
+        const label = names[idx] ? names[idx] : node;
+        const item = document.createElement("div");
+        item.className = "list-item";
+        item.innerHTML = `<span>${label}</span><span>${idx + 1}/${lines.length}</span>`;
+        list.appendChild(item);
+      });
+
+      document.getElementById("routeCount").textContent = lines.length;
+
+      if (routeLayer) {
+        routeLayer.clearLayers();
+        const path = Array.isArray(msg.path) ? msg.path : [];
+        const rawPoints = Array.isArray(msg.pathPoints) ? msg.pathPoints : [];
+        const pathLen = Math.max(path.length, rawPoints.length);
+        const normalized = [];
+
+        function hasGps(p) {
+          return p && p.gps && Number.isFinite(p.gps.lat) && Number.isFinite(p.gps.lon);
+        }
+
+        function estimateFromNeighbors(idx) {
+          let prev = null;
+          for (let i = idx - 1; i >= 0; i -= 1) {
+            const p = normalized[i];
+            if (p && hasGps(p)) { prev = p; break; }
+          }
+          let next = null;
+          for (let i = idx + 1; i < normalized.length; i += 1) {
+            const p = normalized[i];
+            if (p && hasGps(p)) { next = p; break; }
+          }
+          if (prev && next) {
+            return {
+              lat: (prev.gps.lat + next.gps.lat) / 2,
+              lon: (prev.gps.lon + next.gps.lon) / 2
+            };
+          }
+          if (prev) {
+            return { lat: prev.gps.lat + 0.05, lon: prev.gps.lon - 0.05 };
+          }
+          if (next) {
+            return { lat: next.gps.lat - 0.05, lon: next.gps.lon + 0.05 };
+          }
+          return null;
+        }
+
+        for (let i = 0; i < pathLen; i += 1) {
+          const base = rawPoints[i] || { hash: path[i], name: msg.pathNames?.[i] || path[i] || "#unknown" };
+          normalized.push(base);
+        }
+
+        const latlngs = [];
+        normalized.forEach((p, idx) => {
+          let gps = hasGps(p) ? p.gps : null;
+          let estimated = false;
+          if (!gps) {
+            const guess = estimateFromNeighbors(idx);
+            if (guess) {
+              gps = guess;
+              estimated = true;
+            }
+          }
+          if (!gps) return;
+          const latlng = [gps.lat, gps.lon];
+          latlngs.push(latlng);
+          const color = estimated ? "#ffcc00" : "#007aff";
+          L.circleMarker(latlng, {
+            radius: 7,
+            color,
+            fillColor: color,
+            fillOpacity: 0.85,
+            weight: 2
+          }).bindPopup(estimated ? `${p.name || "#unknown"} (estimated)` : (p.name || "#unknown")).addTo(routeLayer);
+        });
+
+        if (latlngs.length >= 2) {
+          L.polyline(latlngs, { color: "#007aff", weight: 3, opacity: 0.7 }).addTo(routeLayer);
+          map.fitBounds(latlngs, { padding: [20, 20] });
+        } else if (latlngs.length === 1) {
+          map.setView(latlngs[0], 9);
+        }
+      }
+    }
+
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest(".analyze");
+      if (!link) return;
+      e.preventDefault();
+      showRoute(link.dataset.id);
+    });
+
+    const modal = document.getElementById("channelModal");
+    const addBtn = document.getElementById("addChannelBtn");
+    const cancelBtn = document.getElementById("cancelChannel");
+    const saveBtn = document.getElementById("saveChannel");
+
+    function openModal() {
+      document.getElementById("channelName").value = "";
+      document.getElementById("channelSecret").value = "";
+      modal.classList.add("open");
+    }
+
+    function closeModal() {
+      modal.classList.remove("open");
+    }
+
+    addBtn.addEventListener("click", openModal);
+    cancelBtn.addEventListener("click", closeModal);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const name = document.getElementById("channelName").value.trim();
+      const secret = document.getElementById("channelSecret").value.trim();
+      if (!name.startsWith("#")) {
+        alert("Channel name must start with #");
+        return;
+      }
+      if (!/^[0-9a-fA-F]{32}$/.test(secret)) {
+        alert("Secret must be 32 hex characters");
+        return;
+      }
+      try {
+        const res = await fetch("/api/channels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, secretHex: secret })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await loadChannels();
+        closeModal();
+      } catch (err) {
+        alert("Failed to add channel: " + (err?.message || err));
+      }
+    });
+
+    async function loadChannels() {
+      const res = await fetch("/api/channels", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const channels = data.channels || [];
+      appData.channels = channels;
+      if (appData.channels.length) {
+        const exists = appData.channels.some((c) => c.id === activeChannelId);
+        if (!exists) activeChannelId = appData.channels[0].id;
+        const active = appData.channels.find((c) => c.id === activeChannelId);
+        if (active) document.getElementById("activeChannel").textContent = active.name;
+      }
+      renderChannels();
+    }
+
+    async function loadMessages(forceFull) {
+      const res = await fetch("/api/messages", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const raw = data.messages || [];
+      appData.messages = raw.map((m) => ({
+        id: m.id,
+        channelId: (m.channelName || "#unknown").replace(/^#/, ""),
+        sender: m.sender,
+        body: m.body,
+        tsRaw: m.ts || null,
+        ts: m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--",
+        type: "mesh",
+        repeats: m.repeats || 1,
+        path: Array.isArray(m.path) ? m.path : [],
+        pathNames: Array.isArray(m.pathNames) ? m.pathNames : [],
+        pathPoints: Array.isArray(m.pathPoints) ? m.pathPoints : []
+      })).sort((a, b) => {
+        const ta = a.tsRaw ? new Date(a.tsRaw).getTime() : 0;
+        const tb = b.tsRaw ? new Date(b.tsRaw).getTime() : 0;
+        return ta - tb;
+      });
+      const unread = {};
+      const latestByChannel = {};
+      appData.messages.forEach((msg) => {
+        if (!msg.channelId) return;
+        const t = msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0;
+        if (!latestByChannel[msg.channelId] || t > latestByChannel[msg.channelId]) {
+          latestByChannel[msg.channelId] = t;
+        }
+        const lastRead = appData.lastReadByChannel[msg.channelId] || 0;
+        if (t > lastRead) {
+          unread[msg.channelId] = (unread[msg.channelId] || 0) + 1;
+        }
+      });
+      const activeLatest = latestByChannel[activeChannelId] || 0;
+      if (activeLatest) {
+        appData.lastReadByChannel[activeChannelId] = activeLatest;
+        unread[activeChannelId] = 0;
+        saveReadState();
+      }
+      appData.unreadByChannel = unread;
+      renderChannels();
+      renderMessages(!!forceFull);
+      if (forceFull && appData.messages.length) showRoute(appData.messages[0].id);
+    }
+
+    async function checkServerStatus() {
+      try {
+        const res = await fetch("/api/channels?ts=" + Date.now(), { cache: "no-store" });
+        setServerStatus(res.ok);
+        return res.ok;
+      } catch {
+        setServerStatus(false);
+        return false;
+      }
+    }
+
+    function loadReadState() {
+      try {
+        const raw = localStorage.getItem("meshmonitor.lastReadByChannel");
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (parsed && typeof parsed === "object") appData.lastReadByChannel = parsed;
+      } catch {}
+    }
+
+    function saveReadState() {
+      localStorage.setItem("meshmonitor.lastReadByChannel", JSON.stringify(appData.lastReadByChannel));
+    }
+
+    async function boot() {
+      await checkServerStatus();
+      try {
+        await loadChannels();
+        await loadMessages(true);
+        try {
+          const mesh = await fetchMeshScore();
+          renderMeshScore(mesh, meshRangeDays);
+        } catch {}
+        setServerStatus(true);
+      } catch (err) {
+        const msg = document.createElement("div");
+        msg.className = "rank-item";
+        msg.textContent = "Start the demo server: node tools/observer_demo/server.js";
+        document.getElementById("messages").appendChild(msg);
+        setServerStatus(false);
+      }
+      initMap();
+      initObserverMap();
+      setInterval(async () => {
+        const ok = await checkServerStatus();
+        if (!ok) return;
+        try {
+          await loadChannels();
+          await loadMessages();
+        } catch {}
+      }, 5000);
+
+      setInterval(async () => {
+        const activeRank = document.body.classList.contains("view-rank");
+        if (!activeRank) return;
+        try {
+          const mesh = await fetchMeshScore();
+          renderMeshScore(mesh, meshRangeDays);
+          const data = await fetchRank();
+          renderRank(data);
+        } catch {}
+      }, 15000);
+
+      setInterval(async () => {
+        const activeRf = document.body.classList.contains("view-rf");
+        if (!activeRf) return;
+        try {
+          const payload = await fetchRfLatest();
+          const items = payload.items || [];
+          const last = items[items.length - 1];
+          const sig = `${payload.updatedAt}:${last?.ts || ""}:${last?.hash || ""}`;
+          if (sig !== appData.rfLastSig) {
+            appData.rfLastSig = sig;
+            appData.rfPackets = items;
+            document.getElementById("rfUpdated").textContent = new Date(payload.updatedAt).toLocaleTimeString();
+            renderRfList();
+          }
+          if (!appData.rfSelected && appData.rfPackets.length) {
+            appData.rfSelected = appData.rfPackets[appData.rfPackets.length - 1];
+            renderRfDetail();
+          }
+        } catch {}
+      }, 5000);
+
+      setInterval(async () => {
+        const activeObserver = document.body.classList.contains("view-observer");
+        if (!activeObserver) return;
+        try {
+          const data = await fetchObservers();
+          renderObserverMap(data);
+          renderObserverList(data);
+        } catch {}
+      }, 15000);
+    }
+
+    boot();
+
+    let rankMap;
+    let rankLayer;
+    let rankMarkers = new Map();
+    let meshRangeDays = 7;
+    let observerMap;
+    let observerLayer;
+
+    function initRankMap() {
+      rankMap = L.map("rankMap", { zoomControl: true }).setView([54.0, -2.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(rankMap);
+      rankLayer = L.layerGroup().addTo(rankMap);
+      rankMap.on("popupclose", () => {
+        rankMap.setView([54.0, -2.5], 6, { animate: true });
+      });
+    }
+
+    function initObserverMap() {
+      const el = document.getElementById("observerMap");
+      if (!el) return;
+      observerMap = L.map("observerMap", { zoomControl: true }).setView([54.0, -2.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(observerMap);
+      observerLayer = L.layerGroup().addTo(observerMap);
+    }
+
+    async function fetchObservers() {
+      const res = await fetch("/api/observers?_ts=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    function observerColor(ageHours) {
+      if (ageHours <= 1) return "#34c759";
+      if (ageHours <= 24) return "#ff9500";
+      if (ageHours <= 48) return "#ff3b30";
+      return null;
+    }
+
+    function renderObserverMap(data) {
+      if (!observerLayer || !data) return;
+      observerLayer.clearLayers();
+      const entries = Object.values(data.byId || {});
+      const now = Date.now();
+      const points = [];
+      entries.forEach((entry) => {
+        const gps = entry.gps;
+        if (!entry.locValidated) return;
+        if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+        const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
+        const ageHours = ts ? (now - ts) / 3600000 : 999;
+        const color = observerColor(ageHours);
+        if (!color) return;
+        const circle = L.circle([gps.lat, gps.lon], {
+          radius: 5000,
+          color,
+          fillColor: color,
+          fillOpacity: 0.35,
+          weight: 2
+        });
+        const name = entry.name || entry.id || "Observer";
+        const label = entry.locSource ? `${name} | ${entry.locSource}` : name;
+        circle.bindTooltip(label, { direction: "top", opacity: 0.9 });
+        circle.addTo(observerLayer);
+        points.push([gps.lat, gps.lon]);
+      });
+      if (points.length) {
+        observerMap.fitBounds(points, { padding: [20, 20] });
+      }
+    }
+
+    function renderObserverList(data) {
+      const list = document.getElementById("observerList");
+      if (!list || !data) return;
+      const entries = Object.values(data.byId || {});
+      if (!entries.length) {
+        list.innerHTML = "<div class='rf-row'>No observers yet.</div>";
+        return;
+      }
+      const now = Date.now();
+      entries.sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
+      list.innerHTML = entries.map((entry) => {
+        const name = entry.name || entry.id || "Observer";
+        const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
+        const ageHours = ts ? (now - ts) / 3600000 : 999;
+        let status = "Active";
+        if (ageHours > 24) status = "Idle 24h+";
+        else if (ageHours > 1) status = "Idle 1h+";
+        const location = entry.locValidated
+          ? (entry.gps ? `${entry.gps.lat.toFixed(4)}, ${entry.gps.lon.toFixed(4)}` : "Estimated")
+          : "Location pending";
+        const source = entry.locSource ? ` | ${entry.locSource}` : "";
+        return `<div class="rf-row">
+          <div class="rf-head">${name}</div>
+          <div class="rf-meta">${status} | ${location}${source}</div>
+        </div>`;
+      }).join("");
+    }
+
+    function formatDateTime(value) {
+      const d = new Date(value);
+      if (!Number.isFinite(d.getTime())) return "unknown";
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2, "0");
+      const min = String(d.getMinutes()).padStart(2, "0");
+      return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+    }
+
+    async function fetchRank() {
+      const res = await fetch(`/api/repeater-rank?refresh=1&_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function fetchMeshScore() {
+      const res = await fetch("/api/meshscore", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function fetchRfLatest() {
+      const res = await fetch("/api/rf-latest?limit=80", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    function shortHex(value, len) {
+      if (!value) return "--";
+      const s = String(value);
+      if (s.length <= len) return s;
+      return s.slice(0, len);
+    }
+
+    function formatPathLabel(p) {
+      const names = Array.isArray(p.pathNames) ? p.pathNames : [];
+      const codes = Array.isArray(p.path) ? p.path : [];
+      if (names.length) {
+        const merged = names.map((name, idx) => (name === "#unknown" ? (codes[idx] || "#unknown") : name));
+        return merged.join(" > ");
+      }
+      if (codes.length) return codes.join(" > ");
+      return "--";
+    }
+
+    function renderRfList() {
+      const list = document.getElementById("rfList");
+      if (!list) return;
+      const search = document.getElementById("rfSearch")?.value?.trim().toLowerCase() || "";
+      const typeFilter = document.getElementById("rfTypeFilter")?.value || "";
+      const filtered = appData.rfPackets.filter((p) => {
+        if (typeFilter && p.payloadType !== typeFilter) return false;
+        if (!search) return true;
+        const hay = [
+          p.hash,
+          p.fp,
+          p.senderPublicKey,
+          p.destinationHash,
+          p.channelHash,
+          p.channelName,
+          p.routeTypeName,
+          ...(p.path || []),
+          ...(p.pathNames || [])
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(search);
+      });
+      list.innerHTML = "";
+      document.getElementById("rfCount").textContent = `${filtered.length} packets`;
+      const total = appData.rfPackets.length;
+      const ok = appData.rfPackets.filter((p) => p.crc === true).length;
+      const bad = appData.rfPackets.filter((p) => p.crc === false).length;
+      const typeCounts = {};
+      appData.rfPackets.forEach((p) => {
+        const t = p.payloadType || "Unknown";
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+      });
+      const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "--";
+      document.getElementById("rfTotal").textContent = total;
+      document.getElementById("rfOk").textContent = ok;
+      document.getElementById("rfBad").textContent = bad;
+      document.getElementById("rfTopType").textContent = topType;
+      const slice = filtered.slice(-150).reverse();
+      const frag = document.createDocumentFragment();
+      const header = document.createElement("div");
+      header.className = "rf-row rf-header";
+      header.innerHTML = `
+        <div>Time</div>
+        <div>Type</div>
+        <div>Route</div>
+        <div>Hash</div>
+        <div>Path</div>
+        <div>Sender</div>
+        <div>RSSI</div>
+        <div>SNR</div>
+        <div>Len</div>
+        <div>CRC</div>
+      `;
+      frag.appendChild(header);
+      slice.forEach((p) => {
+        const row = document.createElement("div");
+        row.className = "rf-row";
+        const time = p.ts ? new Date(p.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--";
+        const hash = shortHex(p.hash || p.fp || "--", 10);
+        const route = p.routeTypeName || "--";
+        const pathLabel = formatPathLabel(p);
+        const sender = p.senderName || (p.senderPublicKey ? shortHex(p.senderPublicKey, 12) : "--");
+        row.innerHTML = `
+          <div>${time}</div>
+          <div><span class="rf-type">${p.payloadType || "Unknown"}</span></div>
+          <div>${route}</div>
+          <div>${hash}</div>
+          <div title="${pathLabel}">${pathLabel}</div>
+          <div>${sender}</div>
+          <div>${Number.isFinite(p.rssi) ? p.rssi : "--"}</div>
+          <div>${Number.isFinite(p.snr) ? p.snr : "--"}</div>
+          <div>${p.len ?? "--"}</div>
+          <div>${p.crc === true ? "CRC" : p.crc === false ? "BAD" : "--"}</div>
+        `;
+        row.addEventListener("click", () => {
+          appData.rfSelected = p;
+          renderRfDetail();
+        });
+        frag.appendChild(row);
+      });
+      list.appendChild(frag);
+    }
+
+    function renderRfDetail() {
+      const detail = document.getElementById("rfDetail");
+      if (!detail) return;
+      const p = appData.rfSelected;
+      if (!p) {
+        detail.innerHTML = `<div class="rf-kv">Select a packet to inspect its payload.</div>`;
+        return;
+      }
+      const pathLabel = formatPathLabel(p);
+      const sender = p.senderName || p.senderPublicKey || "--";
+      const channelLabel = p.channelName ? `${p.channelName} (${p.channelHash || "--"})` : (p.channelHash || "--");
+      const appFlags = Number.isFinite(p.appFlags) ? `0x${p.appFlags.toString(16).toUpperCase().padStart(2, "0")}` : "--";
+      detail.innerHTML = `
+        <div class="rf-kv"><strong>Packet</strong></div>
+        <div class="rf-kv">Type: ${p.payloadType || "Unknown"}</div>
+        <div class="rf-kv">Route: ${p.routeTypeName || "--"}</div>
+        <div class="rf-kv">Hash: ${(p.hash || p.fp || "--").toString()}</div>
+        <div class="rf-kv">Time: ${p.ts ? new Date(p.ts).toLocaleString() : "--"}</div>
+        <div class="rf-kv">RSSI/SNR: ${Number.isFinite(p.rssi) ? p.rssi : "--"} / ${Number.isFinite(p.snr) ? p.snr : "--"}</div>
+        <div class="rf-kv">CRC: ${p.crc === true ? "ok" : p.crc === false ? "fail" : "unknown"}</div>
+        <div class="rf-kv">Length: ${p.len ?? "--"}</div>
+        <div class="rf-kv">Fingerprint: ${p.fp || "--"}</div>
+        <div class="rf-kv">Sender: ${sender}</div>
+        <div class="rf-kv">Destination: ${p.destinationHash || "--"}</div>
+        <div class="rf-kv">Channel: ${channelLabel}</div>
+        <div class="rf-kv">Path (${p.pathLength ?? 0} hops): ${pathLabel}</div>
+        <div class="rf-kv">Advert name: ${p.advertName || "--"}</div>
+        <div class="rf-kv">App flags: ${appFlags}</div>
+        <div class="rf-kv">Payload bytes: ${p.payloadBytes ?? "--"}</div>
+        <div class="rf-kv">Decrypted: ${p.decrypted === true ? "yes" : "no"}</div>
+        <div class="rf-kv">Valid: ${p.isValid === true ? "yes" : p.isValid === false ? "no" : "unknown"}</div>
+      `;
+    }
+
+    function renderMeshScore(data, rangeDays) {
+      if (!data) return;
+      appData.meshScore = data;
+      document.getElementById("meshUpdated").textContent = new Date(data.updatedAt).toLocaleTimeString();
+      document.getElementById("meshToday").textContent = data.scores?.today ?? 0;
+      document.getElementById("meshYesterday").textContent = data.scores?.yesterday ?? 0;
+      document.getElementById("meshDelta").textContent = data.scores?.delta ?? 0;
+      document.getElementById("meshMessages").textContent = data.messages?.meshToday ?? 0;
+      document.getElementById("meshDevices").textContent = data.totals?.devices ?? 0;
+      document.getElementById("meshRepeaters").textContent = data.totals?.activeRepeaters ?? 0;
+      document.getElementById("meshRooms").textContent = data.totals?.roomServers ?? 0;
+      document.getElementById("meshChat").textContent = data.totals?.chatNodes ?? 0;
+      document.getElementById("meshCompanions").textContent = data.totals?.companions ?? 0;
+      document.getElementById("meshMsgsToday").textContent = data.messages?.meshToday ?? 0;
+      document.getElementById("meshMsgsObserver").textContent = data.messages?.observerToday ?? 0;
+
+      const series = data.series || [];
+      const days = rangeDays || 7;
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const filtered = series.filter((s) => new Date(s.date) >= cutoff);
+      const points = filtered.map((s, idx) => {
+        const x = (idx / Math.max(1, filtered.length - 1)) * 580 + 10;
+        const y = 200 - (Math.max(0, Math.min(100, s.score)) / 100) * 160;
+        return `${x},${y}`;
+      });
+      const line = document.getElementById("meshLine");
+      const area = document.getElementById("meshArea");
+      if (points.length) {
+        line.setAttribute("points", points.join(" "));
+        const areaPoints = [`10,200`, ...points, `590,200`];
+        area.setAttribute("points", areaPoints.join(" "));
+      } else {
+        line.setAttribute("points", "");
+        area.setAttribute("points", "");
+      }
+
+      document.getElementById("rankMeshToday").textContent = data.scores?.today ?? 0;
+      document.getElementById("rankMeshYesterday").textContent = data.scores?.yesterday ?? 0;
+    }
+
+    function renderRank(data) {
+      renderRankWithOptions(data, {});
+    }
+
+    function scrollRankItemToTop(pub) {
+      if (!pub) return;
+      const list = document.getElementById("rankList");
+      const scroll = document.getElementById("rankScroll");
+      const item = document.querySelector(`.rank-item[data-pub="${String(pub).toUpperCase()}"]`);
+      if (!list || !scroll || !item) return;
+      scroll.scrollTop = item.offsetTop - scroll.offsetTop;
+    }
+
+    function renderRankWithOptions(data, options) {
+      const opts = options || {};
+      appData.rankData = data;
+      const list = document.getElementById("rankList");
+      list.innerHTML = "";
+      rankLayer.clearLayers();
+      rankMarkers = new Map();
+
+      document.getElementById("rankUpdated").textContent = formatDateTime(data.updatedAt);
+      document.getElementById("rankTotal").textContent = data.items.length;
+      const activeCount = data.items.filter((r) => !r.stale).length;
+      document.getElementById("rankActive").textContent = activeCount;
+      if (appData.meshScore) {
+        document.getElementById("rankMeshToday").textContent = appData.meshScore.scores?.today ?? 0;
+        document.getElementById("rankMeshYesterday").textContent = appData.meshScore.scores?.yesterday ?? 0;
+      }
+
+      const needle = (appData.rankFilter || "").toLowerCase();
+      const sorted = [...data.items]
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .filter((r) => {
+          if (!needle) return true;
+          const name = String(r.name || "").toLowerCase();
+          const pub = String(r.pub || "").toLowerCase();
+          return name.includes(needle) || pub.includes(needle);
+        });
+      sorted.forEach((r) => {
+        const item = document.createElement("div");
+        const isHidden = isRepeaterHidden(r);
+        item.className = "rank-item" + (isHidden ? " hidden" : "");
+        item.dataset.pub = (r.pub || "").toUpperCase();
+        const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
+        item.innerHTML = `
+          <div class="score">
+            <span class="rank-dot" style="background:${r.color}"></span>
+            ${r.name} (${r.score})
+          </div>
+          <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
+          <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+          <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
+          <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
+          <div class="row">
+            <label><input class="hide-toggle" type="checkbox" data-pub="${(r.pub || "").toUpperCase()}" ${isHidden ? "checked" : ""}/> Hide on map</label>
+            <button class="btn hide-save" type="button" data-pub="${(r.pub || "").toUpperCase()}">Save</button>
+          </div>
+          ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
+          ${observerBadge}
+        `;
+        item.addEventListener("click", () => {
+          openRankPopup(r, false);
+        });
+        list.appendChild(item);
+
+        if (!isHidden && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
+          const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
+            radius: 8,
+            color: r.color,
+            fillColor: r.color,
+            fillOpacity: 0.9,
+            weight: 2
+          }).bindPopup(buildRankPopupHtml(r)).addTo(rankLayer)
+            .on("click", () => openRankPopup(r, true));
+          if (r.pub) rankMarkers.set(r.pub, marker);
+        }
+      });
+
+      if (!opts.preserveView && sorted.length) {
+        const bounds = sorted
+          .filter((r) => {
+            if (isRepeaterHidden(r)) return false;
+            return r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon);
+          })
+          .map((r) => [r.gps.lat, r.gps.lon]);
+        if (bounds.length) rankMap.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }
+
+    function buildRankPopupHtml(r) {
+      const impact = Math.min(100, Math.max(0, r.score || 0));
+      const isHidden = isRepeaterHidden(r);
+      const checkedAttr = isHidden ? "checked" : "";
+      return `
+        <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
+          <div style="font-weight:700;margin-bottom:6px;">${r.name}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${r.stale ? "stale" : "active"}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
+          <div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">
+            <label><input class="hide-toggle" type="checkbox" data-pub="${(r.pub || "").toUpperCase()}" ${checkedAttr}/> Hide on map</label>
+            <button class="btn hide-save" type="button" data-pub="${(r.pub || "").toUpperCase()}">Save</button>
+          </div>
+          <div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">Network impact</div>
+          <div style="height:8px;border-radius:999px;background:rgba(0,122,255,0.12);overflow:hidden;">
+            <div style="height:100%;width:${impact}%;background:linear-gradient(90deg,#34c759,#007aff);"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openRankPopup(r, skipPan) {
+      if (!r) return;
+      const listItem = document.querySelector(`.rank-item[data-pub="${(r.pub || "").toUpperCase()}"]`);
+      if (listItem) listItem.scrollIntoView({ block: "center", behavior: "smooth" });
+      const lat = r.gps?.lat;
+      const lon = r.gps?.lon;
+      const hasGps = Number.isFinite(lat) && Number.isFinite(lon);
+      const marker = r.pub ? rankMarkers.get(r.pub) : null;
+      const html = buildRankPopupHtml(r);
+
+      if (marker) {
+        marker.setPopupContent(html);
+        marker.openPopup();
+        if (!skipPan) {
+          const targetZoom = Math.max(rankMap.getZoom(), 8);
+          rankMap.setView(marker.getLatLng(), targetZoom, { animate: true });
+        }
+        bindPopupHideToggle(marker.getPopup(), r);
+        return;
+      }
+
+      if (hasGps) {
+        const popup = L.popup({ closeButton: true, autoClose: true })
+          .setLatLng([lat, lon])
+          .setContent(html)
+          .openOn(rankMap);
+        if (!skipPan) {
+          const targetZoom = Math.max(rankMap.getZoom(), 8);
+          rankMap.setView([lat, lon], targetZoom, { animate: true });
+        }
+        bindPopupHideToggle(popup, r);
+      }
+    }
+
+    function bindPopupHideToggle(popup, r) {
+      if (!popup) return;
+      popup.on("add", () => {
+        const el = popup.getElement();
+        if (!el) return;
+        if (el.dataset.bound === "1") return;
+        el.dataset.bound = "1";
+
+        async function saveHide(pub, hidden) {
+          const res = await fetch("/api/repeater-hide", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pub, hidden })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          const saved = !!data.hidden;
+          if (appData.rankData) {
+            appData.rankData.items = appData.rankData.items.map((item) =>
+              item.pub === pub ? { ...item, hiddenOnMap: saved } : item
+            );
+          }
+          renderRankWithOptions(appData.rankData, { preserveView: true });
+          return saved;
+        }
+
+        el.addEventListener("click", async (e) => {
+          const btn = e.target.closest(".hide-save");
+          if (!btn) return;
+          e.stopPropagation();
+          e.preventDefault();
+          const toggle = el.querySelector(".hide-toggle");
+          const pub = btn.dataset.pub;
+          if (!pub) return;
+          try {
+            const original = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = "Saving...";
+            await saveHide(pub, !!toggle?.checked);
+            btn.textContent = "Saved";
+            rankMap.closePopup(popup);
+            setTimeout(() => {
+              btn.disabled = false;
+              btn.textContent = original;
+            }, 800);
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = "Save";
+            alert("Failed to update hide flag: " + (err?.message || err));
+          }
+        });
+      });
+    }
+
+
+    const navLinks = document.querySelectorAll(".nav a");
+    navLinks.forEach((link) => {
+        link.addEventListener("click", async (e) => {
+          e.preventDefault();
+          navLinks.forEach((l) => l.classList.remove("active"));
+          link.classList.add("active");
+          const view = link.dataset.view;
+          document.body.classList.toggle("view-channels", view === "channels");
+          document.body.classList.toggle("view-rank", view === "rank");
+          document.body.classList.toggle("view-meshscore", view === "meshscore");
+          document.body.classList.toggle("view-rf", view === "rf");
+          document.body.classList.toggle("view-observer", view === "observer");
+
+        if (view === "rank") {
+          if (!rankMap) initRankMap();
+          try {
+            const mesh = await fetchMeshScore();
+            renderMeshScore(mesh, meshRangeDays);
+            const data = await fetchRank();
+            renderRank(data);
+          } catch (err) {
+            const list = document.getElementById("rankList");
+            list.innerHTML = "<div class='rank-item'>Start the demo server: node tools/observer_demo/server.js</div>";
+          }
+        }
+
+        if (view === "meshscore") {
+          try {
+            const mesh = await fetchMeshScore();
+            renderMeshScore(mesh, meshRangeDays);
+          } catch {}
+        }
+
+        if (view === "rf") {
+          try {
+            const payload = await fetchRfLatest();
+            const items = payload.items || [];
+            const last = items[items.length - 1];
+            const sig = `${payload.updatedAt}:${last?.ts || ""}:${last?.hash || ""}`;
+            if (sig !== appData.rfLastSig) {
+              appData.rfLastSig = sig;
+              appData.rfPackets = items;
+              document.getElementById("rfUpdated").textContent = new Date(payload.updatedAt).toLocaleTimeString();
+              renderRfList();
+            }
+          } catch {}
+        }
+      });
+    });
+
+    function buildObserverEnvSnippet() {
+      const ssid = (document.getElementById("observerWifi")?.value || "").trim();
+      const pass = (document.getElementById("observerPass")?.value || "").trim();
+      const name = (document.getElementById("observerName")?.value || "").trim();
+      const lines = [
+        `wifi.ssid ${ssid || "YOUR_WIFI_SSID"}`,
+        `wifi.pass ${pass || "YOUR_WIFI_PASSWORD"}`,
+        `observer.name ${name || "Observer"}`,
+        "status"
+      ];
+      return lines.join("\n");
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          alert("Config copied to clipboard.");
+        }).catch(() => {
+          alert(text);
+        });
+        return;
+      }
+      alert(text);
+    }
+
+    function setObserverStatus(text, isError) {
+      const el = document.getElementById("observerStatus");
+      if (!el) return;
+      el.textContent = text;
+      el.style.color = isError ? "#ff3b30" : "var(--muted)";
+    }
+
+    async function sendObserverConfig() {
+      if (!navigator.serial) {
+        setObserverStatus("WebSerial not available in this browser.", true);
+        return;
+      }
+      const payload = buildObserverEnvSnippet() + "\n";
+      let port;
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        const writer = port.writable.getWriter();
+        await writer.write(new TextEncoder().encode(payload));
+        writer.releaseLock();
+        await port.close();
+        setObserverStatus("Wi-Fi config sent. Device will reconnect using new settings.", false);
+      } catch (err) {
+        if (port && port.readable) {
+          try { await port.close(); } catch {}
+        }
+        setObserverStatus("Failed to send config: " + (err?.message || err), true);
+      }
+    }
+
+    const observerSendConfig = document.getElementById("observerSendConfig");
+    if (observerSendConfig) {
+      observerSendConfig.addEventListener("click", sendObserverConfig);
+    }
+
+    const rangeTabs = document.getElementById("meshRangeTabs");
+    if (rangeTabs) {
+      rangeTabs.addEventListener("click", async (e) => {
+        const btn = e.target.closest("button[data-range]");
+        if (!btn) return;
+        rangeTabs.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        meshRangeDays = Number(btn.dataset.range || 7);
+        if (!appData.meshScore) {
+          try {
+            const mesh = await fetchMeshScore();
+            renderMeshScore(mesh, meshRangeDays);
+          } catch {}
+        } else {
+          renderMeshScore(appData.meshScore, meshRangeDays);
+        }
+      });
+    }
+
+    function setServerStatus(ok) {
+      const dot = document.getElementById("serverStatus");
+      if (!dot) return;
+      dot.classList.toggle("ok", !!ok);
+    }
+
+    loadReadState();
+    const rankSearch = document.getElementById("rankSearch");
+    if (rankSearch) {
+      rankSearch.addEventListener("input", () => {
+        appData.rankFilter = rankSearch.value.trim();
+        if (appData.rankData) {
+          renderRankWithOptions(appData.rankData, { preserveView: true });
+        }
+      });
+    }
+
+    const rankList = document.getElementById("rankList");
+    if (rankList) {
+      rankList.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".hide-save");
+        if (!btn) return;
+        e.preventDefault();
+        const pub = btn.getAttribute("data-pub");
+        if (!pub) return;
+        const wrapper = btn.closest(".rank-item");
+        const toggle = wrapper?.querySelector(".hide-toggle");
+        const hidden = !!toggle?.checked;
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+        try {
+          const res = await fetch("/api/repeater-hide", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pub, hidden })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          const saved = !!data.hidden;
+          if (wrapper) wrapper.classList.toggle("hidden", saved);
+          if (appData.rankData) {
+            appData.rankData.items = appData.rankData.items.map((item) =>
+              item.pub === pub ? { ...item, hiddenOnMap: saved } : item
+            );
+          }
+          btn.textContent = "Saved";
+        } catch (err) {
+          btn.textContent = "Error";
+          alert("Failed to update hide flag: " + (err?.message || err));
+        }
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = original;
+        }, 800);
+      });
+    }
+
+    const rfSearch = document.getElementById("rfSearch");
+    const rfTypeFilter = document.getElementById("rfTypeFilter");
+    if (rfSearch) rfSearch.addEventListener("input", renderRfList);
+    if (rfTypeFilter) rfTypeFilter.addEventListener("change", renderRfList);
+  </script>
+</body>
+</html>

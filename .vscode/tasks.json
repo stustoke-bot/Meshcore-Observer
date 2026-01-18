@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MeshCORE: Decoded Monitor",
+      "type": "shell",
+      "command": "pio device monitor -p COM6 -b 115200 --filter direct | python tools/meshcore_decode.py",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "channels": [
+    {
+      "hashByte": "11",
+      "name": "#public",
+      "secretHex": "8b3387e9c5cdea6ac9e5edbaa115cd72"
+    },
+    {
+      "hashByte": "D9",
+      "name": "#test",
+      "secretHex": "9cd8fcf22a47333b591d96a2b848b73f"
+    },
+    {
+      "hashByte": "04",
+      "name": "#stu",
+      "secretHex": "e394644fa9c1dac1a38b55bf42747c09"
+    }
+  ]
+}

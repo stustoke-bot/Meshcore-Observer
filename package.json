@@ -1,0 +1,22 @@
+{
+  "name": "heltec_v3_meshcore_sniffer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@michaelhart/meshcore-decoder": "file:../meshcore-decoder",
+    "express": "^5.2.1",
+    "mqtt": "^5.10.3"
+  }
+}

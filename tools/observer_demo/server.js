@@ -1,0 +1,745 @@
+#!/usr/bin/env node
+"use strict";
+
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const readline = require("readline");
+
+const projectRoot = path.resolve(__dirname, "..", "..");
+const dataDir = path.join(projectRoot, "data");
+const devicesPath = path.join(dataDir, "devices.json");
+const decodedPath = path.join(dataDir, "decoded.ndjson");
+const rfPath = path.join(dataDir, "rf.ndjson");
+const observersPath = path.join(dataDir, "observers.json");
+const indexPath = path.join(__dirname, "index.html");
+const staticDir = __dirname;
+const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
+const crypto = require("crypto");
+const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
+
+const CHANNEL_TAIL_LINES = 5000;
+const RANK_REFRESH_MS = 15 * 60 * 1000;
+
+let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+let rankRefreshInFlight = null;
+
+let ChannelCrypto;
+try {
+  ({ ChannelCrypto } = require("@michaelhart/meshcore-decoder/dist/crypto/channel-crypto"));
+} catch {
+  ChannelCrypto = null;
+}
+
+const host = "0.0.0.0";
+const port = 5199;
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function readJsonSafe(p, def) {
+  try {
+    if (!fs.existsSync(p)) return def;
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return def;
+  }
+}
+
+function parseIso(ts) {
+  const d = new Date(ts);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function loadKeys() {
+  try {
+    if (!fs.existsSync(keysPath)) return { channels: [] };
+    const obj = JSON.parse(fs.readFileSync(keysPath, "utf8"));
+    if (!obj || typeof obj !== "object") return { channels: [] };
+    if (!Array.isArray(obj.channels)) obj.channels = [];
+    return obj;
+  } catch {
+    return { channels: [] };
+  }
+}
+
+function saveKeys(obj) {
+  const tmp = keysPath + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, keysPath);
+}
+
+function nodeHashFromPub(pubHex) {
+  if (!pubHex || typeof pubHex !== "string") return null;
+  const clean = pubHex.replace(/\s+/g, "");
+  if (!/^[0-9a-fA-F]+$/.test(clean)) return null;
+  const bytes = Buffer.from(clean, "hex");
+  const hash = crypto.createHash("sha256").update(bytes).digest();
+  return hash[0].toString(16).toUpperCase().padStart(2, "0");
+}
+
+function buildNodeHashMap() {
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const map = new Map(); // hash -> {name, lastSeen}
+
+  for (const d of Object.values(byPub)) {
+    if (!d) continue;
+    const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey;
+    const hash = nodeHashFromPub(pub);
+    if (!hash) continue;
+    const name = d.name || d.raw?.lastAdvert?.appData?.name || "Unknown";
+    const lastSeen = d.lastSeen || null;
+    const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? d.gps : null;
+    const prev = map.get(hash);
+    if (!prev) {
+      map.set(hash, { name, lastSeen, gps });
+      continue;
+    }
+    const prevTs = prev.lastSeen ? new Date(prev.lastSeen).getTime() : 0;
+    const nextTs = lastSeen ? new Date(lastSeen).getTime() : 0;
+    const prefer = (gps && !prev.gps) || (nextTs >= prevTs);
+    if (prefer) map.set(hash, { name, lastSeen, gps });
+  }
+
+  return map;
+}
+
+function mapChannelName(rec, keyMap) {
+  const decodedHash = typeof rec.decoded?.channelHash === "string" ? rec.decoded.channelHash.toUpperCase() : null;
+  const hashByte = typeof rec.channel?.hashByte === "string" ? rec.channel.hashByte.toUpperCase() : null;
+  const candidate = decodedHash || hashByte;
+  if (candidate && keyMap[candidate]) return keyMap[candidate];
+  return null;
+}
+
+function buildKeyStore(cfg) {
+  if (!cfg || !Array.isArray(cfg.channels)) return null;
+  const channelSecrets = [];
+  for (const ch of cfg.channels) {
+    const sec = String(ch?.secretHex || "").trim();
+    if (/^[0-9a-fA-F]{32}$/.test(sec)) channelSecrets.push(sec);
+  }
+  if (!channelSecrets.length) return null;
+  return MeshCoreDecoder.createKeyStore({ channelSecrets });
+}
+
+function normalizePathHash(val) {
+  if (typeof val === "number" && Number.isFinite(val)) {
+    return val.toString(16).toUpperCase().padStart(2, "0");
+  }
+  if (typeof val === "string") return val.toUpperCase();
+  return "??";
+}
+
+async function tailLines(filePath, limit) {
+  if (!fs.existsSync(filePath)) return [];
+  const buf = [];
+  const rl = readline.createInterface({
+    input: fs.createReadStream(filePath, { encoding: "utf8" }),
+    crlfDelay: Infinity
+  });
+  for await (const line of rl) {
+    const t = line.trim();
+    if (!t) continue;
+    buf.push(t);
+    if (buf.length > limit) buf.shift();
+  }
+  return buf;
+}
+
+async function buildRepeaterRank() {
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+
+  const now = Date.now();
+  const windowMs = 24 * 60 * 60 * 1000;
+
+  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr}
+
+  if (fs.existsSync(decodedPath)) {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(decodedPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+
+    for await (const line of rl) {
+      const t = line.trim();
+      if (!t) continue;
+      let rec;
+      try { rec = JSON.parse(t); } catch { continue; }
+      const decoded = rec.decoded || null;
+      const payloadTypeName = rec.payloadType || (decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null);
+      if (payloadTypeName !== "Advert") continue;
+      const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
+      if (!adv || typeof adv !== "object") continue;
+      const pub = adv.publicKey || adv.pub || adv.pubKey;
+      if (!pub) continue;
+      const ts = parseIso(rec.ts);
+      if (!ts) continue;
+      if (now - ts.getTime() > windowMs) continue;
+
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null });
+      const s = stats.get(pub);
+      s.total24h += 1;
+      if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
+      if (!s.rssi) s.rssi = [];
+      if (!s.snr) s.snr = [];
+      if (Number.isFinite(rec.rssi)) s.rssi.push(rec.rssi);
+      if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
+      if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
+      if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
+      const msgKey = String(rec.messageHash || rec.hash || rec.id || "unknown");
+      s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
+    }
+  }
+
+  function trimmedMean(list, trimRatio) {
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const sorted = [...list].sort((a, b) => a - b);
+    const trim = Math.floor(sorted.length * trimRatio);
+    const slice = sorted.slice(trim, Math.max(trim + 1, sorted.length - trim));
+    const sum = slice.reduce((acc, v) => acc + v, 0);
+    return sum / slice.length;
+  }
+
+  const items = Object.entries(byPub)
+    .filter(([, d]) => d && d.isRepeater)
+    .map(([key, d]) => {
+      const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || key;
+      const s = stats.get(pub) || { total24h: 0, msgCounts: new Map(), rssi: [], snr: [] };
+      const lastSeen = s.lastSeenTs ? s.lastSeenTs.toISOString() : (d.lastSeen || null);
+      const lastSeenDate = parseIso(lastSeen);
+      const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
+      const isStale = ageHours > 24;
+      const uniqueMsgs = s.msgCounts.size || 0;
+      const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
+
+      const avgRssi = trimmedMean(s.rssi, 0.1);
+      const avgSnr = trimmedMean(s.snr, 0.1);
+      const bestRssi = Number.isFinite(s.bestRssi) ? s.bestRssi : (Number.isFinite(d.stats?.bestRssi) ? d.stats.bestRssi : -120);
+      const bestSnr = Number.isFinite(s.bestSnr) ? s.bestSnr : (Number.isFinite(d.stats?.bestSnr) ? d.stats.bestSnr : -20);
+
+      const rssiBase = Number.isFinite(avgRssi) ? avgRssi : bestRssi;
+      const snrBase = Number.isFinite(avgSnr) ? avgSnr : bestSnr;
+      const rssiScore = clamp((rssiBase + 120) / 70, 0, 1);
+      const snrScore = clamp((snrBase + 20) / 30, 0, 1);
+      const bestRssiScore = clamp((bestRssi + 120) / 70, 0, 1);
+      const bestSnrScore = clamp((bestSnr + 20) / 30, 0, 1);
+      const throughputScore = clamp(s.total24h / 50, 0, 1);
+      const repeatScore = clamp(avgRepeats / 5, 0, 1);
+
+      let score = 100 * clamp(
+        0.30 * rssiScore +
+        0.10 * snrScore +
+        0.10 * bestRssiScore +
+        0.05 * bestSnrScore +
+        0.30 * throughputScore +
+        0.15 * repeatScore,
+        0, 1
+      );
+
+      if (isStale) score = 0;
+
+      let color = "#ff3b30";
+      if (!isStale) {
+        if (score >= 70) color = "#34c759";
+        else if (score >= 45) color = "#ffcc00";
+        else color = "#ff9500";
+      }
+
+      return {
+        pub,
+        name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
+        gps: d.gps || null,
+        lastSeen,
+        isObserver: !!d.isObserver,
+        bestRssi,
+        bestSnr,
+        avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
+        avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
+        total24h: s.total24h,
+        uniqueMsgs,
+        avgRepeats: Number(avgRepeats.toFixed(2)),
+        score: Math.round(score),
+        stale: isStale,
+        color,
+        hiddenOnMap: !!d.hiddenOnMap
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return {
+    updatedAt: new Date().toISOString(),
+    count: items.length,
+    items
+  };
+}
+
+async function refreshRankCache(force) {
+  const now = Date.now();
+  const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+  if (!force && last && now - last < RANK_REFRESH_MS) return rankCache;
+  if (rankRefreshInFlight) return rankRefreshInFlight;
+  rankRefreshInFlight = (async () => {
+    const data = await buildRepeaterRank();
+    rankCache = { ...data, cachedAt: new Date().toISOString() };
+    return rankCache;
+  })();
+  try {
+    return await rankRefreshInFlight;
+  } finally {
+    rankRefreshInFlight = null;
+  }
+}
+
+async function buildChannelMessages() {
+  const channelMap = new Map(); // name -> {name, lastTs, snippet}
+  const messagesMap = new Map(); // key -> msg
+  const keyCfg = loadKeys();
+  const nodeMap = buildNodeHashMap();
+  const keyMap = {};
+  for (const ch of keyCfg.channels || []) {
+    const hb = typeof ch.hashByte === "string" ? ch.hashByte.toUpperCase() : null;
+    const nm = typeof ch.name === "string" ? ch.name : null;
+    if (hb && nm) keyMap[hb] = nm;
+  }
+
+  for (const ch of keyCfg.channels || []) {
+    if (typeof ch.name === "string") {
+      channelMap.set(ch.name, { name: ch.name, lastTs: null, snippet: "" });
+    }
+  }
+
+  const keyStore = buildKeyStore(keyCfg);
+  const tail = await tailLines(rfPath, CHANNEL_TAIL_LINES);
+  if (!tail.length) {
+    return { channels: Array.from(channelMap.values()), messages: [] };
+  }
+  let baseNow = Date.now();
+  try {
+    const stat = fs.statSync(rfPath);
+    if (Number.isFinite(stat.mtimeMs)) baseNow = stat.mtimeMs;
+  } catch {}
+  let maxNumericTs = null;
+  for (const line of tail) {
+    try {
+      const rec = JSON.parse(line);
+      if (Number.isFinite(rec.ts)) {
+        if (maxNumericTs === null || rec.ts > maxNumericTs) maxNumericTs = rec.ts;
+      }
+    } catch {}
+  }
+
+  for (const line of tail) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (!rec.hex) continue;
+
+    let decoded;
+    try {
+      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+    } catch {
+      continue;
+    }
+
+    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (payloadType !== "GroupText") continue;
+    const payload = decoded.payload?.decoded;
+    if (!payload || !payload.decrypted) continue;
+
+    const chHash = typeof payload.channelHash === "string" ? payload.channelHash.toUpperCase() : null;
+    const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
+    if (!chName) continue;
+
+    const msgHash = String(decoded.messageHash || rec.hex.slice(0, 16) || "unknown");
+    const msgKey = chName + "|" + msgHash;
+    const body = String(payload.decrypted.message || "");
+    const sender = String(payload.decrypted.sender || "unknown");
+    let ts = null;
+    if (typeof rec.archivedAt === "string" && parseIso(rec.archivedAt)) {
+      ts = rec.archivedAt;
+    } else if (typeof rec.ts === "string" && parseIso(rec.ts)) {
+      ts = rec.ts;
+    } else if (Number.isFinite(rec.ts) && maxNumericTs !== null) {
+      const approx = baseNow - (maxNumericTs - rec.ts);
+      ts = new Date(approx).toISOString();
+    }
+    if (!ts) continue;
+
+    const path = Array.isArray(decoded.path) ? decoded.path.map(normalizePathHash) : [];
+    const hopCount = path.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
+    const pathPoints = path.map((h) => {
+      const hit = nodeMap.get(h);
+      return {
+        hash: h,
+        name: hit ? hit.name : "#unknown",
+        gps: hit?.gps || null
+      };
+    });
+    const pathNames = pathPoints.map((p) => p.name);
+
+    if (!messagesMap.has(msgKey)) {
+      messagesMap.set(msgKey, {
+        id: msgHash,
+        channelName: chName,
+        sender,
+        body,
+        ts,
+        repeats: hopCount,
+        path,
+        pathNames,
+        pathPoints
+      });
+    } else {
+      const m = messagesMap.get(msgKey);
+      m.repeats += hopCount;
+      if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
+      if (path.length > (m.path?.length || 0)) {
+        m.path = path;
+        m.pathNames = pathNames;
+        m.pathPoints = pathPoints;
+      }
+    }
+
+    const ch = channelMap.get(chName) || { name: chName, lastTs: null, snippet: "" };
+    if (ts && (!ch.lastTs || new Date(ts) > new Date(ch.lastTs))) {
+      ch.lastTs = ts;
+      ch.snippet = body.slice(0, 48);
+    }
+    channelMap.set(chName, ch);
+  }
+
+  const channels = Array.from(channelMap.values())
+    .sort((a, b) => new Date(b.lastTs || 0) - new Date(a.lastTs || 0))
+    .map((c) => ({
+      id: c.name.replace(/^#/, ""),
+      name: c.name,
+      snippet: c.snippet || "No recent messages",
+      time: c.lastTs ? new Date(c.lastTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
+    }));
+
+  const messages = Array.from(messagesMap.values())
+    .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+
+  return { channels, messages };
+}
+
+async function buildMeshScore() {
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const all = Object.values(byPub).filter(Boolean);
+  const repeaters = all.filter((d) => d.isRepeater);
+  const roomServers = all.filter((d) => d.role === "room_server");
+  const chatNodes = all.filter((d) => d.role === "chat");
+  const companions = all.filter((d) => !d.isRepeater && d.role !== "room_server" && d.role !== "chat");
+  const now = Date.now();
+  const activeRepeaters = repeaters.filter((d) => {
+    const ts = parseIso(d.lastSeen);
+    return ts && (now - ts.getTime()) <= 24 * 60 * 60 * 1000;
+  });
+
+  const lines = await tailLines(rfPath, 5000);
+  const buckets = new Map(); // date -> {messages, msgCounts}
+  const keyCfg = loadKeys();
+  const keyStore = buildKeyStore(keyCfg);
+
+  for (const line of lines) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (!rec.hex) continue;
+    let decoded;
+    try {
+      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+    } catch {
+      continue;
+    }
+    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (payloadType !== "GroupText") continue;
+    const payload = decoded.payload?.decoded;
+    if (!payload || !payload.decrypted) continue;
+    const ts = rec.archivedAt || rec.ts || null;
+    if (!ts) continue;
+    const day = new Date(ts);
+    if (!Number.isFinite(day.getTime())) continue;
+    const key = day.toISOString().slice(0, 10);
+    if (!buckets.has(key)) buckets.set(key, { messages: 0, msgCounts: new Map() });
+    const b = buckets.get(key);
+    const msgHash = String(decoded.messageHash || rec.hex.slice(0, 16) || "unknown");
+    b.messages += 1;
+    b.msgCounts.set(msgHash, (b.msgCounts.get(msgHash) || 0) + 1);
+  }
+
+  const activeRatio = repeaters.length ? activeRepeaters.length / repeaters.length : 0;
+  const nodeScore = all.length ? clamp((repeaters.length + roomServers.length + chatNodes.length + companions.length) / 200, 0, 1) : 0;
+  const series = Array.from(buckets.entries()).map(([date, b]) => {
+    const uniqueMsgs = b.msgCounts.size || 1;
+    const avgRepeats = b.messages / uniqueMsgs;
+    const messageScore = clamp(b.messages / 200, 0, 1);
+    const repeatScore = clamp(avgRepeats / 5, 0, 1);
+    const score = Math.round(100 * clamp(
+      0.35 * activeRatio +
+      0.30 * messageScore +
+      0.20 * repeatScore +
+      0.15 * nodeScore,
+      0, 1
+    ));
+    return { date, score, messages: b.messages, avgRepeats: Number(avgRepeats.toFixed(2)) };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+
+  const latestKey = series.length ? series[series.length - 1].date : new Date().toISOString().slice(0, 10);
+  const latestIndex = series.findIndex((s) => s.date === latestKey);
+  const today = series.find((s) => s.date === latestKey) || { score: 0, messages: 0, avgRepeats: 0 };
+  const yesterday = latestIndex > 0 ? series[latestIndex - 1] : { score: 0, messages: 0, avgRepeats: 0 };
+
+  return {
+    updatedAt: new Date().toISOString(),
+    totals: {
+      devices: all.length,
+      repeaters: repeaters.length,
+      activeRepeaters: activeRepeaters.length,
+      roomServers: roomServers.length,
+      chatNodes: chatNodes.length,
+      companions: companions.length
+    },
+    messages: {
+      meshToday: today.messages,
+      meshYesterday: yesterday.messages,
+      observerToday: 0
+    },
+    scores: {
+      today: today.score,
+      yesterday: yesterday.score,
+      delta: Math.round(today.score - yesterday.score)
+    },
+    series
+  };
+}
+
+async function buildRfLatest(limit) {
+  const lines = await tailLines(rfPath, limit || 80);
+  const keyCfg = loadKeys();
+  const keyStore = buildKeyStore(keyCfg);
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const keyMap = {};
+  for (const ch of keyCfg.channels || []) {
+    if (ch?.hashByte && ch?.name) keyMap[String(ch.hashByte).toUpperCase()] = String(ch.name);
+  }
+  const nodeMap = buildNodeHashMap();
+  const items = [];
+  for (const line of lines) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (!rec.hex) continue;
+    let decoded = null;
+    try {
+      decoded = MeshCoreDecoder.decode(String(rec.hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+    } catch {
+      decoded = null;
+    }
+    const payloadType = decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null;
+    const routeTypeName = decoded ? Utils.getRouteTypeName(decoded.routeType) : null;
+    const payloadDecoded = decoded?.payload?.decoded || decoded?.decoded || null;
+    const senderPublicKey = payloadDecoded?.senderPublicKey || payloadDecoded?.publicKey || payloadDecoded?.senderPub || null;
+    const senderName = senderPublicKey ? (byPub[senderPublicKey]?.name || byPub[senderPublicKey]?.raw?.lastAdvert?.appData?.name || null) : null;
+    const destinationHash = payloadDecoded?.destinationHash || payloadDecoded?.destHash || payloadDecoded?.destination || null;
+    const channelHash = typeof payloadDecoded?.channelHash === "string" ? payloadDecoded.channelHash.toUpperCase() : null;
+    const channelName = channelHash && keyMap[channelHash] ? keyMap[channelHash] : null;
+    const pathRaw = Array.isArray(decoded?.path) ? decoded.path : [];
+    const path = pathRaw.map(normalizePathHash);
+    const pathNames = path.map((hash) => nodeMap.get(hash)?.name || hash);
+    const appData = payloadDecoded?.appData || null;
+    const appFlags = typeof appData?.flags === "number" ? appData.flags : null;
+    const advertName = typeof appData?.name === "string" ? appData.name : null;
+    const hash = (decoded && decoded.messageHash) ? String(decoded.messageHash) : (rec.fp || rec.hex.slice(0, 16) || null);
+    const len = rec.len ?? rec.reported_len ?? (rec.hex ? Math.floor(rec.hex.length / 2) : null);
+    const payloadBytes = decoded?.payload?.raw ? Math.floor(decoded.payload.raw.length / 2) : null;
+    items.push({
+      ts: rec.archivedAt || rec.ts || null,
+      fp: rec.fp || null,
+      crc: rec.crc ?? null,
+      rssi: rec.rssi ?? null,
+      snr: rec.snr ?? null,
+      len,
+      payloadType,
+      routeTypeName,
+      pathLength: decoded?.pathLength ?? path.length,
+      path,
+      pathNames,
+      senderPublicKey,
+      senderName,
+      destinationHash,
+      channelHash,
+      channelName,
+      advertName,
+      appFlags,
+      payloadBytes,
+      decrypted: payloadDecoded?.decrypted === true,
+      isValid: decoded?.isValid ?? null,
+      hash
+    });
+  }
+  return { updatedAt: new Date().toISOString(), items };
+}
+
+async function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > 1_000_000) {
+        reject(new Error("payload too large"));
+      }
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
+function send(res, status, contentType, body) {
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  });
+  res.end(body);
+}
+
+function contentTypeFor(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".js") return "application/javascript; charset=utf-8";
+  return "application/octet-stream";
+}
+
+const server = http.createServer(async (req, res) => {
+  const u = new URL(req.url, `http://${req.headers.host}`);
+  if (u.pathname === "/") {
+    const html = fs.readFileSync(indexPath, "utf8");
+    return send(res, 200, "text/html; charset=utf-8", html);
+  }
+  const rawPath = decodeURIComponent(u.pathname || "");
+  const trimmed = rawPath.replace(/^[\\/]+/, "");
+  const staticPath = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, "");
+  if (staticPath) {
+    const absPath = path.join(staticDir, staticPath);
+    if (absPath.startsWith(staticDir) && fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
+      const body = fs.readFileSync(absPath);
+      return send(res, 200, contentTypeFor(absPath), body);
+    }
+  }
+
+  if (u.pathname === "/api/channels") {
+    if (req.method === "GET") {
+      const payload = await buildChannelMessages();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels }));
+    }
+    if (req.method === "POST") {
+      if (!ChannelCrypto) {
+        return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel crypto unavailable" }));
+      }
+      try {
+        const raw = await readBody(req);
+        const body = JSON.parse(raw || "{}");
+        const name = String(body.name || "").trim();
+        const secretHex = String(body.secretHex || "").trim();
+        if (!name.startsWith("#")) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "name must start with #" }));
+        }
+        if (!/^[0-9a-fA-F]{32}$/.test(secretHex)) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "secret must be 32 hex chars" }));
+        }
+
+        const hashByte = ChannelCrypto.calculateChannelHash(secretHex).toUpperCase();
+        const cfg = loadKeys();
+        const exists = (cfg.channels || []).some((c) =>
+          String(c.secretHex || "").toUpperCase() === secretHex.toUpperCase() ||
+          (String(c.name || "") === name && String(c.hashByte || "").toUpperCase() === hashByte)
+        );
+
+        if (!exists) {
+          cfg.channels = cfg.channels || [];
+          cfg.channels.push({ hashByte, name, secretHex });
+          saveKeys(cfg);
+        }
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hashByte }));
+      } catch (err) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      }
+    }
+    return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+  }
+
+  if (u.pathname === "/api/messages") {
+    const payload = await buildChannelMessages();
+    const channel = u.searchParams.get("channel");
+    const list = channel ? payload.messages.filter((m) => m.channelName === channel) : payload.messages;
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ messages: list }));
+  }
+
+  if (u.pathname === "/api/repeater-rank") {
+    const now = Date.now();
+    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+    const force = u.searchParams.get("refresh") === "1";
+    if (force || !last) {
+      await refreshRankCache(true);
+    } else if (now - last >= RANK_REFRESH_MS) {
+      refreshRankCache(false).catch(() => {});
+    }
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(rankCache));
+  }
+
+  if (u.pathname === "/api/repeater-hide" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const pub = String(body.pub || "").trim().toUpperCase();
+      const hidden = !!body.hidden;
+      if (!pub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub required" }));
+      }
+      const devices = readJsonSafe(devicesPath, { byPub: {} });
+      const byPub = devices.byPub || {};
+      if (!byPub[pub]) {
+        return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub not found" }));
+      }
+      byPub[pub].hiddenOnMap = hidden;
+      devices.updatedAt = new Date().toISOString();
+      const tmp = devicesPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(devices, null, 2));
+      fs.renameSync(tmp, devicesPath);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hidden }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/meshscore") {
+    const payload = await buildMeshScore();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/observers") {
+    const payload = readJsonSafe(observersPath, { byId: {}, updatedAt: null });
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/rf-latest") {
+    const limit = Number(u.searchParams.get("limit") || 400);
+    const payload = await buildRfLatest(limit);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  return send(res, 404, "text/plain; charset=utf-8", "Not found");
+});
+
+server.listen(port, host, () => {
+  console.log(`(observer-demo) http://${host}:${port}`);
+});
