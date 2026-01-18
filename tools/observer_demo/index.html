@@ -76,8 +76,8 @@
     }
 
     .brand-logo {
-      width: 160px;
-      height: 48px;
+      width: 220px;
+      height: 56px;
       border-radius: 12px;
       display: grid;
       place-items: center;
@@ -934,7 +934,7 @@
     <header class="topbar">
         <div class="brand">
           <div class="brand-logo">
-            <img src="meshrank.png" alt="MeshRank logo"/>
+            <img src="meshrank_logo.png" alt="MeshRank logo"/>
           </div>
           <span class="status-dot" id="serverStatus" title="Server status"></span>
         </div>
@@ -1139,6 +1139,9 @@
           <div class="observer-actions">
             <a class="btn" id="observerFlashLink" href="https://flasher.meshcore.co.uk/?manifest=https://meshrank.net/observer-manifest.json" target="_blank" rel="noopener">Open MeshCore Flasher</a>
             <button class="btn" type="button" id="observerSendConfig">Send Wi-Fi config</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);">
+            Need a single file? <a class="analyze" href="observer-merged.bin" download>Download observer firmware (.bin)</a>
           </div>
           <div class="observer-status" id="observerStatus">Flash via MeshCore flasher, then send Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
