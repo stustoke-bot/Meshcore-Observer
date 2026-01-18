@@ -2210,7 +2210,7 @@
           </div>
           <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
           <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-          <div class="row">Zero-hop adverts (24h): ${r.zeroHop24h ?? 0}</div>
+          <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
           <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
           ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
@@ -2254,7 +2254,7 @@
           <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${r.stale ? "stale" : "active"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop adverts (24h): ${r.zeroHop24h ?? 0}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
           <div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">Network impact</div>
