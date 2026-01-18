@@ -16,7 +16,7 @@ const GPS_WARN_KM = 50;
 const ESTIMATE_MIN_HOURS = 4;
 const ESTIMATE_MIN_RSSI = -75;
 
-const mqttUrl = process.env.MESHRANK_MQTT_URL || "mqtts://127.0.0.1:8883";
+const mqttUrl = process.env.MESHRANK_MQTT_URL || "mqtts://meshrank.net:8883";
 const mqttTopic = process.env.MESHRANK_MQTT_TOPIC || "meshrank/observers/+/packets";
 const mqttUser = process.env.MESHRANK_MQTT_USER || undefined;
 const mqttPass = process.env.MESHRANK_MQTT_PASS || undefined;
