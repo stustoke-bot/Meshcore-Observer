@@ -2054,6 +2054,7 @@
         <div>Hash</div>
         <div>Path</div>
         <div>Sender</div>
+        <div>Observers</div>
         <div>RSSI</div>
         <div>SNR</div>
         <div>Len</div>
@@ -2075,6 +2076,7 @@
           <div>${hash}</div>
           <div title="${pathLabel}">${pathLabel}</div>
           <div>${sender}</div>
+          <div>${p.observerCount ?? 1}</div>
           <div>${Number.isFinite(p.rssi) ? p.rssi : "--"}</div>
           <div>${Number.isFinite(p.snr) ? p.snr : "--"}</div>
           <div>${p.len ?? "--"}</div>
@@ -2101,6 +2103,9 @@
       const sender = p.senderName || p.senderPublicKey || "--";
       const channelLabel = p.channelName ? `${p.channelName} (${p.channelHash || "--"})` : (p.channelHash || "--");
       const appFlags = Number.isFinite(p.appFlags) ? `0x${p.appFlags.toString(16).toUpperCase().padStart(2, "0")}` : "--";
+      const observerNames = Array.isArray(p.observerHits) && p.observerHits.length
+        ? p.observerHits.join(", ")
+        : (p.observerName || "--");
       detail.innerHTML = `
         <div class="rf-kv"><strong>Packet</strong></div>
         <div class="rf-kv">Type: ${p.payloadType || "Unknown"}</div>
@@ -2110,6 +2115,7 @@
         <div class="rf-kv">RSSI/SNR: ${Number.isFinite(p.rssi) ? p.rssi : "--"} / ${Number.isFinite(p.snr) ? p.snr : "--"}</div>
         <div class="rf-kv">CRC: ${p.crc === true ? "ok" : p.crc === false ? "fail" : "unknown"}</div>
         <div class="rf-kv">Length: ${p.len ?? "--"}</div>
+        <div class="rf-kv">Observers: ${observerNames}</div>
         <div class="rf-kv">Fingerprint: ${p.fp || "--"}</div>
         <div class="rf-kv">Sender: ${sender}</div>
         <div class="rf-kv">Destination: ${p.destinationHash || "--"}</div>

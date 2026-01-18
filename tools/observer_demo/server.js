@@ -778,9 +778,13 @@ async function buildRfLatest(limit) {
     const appData = payloadDecoded?.appData || null;
     const appFlags = typeof appData?.flags === "number" ? appData.flags : null;
     const advertName = typeof appData?.name === "string" ? appData.name : null;
-    const hash = (decoded && decoded.messageHash) ? String(decoded.messageHash) : (rec.fp || hex.slice(0, 16) || null);
+    const hash = (decoded && decoded.messageHash)
+      ? String(decoded.messageHash)
+      : (rec.frameHash || rec.fp || hex.slice(0, 16) || null);
     const len = rec.len ?? rec.reported_len ?? (hex ? Math.floor(hex.length / 2) : null);
     const payloadBytes = decoded?.payload?.raw ? Math.floor(decoded.payload.raw.length / 2) : null;
+    const observerId = rec.observerId || rec.observerName || null;
+    const observerName = rec.observerName || rec.observerId || null;
     items.push({
       ts: rec.archivedAt || rec.ts || null,
       fp: rec.fp || null,
@@ -803,8 +807,23 @@ async function buildRfLatest(limit) {
       payloadBytes,
       decrypted: payloadDecoded?.decrypted === true,
       isValid: decoded?.isValid ?? null,
-      hash
+      hash,
+      observerId,
+      observerName
     });
+  }
+  const observerMap = new Map();
+  for (const item of items) {
+    if (!item.hash) continue;
+    if (!item.observerName) continue;
+    if (!observerMap.has(item.hash)) observerMap.set(item.hash, new Set());
+    observerMap.get(item.hash).add(item.observerName);
+  }
+  for (const item of items) {
+    const hits = observerMap.get(item.hash);
+    if (!hits) continue;
+    item.observerHits = Array.from(hits);
+    item.observerCount = item.observerHits.length;
   }
   return { updatedAt: new Date().toISOString(), items };
 }
