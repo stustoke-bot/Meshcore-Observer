@@ -1637,7 +1637,7 @@
       } catch (err) {
         const msg = document.createElement("div");
         msg.className = "rank-item";
-        msg.textContent = "Start the demo server: node tools/observer_demo/server.js";
+        msg.textContent = "No messages yet.";
         document.getElementById("messages").appendChild(msg);
         setServerStatus(false);
       }
@@ -2193,7 +2193,7 @@
             renderRank(data);
           } catch (err) {
             const list = document.getElementById("rankList");
-            list.innerHTML = "<div class='rank-item'>Start the demo server: node tools/observer_demo/server.js</div>";
+            list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
           }
         }
 
