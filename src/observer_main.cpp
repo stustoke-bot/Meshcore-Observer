@@ -26,7 +26,10 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.0"
+#define OBSERVER_FW_VER "1.1.1"
+
+// PubSubClient default buffer is too small for full hex payloads.
+#define MQTT_BUFFER_SIZE 2048
 
 // ================= CONFIG DEFAULTS =================
 #ifndef OBSERVER_WIFI_SSID
@@ -250,6 +253,7 @@ void setup() {
 
   tlsClient.setInsecure();
   mqttClient.setServer(mqttHost.c_str(), mqttPort);
+  mqttClient.setBufferSize(MQTT_BUFFER_SIZE);
 
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
   radio.setTCXO(0.0);
@@ -342,7 +346,9 @@ void loop() {
   json += "}";
 
   if (mqttClient.connected()) {
-    mqttClient.publish(String("meshrank/observers/" + observerId + "/packets").c_str(), json.c_str());
+    if (!mqttClient.publish(String("meshrank/observers/" + observerId + "/packets").c_str(), json.c_str())) {
+      Serial.printf("[observer] mqtt publish failed len=%d\n", json.length());
+    }
   } else {
     spoolAppend(json);
   }
