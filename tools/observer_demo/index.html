@@ -65,9 +65,9 @@
       align-items: center;
       justify-content: flex-start;
       flex-wrap: wrap;
-      padding: 4px 16px;
-      gap: 18px;
-      min-height: 64px;
+      padding: 2px 12px;
+      gap: 12px;
+      min-height: 52px;
     }
 
     .brand {
@@ -80,8 +80,8 @@
     }
 
     .brand-logo {
-      width: clamp(520px, 80vw, 1600px);
-      height: 60px;
+      width: clamp(300px, 55vw, 820px);
+      height: 48px;
       border-radius: 12px;
       display: block;
       overflow: hidden;
@@ -94,7 +94,7 @@
       object-fit: contain;
       object-position: left center;
       display: block;
-      min-width: 480px;
+      min-width: 320px;
     }
 
     .status-dot {
@@ -817,10 +817,10 @@
     .observer-card {
       border: 1px solid var(--line);
       border-radius: 16px;
-      padding: 14px 16px;
+      padding: 12px 14px;
       background: #ffffff;
       display: grid;
-      gap: 12px;
+      gap: 10px;
       align-content: start;
     }
 
@@ -845,25 +845,25 @@
 
     .observer-steps {
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
 
     .observer-step {
       border: 1px solid var(--line);
       border-radius: 14px;
-      padding: 12px 14px;
+      padding: 10px 12px;
       background: #fafafa;
       display: grid;
-      gap: 6px;
+      gap: 4px;
     }
 
     .observer-step strong {
-      font-size: 14px;
+      font-size: 13px;
     }
 
     .observer-grid {
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
 
     .observer-grid label {
@@ -875,14 +875,14 @@
     .observer-grid select {
       border: 1px solid var(--line);
       border-radius: 10px;
-      padding: 9px 10px;
+      padding: 8px 10px;
       font-family: "IBM Plex Mono", monospace;
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .observer-actions {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
       align-items: center;
     }
@@ -970,10 +970,11 @@
       }
       .topbar {
         height: auto;
-        gap: 10px;
-        padding: 12px;
+        gap: 8px;
+        padding: 8px 10px;
+        min-height: 48px;
       }
-      .brand-logo { width: min(100%, 560px); height: 56px; }
+      .brand-logo { width: min(100%, 460px); height: 42px; }
       .nav { flex-wrap: wrap; gap: 8px; }
       .sidebar-panel { display: none; }
       .panel { min-height: auto; }
@@ -990,6 +991,7 @@
       .observer-map { height: 260px; }
       .observer-rank-body { grid-template-columns: 1fr; }
       .observer-rank-map { min-height: 280px; }
+      body.view-observer .observer-panel { display: none; }
     }
   </style>
 </head>
@@ -1181,10 +1183,8 @@
           <div class="observer-card">
             <div style="font-weight:700;">Bring your observer online</div>
             <div style="font-size:12px;color:var(--muted);line-height:1.5;">
-              Repeaters can be configured to forward packets, but that adds load and can reduce stability.
-              The Observer Node is a dedicated bridge between RF traffic and the internet. It runs silently,
-              can sit anywhere with good Wi-Fi and RF reception, and sends data to MeshRank while powered.
-              To keep support simple we only build firmware for Heltec V3.
+              Observer Nodes listen silently and relay RF traffic to MeshRank without stressing repeaters.
+              Place it where Wi-Fi and RF are strong. Firmware is Heltec V3 only.
             </div>
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
@@ -1199,7 +1199,7 @@
                 <div class="observer-actions">
                   <a class="btn" id="observerFlashLink" href="https://flasher.meshcore.co.uk/?manifest=https://meshrank.net/observer-manifest.json" target="_blank" rel="noopener">Open MeshCore Flasher</a>
                 </div>
-                <div style="font-size:12px;color:var(--muted);">Scroll to Custom Firmware, select the file, enable Erase, then flash. Press RST when done.</div>
+                <div style="font-size:12px;color:var(--muted);">Scroll to Custom Firmware, select the .bin, enable Erase, flash, then press RST.</div>
               </div>
               <div class="observer-step">
                 <strong>4</strong> Enter your Wi-Fi credentials and click send, then reboot the node.
@@ -1221,8 +1221,8 @@
                   <button class="btn" type="button" id="observerSendConfig">Send Wi-Fi config</button>
                 </div>
               </div>
-              <div class="observer-step"><strong>5</strong> Within a few minutes you should see your node in Current Observers.</div>
-              <div class="observer-step"><strong>6</strong> As traffic builds, the server will geolocate your node automatically.</div>
+              <div class="observer-step"><strong>5</strong> If your node appears in Pending Observers, send a repeater advert to speed up geolocation.</div>
+              <div class="observer-step"><strong>6</strong> Once validated, it moves to Observer Rank automatically.</div>
             </div>
           <div class="observer-status" id="observerStatus">Flash via MeshCore flasher, then send Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
@@ -1240,7 +1240,8 @@
             <div id="observerMap" class="observer-map"></div>
           </div>
           <div class="observer-card">
-            <div style="font-weight:700;">Current Observers</div>
+            <div style="font-weight:700;">Pending Observers</div>
+            <div style="font-size:12px;color:var(--muted);">Only observers awaiting geolocation appear here.</div>
             <div id="observerList" class="rf-list"></div>
           </div>
         </div>
@@ -1793,9 +1794,6 @@
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(rankMap);
       rankLayer = L.layerGroup().addTo(rankMap);
-      rankMap.on("popupclose", () => {
-        rankMap.setView([54.0, -2.5], 6, { animate: true });
-      });
     }
 
     function initObserverMap() {
@@ -1878,9 +1876,9 @@
     function renderObserverList(data) {
       const list = document.getElementById("observerList");
       if (!list || !data) return;
-      const entries = Object.values(data.byId || {});
+      const entries = Object.values(data.byId || {}).filter((entry) => !entry.locValidated);
       if (!entries.length) {
-        list.innerHTML = "<div class='rf-row'>No observers yet.</div>";
+        list.innerHTML = "<div class='rf-row'>No pending observers.</div>";
         return;
       }
       const now = Date.now();
@@ -2000,7 +1998,11 @@
       const names = Array.isArray(p.pathNames) ? p.pathNames : [];
       const codes = Array.isArray(p.path) ? p.path : [];
       if (names.length) {
-        const merged = names.map((name, idx) => (name === "#unknown" ? (codes[idx] || "#unknown") : name));
+        const merged = names.map((name, idx) => {
+          const code = codes[idx] || "";
+          if (name === "#unknown") return code || "#unknown";
+          return code ? `${name} (${code})` : name;
+        });
         return merged.join(" > ");
       }
       if (codes.length) return codes.join(" > ");
@@ -2206,7 +2208,8 @@
           if (!needle) return true;
           const name = String(r.name || "").toLowerCase();
           const pub = String(r.pub || "").toLowerCase();
-          return name.includes(needle) || pub.includes(needle);
+          const code = String(r.hashByte || "").toLowerCase();
+          return name.includes(needle) || pub.includes(needle) || code.includes(needle);
         });
       sorted.forEach((r) => {
         const item = document.createElement("div");
