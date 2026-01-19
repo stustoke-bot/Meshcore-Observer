@@ -275,8 +275,11 @@
       letter-spacing: 0.2px;
     }
     .channel-title {
-      justify-content: flex-start;
+      justify-content: space-between;
       gap: 8px;
+    }
+    .channel-title-label {
+      font-weight: 700;
     }
 
     .title.column {
@@ -387,6 +390,9 @@
     }
     @media (min-width: 861px) {
       .channel-selector { display: none; }
+    }
+    @media (max-width: 860px) {
+      .channel-title-label { display: none; }
     }
     .channel-selector .badge-bubble {
       min-width: 18px;
@@ -1684,10 +1690,13 @@
 
     <section class="panel content">
       <div class="title channel-title">
-        <span>Other channels</span>
+        <button class="channel-selector" type="button" data-channels-toggle>
+          <span>Other channels</span>
+          <span class="badge-bubble channels-unread">0</span>
+        </button>
+        <span class="channel-title-label">Other channels</span>
         <button class="channel-selector" id="channelsTab" type="button" data-channels-toggle>
           <span id="activeChannel">#public</span>
-          <span class="badge-bubble channels-unread">0</span>
         </button>
       </div>
       <div class="messages" id="messages"></div>
@@ -2284,7 +2293,7 @@
           const label = resolveRouteName(node, slicedNames[idx] ? slicedNames[idx] : node);
           const item = document.createElement("div");
           item.className = "list-item";
-        item.innerHTML = `<span>${label}</span><span>${idx + 1}/${slicedLines.length}</span>`;
+        item.innerHTML = `<span>${label}</span>`;
         list.appendChild(item);
       });
 
@@ -2335,6 +2344,7 @@
         }
 
         const latlngs = [];
+        const COVERAGE_RADIUS_M = 16093; // 10 miles in meters
         normalized.forEach((p, idx) => {
           let gps = hasGps(p) ? p.gps : null;
           let estimated = false;
@@ -2349,17 +2359,16 @@
           const latlng = [gps.lat, gps.lon];
           latlngs.push(latlng);
           const color = estimated ? "#ffcc00" : "#007aff";
-          L.circleMarker(latlng, {
-            radius: 7,
+          L.circle(latlng, {
+            radius: COVERAGE_RADIUS_M,
             color,
             fillColor: color,
-            fillOpacity: 0.85,
-            weight: 2
+            fillOpacity: 0.15,
+            weight: 1
           }).bindPopup(estimated ? `${p.name || "#unknown"} (estimated)` : (p.name || "#unknown")).addTo(routeLayer);
         });
 
         if (latlngs.length >= 2) {
-          L.polyline(latlngs, { color: "#007aff", weight: 3, opacity: 0.7 }).addTo(routeLayer);
           map.fitBounds(latlngs, { padding: [20, 20] });
         } else if (latlngs.length === 1) {
           map.setView(latlngs[0], 9);

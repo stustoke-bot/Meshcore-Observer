@@ -4,3 +4,8 @@ data/
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+node_modules/
+flasher.meshcore.dev/
+meshcore/
+mosquitto_meshrank.conf.txt
+observer-full.bin

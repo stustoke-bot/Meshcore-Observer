@@ -714,8 +714,8 @@ async function buildChannelMessages() {
     if (!chName) continue;
 
       const msgHash = String(
-        rec.frameHash ||
         decoded.messageHash ||
+        rec.frameHash ||
         sha256Hex(hex) ||
         hex.slice(0, 16) ||
         "unknown"
