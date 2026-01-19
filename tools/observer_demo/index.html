@@ -1500,7 +1500,8 @@
         gap: 10px;
         flex: 1;
         overflow: auto;
-        padding-bottom: calc(12px + env(safe-area-inset-bottom));
+        padding-bottom: calc(80px + env(safe-area-inset-bottom));
+        scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom));
       }
       .message { grid-template-columns: 36px 1fr; gap: 10px; }
       .avatar { width: 32px; height: 32px; font-size: 12px; }
@@ -1585,15 +1586,6 @@
       <div class="title column">
         <span>Channels <span class="chip">UK Mesh</span></span>
         <button class="btn" id="addChannelBtn">Add Channel</button>
-      </div>
-      <div class="mobile-nav" id="mobileNav">
-        <a href="#" class="active" data-view="channels">Channels</a>
-        <a href="#" data-view="rank">Repeater Rank</a>
-        <a href="#" data-view="meshscore">MeshRank</a>
-        <a href="#" data-view="observer-rank">Observer Rank</a>
-        <a href="#" data-view="rf">MeshFlow</a>
-        <a href="#" data-view="why">Why MeshRank?</a>
-        <a href="#" data-view="observer">Become an Observer</a>
       </div>
       <div class="sidebar">
         <div id="channels"></div>
