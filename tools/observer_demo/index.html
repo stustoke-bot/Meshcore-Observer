@@ -170,10 +170,25 @@
       background: var(--panel);
       color: var(--ink);
       border-radius: 10px;
-      padding: 6px 10px;
-      font-size: 12px;
-      font-weight: 700;
+      padding: 0;
+      width: 38px;
+      height: 34px;
       cursor: pointer;
+      align-items: center;
+      justify-content: center;
+    }
+    .menu-toggle .burger {
+      width: 18px;
+      height: 12px;
+      display: inline-flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .menu-toggle .burger span {
+      display: block;
+      height: 2px;
+      border-radius: 999px;
+      background: var(--ink);
     }
     .menu-backdrop {
       display: none;
@@ -185,9 +200,9 @@
     .mobile-menu {
       display: none;
       position: fixed;
-      top: 48px;
+      top: 56px;
       right: 0;
-      bottom: 0;
+      bottom: 12px;
       width: min(86vw, 320px);
       z-index: 950;
       border: 1px solid var(--line);
@@ -200,6 +215,7 @@
       align-items: stretch;
       transform: translateX(110%);
       transition: transform 0.2s ease;
+      overflow: auto;
     }
     .mobile-menu a {
       display: block;
@@ -257,6 +273,10 @@
       border-bottom: 1px solid var(--line);
       font-weight: 700;
       letter-spacing: 0.2px;
+    }
+    .channel-title {
+      justify-content: flex-start;
+      gap: 8px;
     }
 
     .title.column {
@@ -1147,7 +1167,8 @@
     body.view-observer .rank-panel,
     body.view-observer .meshscore-panel,
     body.view-observer .rf-panel,
-    body.view-observer .observer-rank-panel { display: none; }
+    body.view-observer .observer-rank-panel,
+    body.view-observer .repeater-panel { display: none; }
     body.view-observer .observer-panel { display: flex; }
     body.view-why .sidebar-panel,
     body.view-why .content,
@@ -1156,7 +1177,8 @@
     body.view-why .meshscore-panel,
     body.view-why .rf-panel,
     body.view-why .observer-panel,
-    body.view-why .observer-rank-panel { display: none; }
+    body.view-why .observer-rank-panel,
+    body.view-why .repeater-panel { display: none; }
     body.view-why .why-panel { display: flex; }
 
     body.view-observer-rank .sidebar-panel,
@@ -1165,8 +1187,20 @@
     body.view-observer-rank .rank-panel,
     body.view-observer-rank .meshscore-panel,
     body.view-observer-rank .rf-panel,
-    body.view-observer-rank .observer-panel { display: none; }
+    body.view-observer-rank .observer-panel,
+    body.view-observer-rank .repeater-panel { display: none; }
     body.view-observer-rank .observer-rank-panel { display: flex; }
+
+    body.view-repeater .sidebar-panel,
+    body.view-repeater .content,
+    body.view-repeater .analysis-panel,
+    body.view-repeater .rank-panel,
+    body.view-repeater .meshscore-panel,
+    body.view-repeater .rf-panel,
+    body.view-repeater .observer-panel,
+    body.view-repeater .observer-rank-panel,
+    body.view-repeater .why-panel { display: none; }
+    body.view-repeater .repeater-panel { display: flex; }
 
     .row {
       display: flex;
@@ -1236,6 +1270,13 @@
       overflow: auto;
     }
 
+    .repeater-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+      overflow: auto;
+    }
+
     .observer-rank-panel {
       grid-column: 1 / -1;
       display: none;
@@ -1246,6 +1287,16 @@
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
+      overflow: auto;
+    }
+
+    .repeater-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
       overflow: auto;
     }
 
@@ -1480,7 +1531,8 @@
       .brand-text span { display: none; }
       .nav { display: none; }
       .menu-toggle { display: inline-flex; }
-      .theme-toggle { margin-left: 0; }
+      .theme-toggle { margin-left: auto; }
+      .menu-toggle { margin-left: 6px; }
       .nav a[data-view="observer"] { display: none; }
       .sidebar-panel {
         display: flex;
@@ -1510,8 +1562,8 @@
         gap: 10px;
         flex: 1;
         overflow: auto;
-        padding-bottom: calc(80px + env(safe-area-inset-bottom));
-        scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom));
+        padding-bottom: calc(120px + env(safe-area-inset-bottom));
+        scroll-padding-bottom: calc(120px + env(safe-area-inset-bottom));
         overflow-x: hidden;
       }
       .message { grid-template-columns: 36px 1fr; gap: 10px; min-width: 0; }
@@ -1545,16 +1597,30 @@
       #routeMap { min-height: 200px; }
       .route-close { display: inline-flex; }
       .rank-body { grid-template-columns: 1fr; }
-      .rank-map { min-height: 280px; }
+      .rank-summary { padding: 8px 10px; gap: 8px; }
+      .summary-card { padding: 8px 10px; }
+      .summary-card strong { font-size: 14px; }
+      .rank-body { height: auto; }
+      .rank-map { min-height: 200px; }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
-      .rf-row { min-width: 760px; }
+      body.view-rf .rf-row { min-width: 0; grid-template-columns: 70px 70px 1fr 70px 60px 60px; }
+      body.view-rf .rf-row > div:nth-child(3),
+      body.view-rf .rf-row > div:nth-child(4),
+      body.view-rf .rf-row > div:nth-child(5),
+      body.view-rf .rf-row > div:nth-child(10),
+      body.view-rf .rf-row > div:nth-child(11),
+      body.view-rf .rf-row > div:nth-child(12) { display: none; }
       .observer-body { grid-template-columns: 1fr; }
       .observer-map { height: 260px; }
       .observer-rank-body { grid-template-columns: 1fr; }
-      .observer-rank-map { min-height: 280px; }
+      .observer-rank-map { min-height: 200px; }
       .why-body { grid-template-columns: 1fr; }
-      body.view-observer .observer-panel { display: none; }
+      .repeater-body { grid-template-columns: 1fr; }
+      .meshscore-panel { min-height: 0; overflow: hidden; }
+      .meshscore-body { min-height: 0; height: 100%; overflow: auto; }
+      body.view-rank .rank-panel,
+      body.view-observer-rank .observer-rank-panel { overflow: auto; }
     }
   </style>
 </head>
@@ -1577,10 +1643,17 @@
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
         <a href="#" data-view="why">Why MeshRank?</a>
+        <a href="#" data-view="repeater">Become a Repeater</a>
         <a href="#" data-view="observer">Become an Observer</a>
       </nav>
       <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Dark mode</button>
-      <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">Menu</button>
+      <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">
+        <span class="burger" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </button>
     </header>
     <div class="menu-backdrop" id="menuBackdrop"></div>
     <div class="mobile-menu" id="mobileMenu">
@@ -1590,6 +1663,7 @@
       <a href="#" data-view="observer-rank">Observer Rank</a>
       <a href="#" data-view="rf">MeshFlow</a>
       <a href="#" data-view="why">Why MeshRank?</a>
+      <a href="#" data-view="repeater">Become a Repeater</a>
       <a href="#" data-view="observer">Become an Observer</a>
     </div>
 
@@ -1609,8 +1683,8 @@
     </button>
 
     <section class="panel content">
-      <div class="title">
-        <span>Channel</span>
+      <div class="title channel-title">
+        <span>Other channels</span>
         <button class="channel-selector" id="channelsTab" type="button" data-channels-toggle>
           <span id="activeChannel">#public</span>
           <span class="badge-bubble channels-unread">0</span>
@@ -1851,6 +1925,28 @@
             <div style="font-weight:700;">Pending Observers</div>
             <div style="font-size:12px;color:var(--muted);">Only observers awaiting geolocation appear here.</div>
             <div id="observerList" class="rf-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel repeater-panel">
+      <div class="title">Become a Repeater</div>
+      <div class="repeater-body">
+        <div class="why-card">
+          <h3>Why add a repeater?</h3>
+          <p>Repeaters increase coverage and reliability. A well-placed repeater fills gaps, improves delivery confidence, and keeps the network resilient when conditions change.</p>
+          <p>MeshRank highlights active repeaters so operators can see the impact of good placement, uptime, and tuning over time.</p>
+          <p>Start simple: stable power, good antenna height, and clear placement matter more than perfect settings.</p>
+        </div>
+        <div class="why-card">
+          <h3>Repeater checklist</h3>
+          <div class="list">
+            <div class="list-item">Mount the antenna as high and clear as practical.</div>
+            <div class="list-item">Use reliable power (mains or a stable battery pack).</div>
+            <div class="list-item">Confirm your region settings and frequency plan.</div>
+            <div class="list-item">Name the node clearly so it is easy to identify.</div>
+            <div class="list-item">Leave it running and check Repeater Rank after 24 hours.</div>
           </div>
         </div>
       </div>
@@ -2125,7 +2221,7 @@
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
                 <span>Observers: ${observerCount}</span>
-                <span>Total hops: ${msg.pathLength ?? msg.repeats ?? 0}</span>
+                <span>Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
                 <span>MeshRank Confidence: ${conf}%</span>
                 <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
               </div>
@@ -2526,11 +2622,53 @@
       renderChannels();
     }
 
+    function mergeMessages(raw) {
+      const byKey = new Map();
+      raw.forEach((m) => {
+        const key = m.id || `${m.channelName || ""}|${m.sender || ""}|${m.ts || ""}|${m.body || ""}`;
+        let entry = byKey.get(key);
+        if (!entry) {
+          entry = {
+            ...m,
+            _observerSet: new Set(),
+            _pathSet: new Set()
+          };
+          byKey.set(key, entry);
+        }
+        const observerHits = Array.isArray(m.observerHits) ? m.observerHits : [];
+        observerHits.forEach((o) => entry._observerSet.add(o));
+        const path = Array.isArray(m.path) ? m.path : [];
+        path.forEach((code) => {
+          if (code !== undefined && code !== null && String(code).length) {
+            entry._pathSet.add(String(code));
+          }
+        });
+        if (!entry.path?.length && path.length) entry.path = path;
+        if (!entry.pathNames?.length && Array.isArray(m.pathNames) && m.pathNames.length) entry.pathNames = m.pathNames;
+        if (!entry.pathPoints?.length && Array.isArray(m.pathPoints) && m.pathPoints.length) entry.pathPoints = m.pathPoints;
+        entry.repeats = Math.max(entry.repeats || 0, m.repeats || 0);
+        if (Number.isFinite(m.pathLength)) {
+          entry.pathLength = Math.max(entry.pathLength || 0, m.pathLength || 0);
+        }
+      });
+      return Array.from(byKey.values()).map((entry) => {
+        const observerHits = Array.from(entry._observerSet || []);
+        const uniqueHopCount = entry._pathSet && entry._pathSet.size ? entry._pathSet.size : 1;
+        const { _observerSet, _pathSet, ...clean } = entry;
+        return {
+          ...clean,
+          observerHits,
+          observerCount: observerHits.length || entry.observerCount || 0,
+          uniqueHopCount
+        };
+      });
+    }
+
     async function loadMessages(forceFull) {
       const res = await fetch("/api/messages", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      const raw = data.messages || [];
+      const raw = mergeMessages(data.messages || []);
       appData.messages = raw.map((m) => ({
         id: m.id,
         channelId: (m.channelName || "#unknown").replace(/^#/, ""),
@@ -2541,6 +2679,7 @@
         type: "mesh",
         repeats: m.repeats || 1,
         pathLength: Number.isFinite(m.pathLength) ? m.pathLength : null,
+        uniqueHopCount: Number.isFinite(m.uniqueHopCount) ? m.uniqueHopCount : null,
         path: Array.isArray(m.path) ? m.path : [],
         pathNames: Array.isArray(m.pathNames) ? m.pathNames : [],
         pathPoints: Array.isArray(m.pathPoints) ? m.pathPoints : [],
@@ -3415,9 +3554,10 @@
           document.body.classList.toggle("view-rank", view === "rank");
           document.body.classList.toggle("view-meshscore", view === "meshscore");
           document.body.classList.toggle("view-rf", view === "rf");
-      document.body.classList.toggle("view-observer", view === "observer");
-      document.body.classList.toggle("view-observer-rank", view === "observer-rank");
+          document.body.classList.toggle("view-observer", view === "observer");
+          document.body.classList.toggle("view-observer-rank", view === "observer-rank");
           document.body.classList.toggle("view-why", view === "why");
+          document.body.classList.toggle("view-repeater", view === "repeater");
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
