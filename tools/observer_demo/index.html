@@ -164,6 +164,42 @@
       color: var(--ink);
       background: rgba(0, 122, 255, 0.12);
     }
+    .menu-toggle {
+      display: none;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .menu-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+      z-index: 8;
+    }
+    .mobile-nav {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .mobile-nav a {
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 600;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(0, 122, 255, 0.08);
+    }
+    .mobile-nav a.active {
+      background: rgba(0, 122, 255, 0.18);
+    }
     .theme-toggle {
       padding: 6px 10px;
       border-radius: 999px;
@@ -1360,16 +1396,27 @@
       }
       .brand-logo { width: 32px; height: 32px; }
       .brand-text span { display: none; }
-      .nav {
-        flex-wrap: nowrap;
-        gap: 6px;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-      .nav a { padding: 6px 8px; font-size: 12px; }
+      .nav { display: none; }
+      .menu-toggle { display: inline-flex; }
       .theme-toggle { margin-left: 0; }
       .nav a[data-view="observer"] { display: none; }
-      .sidebar-panel { display: none; }
+      .sidebar-panel {
+        display: flex;
+        position: fixed;
+        top: 52px;
+        left: 8px;
+        bottom: 8px;
+        width: min(86vw, 360px);
+        z-index: 9;
+        transform: translateX(-110%);
+        transition: transform 0.2s ease;
+      }
+      body.menu-open .sidebar-panel { transform: translateX(0); }
+      body.menu-open .menu-backdrop { display: block; }
+      .mobile-nav { display: flex; }
+      .sidebar { padding: 8px; gap: 8px; }
+      .channel { padding: 8px; grid-template-columns: 36px 1fr auto; gap: 8px; }
+      .channel .snippet { font-size: 11px; }
       .panel { min-height: 0; }
       .content { min-height: 0; height: 100%; }
       .messages {
@@ -1434,12 +1481,23 @@
         <a href="#" data-view="observer">Become an Observer</a>
       </nav>
       <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Dark mode</button>
+      <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">Menu</button>
     </header>
+    <div class="menu-backdrop" id="menuBackdrop"></div>
 
     <section class="panel sidebar-panel">
       <div class="title column">
         <span>Channels <span class="chip">UK Mesh</span></span>
         <button class="btn" id="addChannelBtn">Add Channel</button>
+      </div>
+      <div class="mobile-nav" id="mobileNav">
+        <a href="#" class="active" data-view="channels">Channels</a>
+        <a href="#" data-view="rank">Repeater Rank</a>
+        <a href="#" data-view="meshscore">MeshRank</a>
+        <a href="#" data-view="observer-rank">Observer Rank</a>
+        <a href="#" data-view="rf">MeshFlow</a>
+        <a href="#" data-view="why">Why MeshRank?</a>
+        <a href="#" data-view="observer">Become an Observer</a>
       </div>
       <div class="sidebar">
         <div id="channels"></div>
@@ -3202,13 +3260,23 @@
     }
 
 
-    const navLinks = document.querySelectorAll(".nav a");
+    const navLinks = document.querySelectorAll(".nav a, .mobile-nav a");
+    const menuToggle = document.getElementById("menuToggle");
+    const menuBackdrop = document.getElementById("menuBackdrop");
+    const closeMenu = () => document.body.classList.remove("menu-open");
+    menuToggle?.addEventListener("click", () => {
+      document.body.classList.toggle("menu-open");
+    });
+    menuBackdrop?.addEventListener("click", closeMenu);
     navLinks.forEach((link) => {
         link.addEventListener("click", async (e) => {
           e.preventDefault();
           document.body.classList.remove("route-open");
           navLinks.forEach((l) => l.classList.remove("active"));
-          link.classList.add("active");
+          navLinks.forEach((l) => {
+            if (l.dataset.view === link.dataset.view) l.classList.add("active");
+          });
+          closeMenu();
           const view = link.dataset.view;
           document.body.classList.toggle("view-channels", view === "channels");
           document.body.classList.toggle("view-rank", view === "rank");
