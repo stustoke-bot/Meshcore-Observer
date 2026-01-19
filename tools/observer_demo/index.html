@@ -2058,9 +2058,12 @@
         ts: m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--",
         type: "mesh",
         repeats: m.repeats || 1,
+        pathLength: Number.isFinite(m.pathLength) ? m.pathLength : null,
         path: Array.isArray(m.path) ? m.path : [],
         pathNames: Array.isArray(m.pathNames) ? m.pathNames : [],
-        pathPoints: Array.isArray(m.pathPoints) ? m.pathPoints : []
+        pathPoints: Array.isArray(m.pathPoints) ? m.pathPoints : [],
+        observerHits: Array.isArray(m.observerHits) ? m.observerHits : [],
+        observerCount: Number.isFinite(m.observerCount) ? m.observerCount : null
       })).sort((a, b) => {
         const ta = a.tsRaw ? new Date(a.tsRaw).getTime() : 0;
         const tb = b.tsRaw ? new Date(b.tsRaw).getTime() : 0;
