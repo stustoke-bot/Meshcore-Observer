@@ -253,6 +253,9 @@ async function buildObserverRank() {
       }
       const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
       if (payloadType !== "Advert") continue;
+      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
+      const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
+      if (hopCount > 1) continue;
       const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
       const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
       if (!pub) continue;

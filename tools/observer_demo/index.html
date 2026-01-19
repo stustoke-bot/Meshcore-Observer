@@ -1999,7 +1999,7 @@
           circle.addTo(observerRankRadiusLayer);
         }
       });
-      if (points.length) observerRankMap.fitBounds(points, { padding: [20, 20] });
+      if (observerRankMap) observerRankMap.setView([54.0, -2.5], 6);
     }
 
     function formatDateTime(value) {
