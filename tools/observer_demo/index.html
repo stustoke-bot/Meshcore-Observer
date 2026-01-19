@@ -3279,7 +3279,11 @@
         });
 
         await loader.main();
-        appendFlashLog(`Chip: ${loader.chipName()}`);
+        try {
+          if (typeof loader.chipName === "function") {
+            appendFlashLog(`Chip: ${loader.chipName()}`);
+          }
+        } catch {}
         appendFlashLog("Erasing flash...");
         await loader.eraseFlash();
         appendFlashLog("Writing firmware...");
