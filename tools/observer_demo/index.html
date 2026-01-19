@@ -185,13 +185,13 @@
     .mobile-menu {
       display: none;
       position: fixed;
-      top: 52px;
-      right: 8px;
-      bottom: 8px;
-      width: min(80vw, 320px);
+      top: 48px;
+      right: 0;
+      bottom: 0;
+      width: min(86vw, 320px);
       z-index: 9;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 12px 0 0 12px;
       background: var(--panel);
       box-shadow: var(--shadow);
       padding: 10px;
@@ -349,13 +349,7 @@
       flex-direction: column;
       min-height: 0;
     }
-    .channels-tab {
-      display: none;
-      position: fixed;
-      left: 6px;
-      top: 50%;
-      transform: translateY(-50%);
-      z-index: 9;
+    .channel-selector {
       border: 1px solid var(--line);
       background: var(--panel);
       color: var(--ink);
@@ -369,7 +363,10 @@
       cursor: pointer;
       box-shadow: var(--shadow);
     }
-    .channels-tab .badge-bubble {
+    @media (min-width: 861px) {
+      .channel-selector { display: none; }
+    }
+    .channel-selector .badge-bubble {
       min-width: 18px;
       height: 18px;
       border-radius: 999px;
@@ -1476,23 +1473,24 @@
         transform: translateX(-110%);
         transition: transform 0.2s ease;
       }
-      body.view-channels.menu-open .sidebar-panel { transform: translateX(0); }
-      body.menu-open .menu-backdrop { display: block; }
-      body.menu-open .mobile-menu { display: flex; transform: translateX(0); }
+      body.view-channels.menu-open-left .sidebar-panel { transform: translateX(0); }
+      body.menu-open-left .menu-backdrop,
+      body.menu-open-right .menu-backdrop { display: block; }
+      body.menu-open-right .mobile-menu { display: flex; transform: translateX(0); }
       .mobile-nav { display: flex; }
       .sidebar { padding: 8px; gap: 8px; }
       .channel { padding: 8px; grid-template-columns: 36px 1fr auto; gap: 8px; }
       .channel .snippet { font-size: 11px; }
       .panel { min-height: 0; }
       .content { min-height: 0; height: 100%; padding-bottom: env(safe-area-inset-bottom); }
-      .channels-tab { display: inline-flex; }
+      .channel-selector { display: inline-flex; }
       .messages {
         padding: 10px 12px;
         gap: 10px;
         flex: 1;
         overflow: auto;
-        padding-bottom: calc(140px + env(safe-area-inset-bottom));
-        scroll-padding-bottom: calc(140px + env(safe-area-inset-bottom));
+        padding-bottom: calc(80px + env(safe-area-inset-bottom));
+        scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom));
         overflow-x: hidden;
       }
       .message { grid-template-columns: 36px 1fr; gap: 10px; min-width: 0; }
@@ -1584,9 +1582,14 @@
       </div>
     </section>
 
-    <button class="channels-tab" id="channelsTab" type="button">Channels <span class="badge-bubble" id="channelsUnread">0</span></button>
     <section class="panel content">
-      <div class="title">Public <span class="chip" id="activeChannel">#public</span></div>
+      <div class="title">
+        <span>Channel</span>
+        <button class="channel-selector" id="channelsTab" type="button">
+          <span id="activeChannel">#public</span>
+          <span class="badge-bubble" id="channelsUnread">0</span>
+        </button>
+      </div>
       <div class="messages" id="messages"></div>
     </section>
 
@@ -2045,7 +2048,7 @@
           saveReadState();
           renderChannels();
           loadMessages(true);
-          document.body.classList.remove("menu-open");
+          document.body.classList.remove("menu-open-left", "menu-open-right");
         });
         row.querySelector(".channel-remove").addEventListener("click", async (e) => {
           e.stopPropagation();
@@ -3355,13 +3358,17 @@
     const menuToggle = document.getElementById("menuToggle");
     const menuBackdrop = document.getElementById("menuBackdrop");
     const channelsTab = document.getElementById("channelsTab");
-    const closeMenu = () => document.body.classList.remove("menu-open");
+    const closeMenu = () => {
+      document.body.classList.remove("menu-open-left", "menu-open-right");
+    };
     menuToggle?.addEventListener("click", () => {
-      document.body.classList.toggle("menu-open");
+      document.body.classList.toggle("menu-open-right");
+      document.body.classList.remove("menu-open-left");
     });
     menuBackdrop?.addEventListener("click", closeMenu);
     channelsTab?.addEventListener("click", () => {
-      document.body.classList.toggle("menu-open");
+      document.body.classList.toggle("menu-open-left");
+      document.body.classList.remove("menu-open-right");
     });
     navLinks.forEach((link) => {
         link.addEventListener("click", async (e) => {
