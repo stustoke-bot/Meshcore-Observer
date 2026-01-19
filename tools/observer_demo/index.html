@@ -703,8 +703,18 @@
       width: min(760px, 100%);
     }
 
-    .flash-modal-card {
-      width: min(680px, 100%);
+    .flash-panel {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: #ffffff;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .flash-panel.open {
+      display: flex;
     }
 
     .flash-log {
@@ -715,7 +725,7 @@
       font-family: "IBM Plex Mono", monospace;
       font-size: 12px;
       min-height: 180px;
-      max-height: 320px;
+      max-height: 280px;
       overflow: auto;
       white-space: pre-wrap;
       border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1399,6 +1409,25 @@
                   <button class="btn" id="observerFlashLink" type="button">Open MeshRank Flasher</button>
                 </div>
                 <div style="font-size:12px;color:var(--muted);">The in-page flasher erases and writes the full merged firmware image, then reboots the device.</div>
+                <div class="flash-panel" id="flashPanel">
+                  <div style="font-weight:700;">MeshRank Observer Flasher</div>
+                  <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+                    This flashes the full merged image for Heltec V3 (ESP32-S3). It will erase the device first.
+                  </div>
+                  <div class="flash-row">
+                    <div>Firmware</div>
+                    <strong id="flashVersion">observer-merged-1.1.8.bin</strong>
+                  </div>
+                  <div class="flash-row">
+                    <div>Offset</div>
+                    <strong>0x0 (full image)</strong>
+                  </div>
+                  <div class="flash-log" id="flashLog">Ready to flash.</div>
+                  <div class="observer-actions">
+                    <button class="btn" id="flashStart" type="button">Start flash</button>
+                    <button class="btn" id="flashHide" type="button">Hide</button>
+                  </div>
+                </div>
               </div>
               <div class="observer-step">
                 <strong>4</strong> Enter your Wi-Fi credentials and click send, then reboot the node.
@@ -1550,6 +1579,7 @@
         <button class="btn" id="cancelChannel">Cancel</button>
         <button class="btn" id="saveChannel">Save</button>
       </div>
+      </div>
     </div>
 
     <div class="modal" id="routeOverrideModal">
@@ -1567,27 +1597,6 @@
       </div>
     </div>
 
-    <div class="modal" id="flashModal">
-      <div class="modal-card flash-modal-card">
-        <strong>MeshRank Observer Flasher</strong>
-        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
-          This flashes the full merged image for Heltec V3 (ESP32-S3). It will erase the device first.
-        </div>
-        <div class="flash-row">
-          <div>Firmware</div>
-          <strong id="flashVersion">observer-merged-1.1.8.bin</strong>
-        </div>
-        <div class="flash-row">
-          <div>Offset</div>
-          <strong>0x0 (full image)</strong>
-        </div>
-        <div class="flash-log" id="flashLog">Ready to flash.</div>
-        <div class="modal-actions">
-          <button class="btn" id="flashClose">Close</button>
-          <button class="btn" id="flashStart">Start flash</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <script type="module" src="https://unpkg.com/esp-web-tools@9.1.0/dist/web/install-button.js"></script>
@@ -3205,11 +3214,11 @@
     wireInstallLogging(document.getElementById("observerFlashVerbose"), true);
 
     const FLASH_BIN_URL = "/observer-merged-1.1.8.bin";
-    const flashModal = document.getElementById("flashModal");
     const flashOpen = document.getElementById("observerFlashLink");
-    const flashClose = document.getElementById("flashClose");
+    const flashHide = document.getElementById("flashHide");
     const flashStart = document.getElementById("flashStart");
     const flashLog = document.getElementById("flashLog");
+    const flashPanel = document.getElementById("flashPanel");
 
     function setFlashLog(msg) {
       flashLog.textContent = msg;
@@ -3220,17 +3229,17 @@
       flashLog.scrollTop = flashLog.scrollHeight;
     }
 
-    function openFlashModal() {
-      flashModal.classList.add("open");
+    function openFlashPanel() {
+      flashPanel.classList.add("open");
       setFlashLog("Ready to flash.");
     }
 
-    function closeFlashModal() {
-      flashModal.classList.remove("open");
+    function closeFlashPanel() {
+      flashPanel.classList.remove("open");
     }
 
-    flashOpen?.addEventListener("click", openFlashModal);
-    flashClose?.addEventListener("click", closeFlashModal);
+    flashOpen?.addEventListener("click", openFlashPanel);
+    flashHide?.addEventListener("click", closeFlashPanel);
 
     flashStart?.addEventListener("click", async () => {
       if (!navigator.serial) {
@@ -3239,7 +3248,7 @@
       }
 
       flashStart.disabled = true;
-      flashClose.disabled = true;
+      flashHide.disabled = true;
       setFlashLog("Downloading firmware...");
 
       try {
@@ -3283,7 +3292,7 @@
         appendFlashLog(`Error: ${err?.message || err}`);
       } finally {
         flashStart.disabled = false;
-        flashClose.disabled = false;
+        flashHide.disabled = false;
       }
     });
 
