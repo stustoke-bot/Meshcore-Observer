@@ -873,6 +873,51 @@
       background: var(--panel);
       color: var(--ink);
     }
+    body.theme-dark .rf-controls,
+    body.theme-dark .rf-detail,
+    body.theme-dark .rf-summary,
+    body.theme-dark .rf-hex,
+    body.theme-dark .meshscore-hero,
+    body.theme-dark .meshscore-chart,
+    body.theme-dark .flash-panel,
+    body.theme-dark .route-override-row,
+    body.theme-dark .route-override-select,
+    body.theme-dark .field input,
+    body.theme-dark .observer-grid input,
+    body.theme-dark .observer-grid select,
+    body.theme-dark .rank-body,
+    body.theme-dark .rank-map,
+    body.theme-dark .observer-rank-body,
+    body.theme-dark .observer-rank-map,
+    body.theme-dark .observer-map,
+    body.theme-dark .analysis-body,
+    body.theme-dark .meshscore-body,
+    body.theme-dark .rank-body,
+    body.theme-dark .rf-body,
+    body.theme-dark .rf-table,
+    body.theme-dark .rf-row,
+    body.theme-dark .route-override-list,
+    body.theme-dark .modal-card {
+      background: var(--panel);
+      color: var(--ink);
+    }
+    body.theme-dark .rf-row.rf-header {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+    }
+    body.theme-dark .rf-row:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    body.theme-dark .range-tabs button.active {
+      background: rgba(99, 162, 255, 0.16);
+      color: var(--blue);
+    }
+    body.theme-dark .modal {
+      background: rgba(0, 0, 0, 0.6);
+    }
+    body.theme-dark #meshChart {
+      background: rgba(255, 255, 255, 0.04) !important;
+    }
 
     .modal-actions {
       display: flex;
@@ -1385,7 +1430,7 @@
             <button data-range="90">90d</button>
             <button data-range="365">1y</button>
           </div>
-          <svg id="meshChart" viewBox="0 0 600 220" width="100%" height="220" style="background:#f7f7f7;border-radius:12px;">
+          <svg id="meshChart" viewBox="0 0 600 220" width="100%" height="220" style="background:var(--panel);border-radius:12px;">
             <polyline id="meshLine" fill="none" stroke="#007aff" stroke-width="3" points=""></polyline>
             <polyline id="meshArea" fill="rgba(0,122,255,0.12)" stroke="none" points=""></polyline>
           </svg>
