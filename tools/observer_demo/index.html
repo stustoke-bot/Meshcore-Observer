@@ -320,6 +320,29 @@
       flex-direction: column;
       min-height: 0;
     }
+    .mobile-channels {
+      display: none;
+      gap: 8px;
+      padding: 8px 12px 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .mobile-channel {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(0, 122, 255, 0.08);
+      color: var(--ink);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mobile-channel.active {
+      background: rgba(0, 122, 255, 0.2);
+      color: var(--ink);
+    }
 
     .messages {
       padding: 16px 18px;
@@ -1419,6 +1442,7 @@
       .channel .snippet { font-size: 11px; }
       .panel { min-height: 0; }
       .content { min-height: 0; height: 100%; }
+      .mobile-channels { display: flex; }
       .messages {
         padding: 10px 12px;
         gap: 10px;
@@ -1506,6 +1530,7 @@
 
     <section class="panel content">
       <div class="title">Public <span class="chip" id="activeChannel">#public</span></div>
+      <div class="mobile-channels" id="mobileChannels"></div>
       <div class="messages" id="messages"></div>
     </section>
 
@@ -1925,6 +1950,8 @@
 
     function renderChannels() {
       const el = document.getElementById("channels");
+      const mobileEl = document.getElementById("mobileChannels");
+      if (mobileEl) mobileEl.innerHTML = "";
       el.innerHTML = "";
       const list = appData.channels.length
         ? appData.channels
@@ -1962,6 +1989,26 @@
           renderChannels();
           loadMessages(true);
         });
+        if (mobileEl) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "mobile-channel" + (ch.id === activeChannelId ? " active" : "");
+          chip.textContent = displayName;
+          chip.addEventListener("click", () => {
+            activeChannelId = ch.id;
+            document.getElementById("activeChannel").textContent = displayName;
+            const latest = appData.messages
+              .filter((msg) => msg.channelId === activeChannelId)
+              .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
+              .reduce((a, b) => Math.max(a, b), 0);
+            if (latest) appData.lastReadByChannel[activeChannelId] = latest;
+            appData.unreadByChannel[activeChannelId] = 0;
+            saveReadState();
+            renderChannels();
+            loadMessages(true);
+          });
+          mobileEl.appendChild(chip);
+        }
         row.querySelector(".channel-remove").addEventListener("click", async (e) => {
           e.stopPropagation();
           const name = e.currentTarget.dataset.name;
