@@ -1398,13 +1398,7 @@
             <div class="observer-steps">
               <div class="observer-step"><strong>1</strong> Plug in your Heltec V3 in DFU mode.</div>
               <div class="observer-step">
-                <strong>2</strong> Download the latest observer firmware.
-                <div class="observer-actions">
-                  <a class="btn" id="observerBinLink" href="/observer-merged-1.1.8.bin" target="_blank" rel="noopener">Download observer .bin</a>
-                </div>
-              </div>
-              <div class="observer-step">
-                <strong>3</strong> Flash the firmware via MeshCore flasher.
+                <strong>2</strong> Flash the firmware via MeshCore flasher.
                 <div class="observer-actions">
                   <button class="btn" id="observerFlashLink" type="button">Open MeshRank Flasher</button>
                 </div>
@@ -1430,7 +1424,7 @@
                 </div>
               </div>
               <div class="observer-step">
-                <strong>4</strong> Enter your Wi-Fi credentials and click send, then reboot the node.
+                <strong>3</strong> Enter your Wi-Fi credentials and click send, then reboot the node.
                 <div class="observer-grid">
                   <div>
                     <label for="observerName">Observer name</label>
@@ -1449,8 +1443,8 @@
                   <button class="btn" type="button" id="observerSendConfig">Send Wi-Fi config</button>
                 </div>
               </div>
-              <div class="observer-step"><strong>5</strong> If your node appears in Pending Observers, send a repeater advert to speed up geolocation.</div>
-              <div class="observer-step"><strong>6</strong> Once validated, it moves to Observer Rank automatically.</div>
+              <div class="observer-step"><strong>4</strong> If your node appears in Pending Observers, send a repeater advert to speed up geolocation.</div>
+              <div class="observer-step"><strong>5</strong> Once validated, it moves to Observer Rank automatically.</div>
             </div>
           <div class="observer-status" id="observerStatus"></div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
@@ -3305,7 +3299,7 @@
           flashSize: "8MB",
           flashMode: "dio",
           flashFreq: "40m",
-          compress: false
+          compress: true
         });
 
         appendFlashLog("Verifying header...");
