@@ -1683,11 +1683,6 @@
       </div>
     </section>
 
-    <button class="channels-rail" type="button" data-channels-toggle>
-      Channels
-      <span class="badge-bubble channels-unread">0</span>
-    </button>
-
     <section class="panel content">
       <div class="title channel-title">
         <button class="channel-selector" type="button" data-channels-toggle>
@@ -2136,6 +2131,10 @@
       return Math.round(score);
     }
 
+    function normalizeChannelId(value) {
+      return String(value || "").replace(/^#/, "").toLowerCase();
+    }
+
     let activeChannelId = "public";
 
     function renderChannels() {
@@ -2181,6 +2180,7 @@
           appData.unreadByChannel[activeChannelId] = 0;
           saveReadState();
           renderChannels();
+          renderMessages(true);
           loadMessages(true);
           document.body.classList.remove("menu-open-left", "menu-open-right");
         });
@@ -2618,7 +2618,10 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       const channels = data.channels || [];
-      appData.channels = channels;
+      appData.channels = channels.map((c) => ({
+        ...c,
+        id: normalizeChannelId(c.id || c.name)
+      }));
       if (appData.channels.length) {
         const exists = appData.channels.some((c) => c.id === activeChannelId);
         if (!exists) activeChannelId = appData.channels[0].id;
@@ -2689,7 +2692,7 @@
       const raw = mergeMessages(data.messages || []);
       appData.messages = raw.map((m) => ({
         id: m.id,
-        channelId: (m.channelName || "#unknown").replace(/^#/, ""),
+        channelId: normalizeChannelId(m.channelName || "#unknown"),
         sender: m.sender,
         body: m.body,
         tsRaw: m.ts || null,
