@@ -703,6 +703,36 @@
       width: min(760px, 100%);
     }
 
+    .flash-modal-card {
+      width: min(680px, 100%);
+    }
+
+    .flash-log {
+      background: #0c111b;
+      color: #d2d9e6;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      min-height: 180px;
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .flash-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .flash-row strong {
+      color: var(--ink);
+    }
+
     .route-override-list {
       display: grid;
       gap: 10px;
@@ -1366,9 +1396,9 @@
               <div class="observer-step">
                 <strong>3</strong> Flash the firmware via MeshCore flasher.
                 <div class="observer-actions">
-                  <a class="btn" id="observerFlashLink" href="https://flasher.meshcore.co.uk/?manifest=https://meshrank.net/observer-manifest-1.1.8.json" target="_blank" rel="noopener">Open MeshCore Flasher</a>
+                  <button class="btn" id="observerFlashLink" type="button">Open MeshRank Flasher</button>
                 </div>
-                <div style="font-size:12px;color:var(--muted);">Scroll to Custom Firmware, select the .bin, enable Erase, flash, then press RST.</div>
+                <div style="font-size:12px;color:var(--muted);">The in-page flasher erases and writes the full merged firmware image, then reboots the device.</div>
               </div>
               <div class="observer-step">
                 <strong>4</strong> Enter your Wi-Fi credentials and click send, then reboot the node.
@@ -1533,6 +1563,28 @@
         <div class="modal-actions">
           <button class="btn" id="routeOverrideClose">Close</button>
           <button class="btn" id="routeOverrideSave">Submit suggestions</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="flashModal">
+      <div class="modal-card flash-modal-card">
+        <strong>MeshRank Observer Flasher</strong>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+          This flashes the full merged image for Heltec V3 (ESP32-S3). It will erase the device first.
+        </div>
+        <div class="flash-row">
+          <div>Firmware</div>
+          <strong id="flashVersion">observer-merged-1.1.8.bin</strong>
+        </div>
+        <div class="flash-row">
+          <div>Offset</div>
+          <strong>0x0 (full image)</strong>
+        </div>
+        <div class="flash-log" id="flashLog">Ready to flash.</div>
+        <div class="modal-actions">
+          <button class="btn" id="flashClose">Close</button>
+          <button class="btn" id="flashStart">Start flash</button>
         </div>
       </div>
     </div>
@@ -3151,6 +3203,89 @@
 
     wireInstallLogging(document.getElementById("observerFlash"), false);
     wireInstallLogging(document.getElementById("observerFlashVerbose"), true);
+
+    const FLASH_BIN_URL = "/observer-merged-1.1.8.bin";
+    const flashModal = document.getElementById("flashModal");
+    const flashOpen = document.getElementById("observerFlashLink");
+    const flashClose = document.getElementById("flashClose");
+    const flashStart = document.getElementById("flashStart");
+    const flashLog = document.getElementById("flashLog");
+
+    function setFlashLog(msg) {
+      flashLog.textContent = msg;
+    }
+
+    function appendFlashLog(line) {
+      flashLog.textContent += `\n${line}`;
+      flashLog.scrollTop = flashLog.scrollHeight;
+    }
+
+    function openFlashModal() {
+      flashModal.classList.add("open");
+      setFlashLog("Ready to flash.");
+    }
+
+    function closeFlashModal() {
+      flashModal.classList.remove("open");
+    }
+
+    flashOpen?.addEventListener("click", openFlashModal);
+    flashClose?.addEventListener("click", closeFlashModal);
+
+    flashStart?.addEventListener("click", async () => {
+      if (!navigator.serial) {
+        setFlashLog("WebSerial is not supported in this browser. Use Chrome or Edge.");
+        return;
+      }
+
+      flashStart.disabled = true;
+      flashClose.disabled = true;
+      setFlashLog("Downloading firmware...");
+
+      try {
+        const res = await fetch(FLASH_BIN_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`download failed (${res.status})`);
+        const bin = new Uint8Array(await res.arrayBuffer());
+        appendFlashLog(`Downloaded ${bin.byteLength} bytes.`);
+
+        appendFlashLog("Requesting serial port...");
+        const port = await navigator.serial.requestPort();
+        appendFlashLog("Connecting to device...");
+
+        const esptool = await import("https://unpkg.com/esptool-js@0.5.4/dist/web/index.js");
+        const transport = new esptool.Transport(port, true);
+        const loader = new esptool.ESPLoader({
+          transport,
+          baudrate: 921600,
+          terminal: {
+            clean: false,
+            writeLine: appendFlashLog
+          }
+        });
+
+        await loader.main();
+        appendFlashLog(`Chip: ${loader.chipName()}`);
+        appendFlashLog("Erasing flash...");
+        await loader.eraseFlash();
+        appendFlashLog("Writing firmware...");
+
+        await loader.writeFlash({
+          fileArray: [{ data: bin, address: 0x0 }],
+          flashSize: "8MB",
+          flashMode: "dio",
+          flashFreq: "40m"
+        });
+
+        appendFlashLog("Flash complete. Rebooting...");
+        await transport.disconnect();
+        appendFlashLog("Done. You can now send Wi-Fi config.");
+      } catch (err) {
+        appendFlashLog(`Error: ${err?.message || err}`);
+      } finally {
+        flashStart.disabled = false;
+        flashClose.disabled = false;
+      }
+    });
 
     const observerFlashBtn = document.getElementById("observerFlashBtn");
     const observerFlashVerboseBtn = document.getElementById("observerFlashVerboseBtn");
