@@ -3054,6 +3054,13 @@
           alert("WebSerial not available. Use Chrome/Edge over HTTPS.");
           return;
         }
+        const ssidValue = (document.getElementById("observerWifi")?.value || "").trim();
+        if (!ssidValue) {
+          const msg = "Wi-Fi SSID is required before sending config.";
+          setObserverStatus(msg, true);
+          alert(msg);
+          return;
+        }
         const payloadLines = buildObserverEnvSnippet().split("\n").filter(Boolean);
         const logEl = document.getElementById("installLog");
         if (logEl) {
