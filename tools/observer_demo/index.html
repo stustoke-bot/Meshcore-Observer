@@ -3012,6 +3012,42 @@
 
     let observerAutoConfig = false;
 
+    function concatUint8(chunks) {
+      const total = chunks.reduce((sum, c) => sum + c.length, 0);
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        out.set(c, offset);
+        offset += c.length;
+      }
+      return out;
+    }
+
+    async function readSerialOnce(port, timeoutMs) {
+      if (!port.readable) return "";
+      const reader = port.readable.getReader();
+      const chunks = [];
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        reader.cancel().catch(() => {});
+      }, timeoutMs);
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) chunks.push(value);
+        }
+      } catch {
+      } finally {
+        clearTimeout(timer);
+        reader.releaseLock();
+      }
+      if (!chunks.length) return timedOut ? "" : "";
+      const bytes = concatUint8(chunks);
+      return new TextDecoder().decode(bytes);
+    }
+
     async function sendObserverConfig() {
       if (!navigator.serial) {
         setObserverStatus("WebSerial not available in this browser.", true);
@@ -3032,6 +3068,10 @@
         const writer = port.writable.getWriter();
         await writer.write(new TextEncoder().encode(payload));
         writer.releaseLock();
+        const reply = await readSerialOnce(port, 1500);
+        if (reply && logEl) {
+          logEl.textContent += "\nDevice replied:\n" + reply.trim();
+        }
         await port.close();
         if (logEl) {
           logEl.textContent += "\nWi-Fi config sent. Device will reconnect using new settings.";

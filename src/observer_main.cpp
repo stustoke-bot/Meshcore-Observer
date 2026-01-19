@@ -30,7 +30,7 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.4"
+#define OBSERVER_FW_VER "1.1.5"
 
 // ================= OLED (Heltec V3) =================
 #define OLED_SDA   17
@@ -269,24 +269,29 @@ static inline void handleSerialConfig() {
         wifiSsid = buffer.substring(10);
         saveConfig();
         displayDirty = true;
+        Serial.println("[observer] cfg ssid updated");
       } else if (buffer.startsWith("wifi.pass ")) {
         wifiPass = buffer.substring(10);
         saveConfig();
         displayDirty = true;
+        Serial.println("[observer] cfg pass updated");
       } else if (buffer.startsWith("mqtt.")) {
         // MQTT endpoint is fixed (TLS-only).
       } else if (buffer.startsWith("observer.lat ")) {
         observerLat = buffer.substring(13).toFloat();
         saveConfig();
         displayDirty = true;
+        Serial.println("[observer] cfg lat updated");
       } else if (buffer.startsWith("observer.lon ")) {
         observerLon = buffer.substring(13).toFloat();
         saveConfig();
         displayDirty = true;
+        Serial.println("[observer] cfg lon updated");
       } else if (buffer.startsWith("observer.name ")) {
         observerName = buffer.substring(14);
         saveConfig();
         displayDirty = true;
+        Serial.println("[observer] cfg name updated");
       } else if (buffer == "status") {
         Serial.println("{\"ok\":true,\"fw\":\"" OBSERVER_FW_VER "\",\"ssid\":\"" + wifiSsid + "\",\"host\":\"" + mqttHost + "\",\"port\":" + String(mqttPort) + ",\"id\":\"" + observerId + "\",\"name\":\"" + observerName + "\",\"lat\":" + String(observerLat, 6) + ",\"lon\":" + String(observerLon, 6) + "}");
       }
