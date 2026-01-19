@@ -187,7 +187,8 @@
       position: fixed;
       top: 52px;
       right: 8px;
-      left: 8px;
+      bottom: 8px;
+      width: min(80vw, 320px);
       z-index: 9;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -195,6 +196,8 @@
       box-shadow: var(--shadow);
       padding: 10px;
       gap: 6px;
+      transform: translateX(110%);
+      transition: transform 0.2s ease;
     }
     .mobile-menu a {
       display: block;
@@ -1487,7 +1490,7 @@
       }
       body.view-channels.menu-open .sidebar-panel { transform: translateX(0); }
       body.menu-open .menu-backdrop { display: block; }
-      body.menu-open .mobile-menu { display: flex; }
+      body.menu-open .mobile-menu { display: flex; transform: translateX(0); }
       .mobile-nav { display: flex; }
       .sidebar { padding: 8px; gap: 8px; }
       .channel { padding: 8px; grid-template-columns: 36px 1fr auto; gap: 8px; }
@@ -1500,12 +1503,13 @@
         gap: 10px;
         flex: 1;
         overflow: auto;
-        padding-bottom: calc(80px + env(safe-area-inset-bottom));
-        scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom));
+        padding-bottom: calc(140px + env(safe-area-inset-bottom));
+        scroll-padding-bottom: calc(140px + env(safe-area-inset-bottom));
+        overflow-x: hidden;
       }
-      .message { grid-template-columns: 36px 1fr; gap: 10px; }
+      .message { grid-template-columns: 36px 1fr; gap: 10px; min-width: 0; }
       .avatar { width: 32px; height: 32px; font-size: 12px; }
-      .bubble { padding: 8px 12px; border-radius: 12px; max-width: 100%; }
+      .bubble { padding: 8px 12px; border-radius: 12px; max-width: 85%; }
       .message .meta { font-size: 11px; }
       .msg-footer { font-size: 11px; gap: 8px; }
       .analysis-panel {
@@ -2052,6 +2056,7 @@
           saveReadState();
           renderChannels();
           loadMessages(true);
+          document.body.classList.remove("menu-open");
         });
         if (mobileEl) {
           const chip = document.createElement("button");
