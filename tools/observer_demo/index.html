@@ -365,6 +365,13 @@
       font-weight: 600;
       cursor: pointer;
     }
+    .route-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 9;
+    }
 
     .rank-panel {
       grid-column: 1 / -1;
@@ -1386,6 +1393,7 @@
         display: none;
       }
       body.route-open .analysis-panel { display: flex; }
+      body.route-open .route-backdrop { display: block; }
       .analysis { grid-template-rows: 1fr auto; }
       #routeMap { min-height: 200px; }
       .route-close { display: inline-flex; }
@@ -1442,6 +1450,7 @@
       <div class="messages" id="messages"></div>
     </section>
 
+    <div class="route-backdrop" id="routeBackdrop"></div>
     <section class="panel analysis-panel">
       <div class="title">Route Path <span class="chip" id="routeKey">none</span><button class="route-close" id="routeClose" type="button">Close</button></div>
       <div class="analysis">
@@ -2091,8 +2100,16 @@
     });
 
     const routeClose = document.getElementById("routeClose");
-    routeClose?.addEventListener("click", () => {
+    const routeBackdrop = document.getElementById("routeBackdrop");
+    function closeRouteOverlay() {
       document.body.classList.remove("route-open");
+    }
+    routeClose?.addEventListener("click", closeRouteOverlay);
+    routeBackdrop?.addEventListener("click", closeRouteOverlay);
+    window.addEventListener("resize", () => {
+      if (!window.matchMedia?.("(max-width: 860px)")?.matches) {
+        document.body.classList.remove("route-open");
+      }
     });
 
     const routeOverrideBtn = document.getElementById("routeOverrideBtn");
