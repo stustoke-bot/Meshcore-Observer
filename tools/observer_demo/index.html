@@ -509,7 +509,7 @@
 
     .rf-row {
       display: grid;
-      grid-template-columns: 90px 110px 90px 140px minmax(160px, 2fr) 140px 60px 60px 60px 60px;
+      grid-template-columns: 90px 110px 90px 140px minmax(160px, 2fr) 140px 60px 60px 60px 60px 70px;
       gap: 10px;
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
@@ -694,6 +694,54 @@
       gap: 12px;
     }
 
+    .route-modal-card {
+      width: min(760px, 100%);
+    }
+
+    .route-override-list {
+      display: grid;
+      gap: 10px;
+      max-height: 320px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .route-override-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fafafa;
+      display: grid;
+      gap: 8px;
+    }
+
+    .route-override-label {
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .route-override-label strong {
+      font-size: 13px;
+      color: var(--ink);
+    }
+
+    .route-override-select {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      background: #ffffff;
+    }
+
+    .route-override-status {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+
     .field {
       display: grid;
       gap: 6px;
@@ -821,6 +869,7 @@
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
+      overflow: auto;
     }
 
     .observer-rank-panel {
@@ -833,6 +882,7 @@
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
+      overflow: auto;
     }
 
     .why-body {
@@ -842,6 +892,7 @@
       padding: 16px;
       min-height: 0;
       height: 100%;
+      overflow: auto;
     }
 
     .why-card {
@@ -886,6 +937,7 @@
       padding: 16px;
       min-height: 0;
       height: 100%;
+      overflow: auto;
     }
 
     .observer-card {
@@ -1098,8 +1150,8 @@
         <a href="#" data-view="meshscore">MeshRank</a>
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
-        <a href="#" data-view="observer">Become an Observer</a>
         <a href="#" data-view="why">Why MeshRank?</a>
+        <a href="#" data-view="observer">Become an Observer</a>
       </nav>
     </header>
 
@@ -1134,7 +1186,7 @@
           <div class="list" id="routeList"></div>
           <div style="display:flex;align-items:center;gap:8px;">
             <button class="link-btn" id="routeOverrideBtn" type="button">Route path wrong?</button>
-            <span style="font-size:12px;color:var(--muted);">Save a local override for a 2‑digit code.</span>
+            <span style="font-size:12px;color:var(--muted);">Suggest a correction for a 2-digit code.</span>
           </div>
         </div>
       </div>
@@ -1431,9 +1483,9 @@
     </section>
   </div>
 
-  <div class="modal" id="channelModal">
-    <div class="modal-card">
-      <strong>Add Channel</strong>
+    <div class="modal" id="channelModal">
+      <div class="modal-card">
+        <strong>Add Channel</strong>
       <div class="field">
         <label for="channelName"># Channel name</label>
         <input id="channelName" type="text" placeholder="#public"/>
@@ -1447,28 +1499,48 @@
         <button class="btn" id="saveChannel">Save</button>
       </div>
     </div>
+
+    <div class="modal" id="routeOverrideModal">
+      <div class="modal-card route-modal-card">
+        <strong>Suggest route fixes</strong>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;">
+          Pick the correct repeater for each 2-digit code. Suggestions are weighted over time, so one user cannot rewrite the route.
+        </div>
+        <div class="route-override-list" id="routeOverrideList"></div>
+        <div class="route-override-status" id="routeOverrideStatus">No changes submitted yet.</div>
+        <div class="modal-actions">
+          <button class="btn" id="routeOverrideClose">Close</button>
+          <button class="btn" id="routeOverrideSave">Submit suggestions</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="https://unpkg.com/esp-web-tools@9.1.0/dist/web/install-button.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     document.body.classList.add("view-channels");
-    const appData = {
-      channels: [],
-      messages: [],
-      lastChannelsSig: "",
-      lastMessagesSig: "",
-      renderedIdsByChannel: {},
-      meshScore: null,
-      rankData: null,
-      rankFilter: "",
-      unreadByChannel: {},
-      lastReadByChannel: {},
-      rfPackets: [],
-      rfSelected: null,
-      rfLastSig: "",
-      observerRank: null
-    };
+      const appData = {
+        channels: [],
+        messages: [],
+        lastChannelsSig: "",
+        lastMessagesSig: "",
+        renderedIdsByChannel: {},
+        meshScore: null,
+        rankData: null,
+        rankFilter: "",
+        unreadByChannel: {},
+        lastReadByChannel: {},
+        rfPackets: [],
+        rfSelected: null,
+        rfLastSig: "",
+        observerRank: null,
+        routeSuggestions: null,
+        repeatersByCode: null,
+        routeActivePathCodes: [],
+        routeActivePathPoints: [],
+        routeActiveMsg: null
+      };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
 
@@ -1599,11 +1671,13 @@
       routeLayer = L.layerGroup().addTo(map);
     }
 
-    function showRoute(msgId) {
+    async function showRoute(msgId) {
       const msg = appData.messages.find((m) => m.id === msgId);
       if (!msg) return;
       appData.routeActiveId = msgId;
+      appData.routeActiveMsg = msg;
 
+      await ensureRouteSuggestions();
       document.getElementById("routeKey").textContent = msg.id;
       document.getElementById("routeMessage").textContent = msg.id;
       document.getElementById("routeSource").textContent = msg.type;
@@ -1620,14 +1694,15 @@
 
       const list = document.getElementById("routeList");
       list.innerHTML = "";
-      const lines = msg.path && msg.path.length ? msg.path : ["no route data"];
-      const names = msg.pathNames && msg.pathNames.length ? msg.pathNames : [];
-      const slicedLines = lines.slice(0, maxDepth);
-      const slicedNames = names.slice(0, maxDepth);
-      slicedLines.forEach((node, idx) => {
-        const label = resolveRouteName(node, slicedNames[idx] ? slicedNames[idx] : node);
-        const item = document.createElement("div");
-        item.className = "list-item";
+        const lines = msg.path && msg.path.length ? msg.path : ["no route data"];
+        const names = msg.pathNames && msg.pathNames.length ? msg.pathNames : [];
+        const slicedLines = lines.slice(0, maxDepth);
+        const slicedNames = names.slice(0, maxDepth);
+        appData.routeActivePathCodes = slicedLines.slice();
+        slicedLines.forEach((node, idx) => {
+          const label = resolveRouteName(node, slicedNames[idx] ? slicedNames[idx] : node);
+          const item = document.createElement("div");
+          item.className = "list-item";
         item.innerHTML = `<span>${label}</span><span>${idx + 1}/${slicedLines.length}</span>`;
         list.appendChild(item);
       });
@@ -1637,7 +1712,8 @@
       if (routeLayer) {
         routeLayer.clearLayers();
         const path = Array.isArray(msg.path) ? msg.path.slice(0, maxDepth) : [];
-        const rawPoints = Array.isArray(msg.pathPoints) ? msg.pathPoints.slice(0, maxDepth) : [];
+          const rawPoints = Array.isArray(msg.pathPoints) ? msg.pathPoints.slice(0, maxDepth) : [];
+          appData.routeActivePathPoints = rawPoints.slice();
         const pathLen = Math.max(path.length, rawPoints.length);
         const normalized = [];
 
@@ -1718,15 +1794,139 @@
     });
 
     const routeOverrideBtn = document.getElementById("routeOverrideBtn");
+    const routeOverrideModal = document.getElementById("routeOverrideModal");
+    const routeOverrideList = document.getElementById("routeOverrideList");
+    const routeOverrideStatus = document.getElementById("routeOverrideStatus");
+    const routeOverrideClose = document.getElementById("routeOverrideClose");
+    const routeOverrideSave = document.getElementById("routeOverrideSave");
+
+    function getRouteVoterId() {
+      const key = "routeVoterId";
+      let id = localStorage.getItem(key);
+      if (id) return id;
+      id = Math.random().toString(36).slice(2, 12);
+      localStorage.setItem(key, id);
+      return id;
+    }
+
+    function openRouteOverrideModal() {
+      if (!routeOverrideModal || !routeOverrideList) return;
+      const codes = appData.routeActivePathCodes || [];
+      if (!codes.length) return;
+      routeOverrideList.innerHTML = "";
+      const repeatersByCode = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
+      const suggestions = appData.routeSuggestions?.byCode || {};
+      const points = appData.routeActivePathPoints || [];
+
+      codes.forEach((code, idx) => {
+        const key = String(code || "").toUpperCase();
+        const options = repeatersByCode.get(key) || [];
+        const pointName = points[idx]?.name || appData.routeActiveMsg?.pathNames?.[idx] || key;
+        const currentName = resolveRouteName(key, pointName);
+        const best = suggestions[key];
+        const bestText = best && best.accepted ? `${best.name || best.pub} (${best.confidence}% confidence)` : "No community match yet";
+
+        const row = document.createElement("div");
+        row.className = "route-override-row";
+
+        const label = document.createElement("div");
+        label.className = "route-override-label";
+        label.innerHTML = `<strong>${key}</strong><div>Current: ${currentName}</div><div>Community: ${bestText}</div>`;
+
+        const select = document.createElement("select");
+        select.className = "route-override-select";
+        select.dataset.code = key;
+
+        const optKeep = document.createElement("option");
+        optKeep.value = "keep";
+        optKeep.textContent = "Keep current";
+        select.appendChild(optKeep);
+
+        const optNone = document.createElement("option");
+        optNone.value = "none";
+        optNone.textContent = "None of these";
+        select.appendChild(optNone);
+
+        if (options.length) {
+          const divider = document.createElement("option");
+          divider.disabled = true;
+          divider.textContent = "-- Repeaters with this code --";
+          select.appendChild(divider);
+          options.forEach((opt) => {
+            const o = document.createElement("option");
+            o.value = opt.pub || "";
+            o.textContent = opt.name || opt.pub || key;
+            select.appendChild(o);
+          });
+        }
+
+        row.appendChild(label);
+        row.appendChild(select);
+        routeOverrideList.appendChild(row);
+      });
+
+      if (routeOverrideStatus) routeOverrideStatus.textContent = "Select repeaters, then submit.";
+      routeOverrideModal.classList.add("open");
+    }
+
     if (routeOverrideBtn) {
-      routeOverrideBtn.addEventListener("click", () => {
-        const code = prompt("Enter 2-digit repeater code to rename (hex):");
-        if (!code) return;
-        const key = String(code).trim().toUpperCase();
-        const current = routeOverrides[key] || "";
-        const name = prompt(`Name for ${key} (leave blank to remove):`, current);
-        if (name === null) return;
-        overrideRouteName(key, name.trim());
+      routeOverrideBtn.addEventListener("click", async () => {
+        await ensureRouteSuggestions();
+        openRouteOverrideModal();
+      });
+    }
+
+    if (routeOverrideClose) {
+      routeOverrideClose.addEventListener("click", () => {
+        if (routeOverrideModal) routeOverrideModal.classList.remove("open");
+      });
+    }
+
+    if (routeOverrideSave) {
+      routeOverrideSave.addEventListener("click", async () => {
+        if (!routeOverrideList) return;
+        const voterId = getRouteVoterId();
+        const pathGps = (appData.routeActivePathPoints || []).map((p) => p?.gps).filter(Boolean);
+        const repeatersByCode = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
+        const selects = routeOverrideList.querySelectorAll("select[data-code]");
+        const requests = [];
+
+        selects.forEach((select) => {
+          const code = select.dataset.code;
+          const choice = select.value;
+          if (!code || choice === "keep") return;
+          if (choice === "none") {
+            overrideRouteName(code, "");
+            return;
+          }
+          const options = repeatersByCode.get(code) || [];
+          const picked = options.find((opt) => opt.pub === choice);
+          if (!picked) return;
+          overrideRouteName(code, picked.name || code);
+          requests.push(fetch("/api/route-suggest", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              code,
+              repeaterPub: picked.pub,
+              repeaterName: picked.name || "",
+              voterId,
+              pathGps
+            })
+          }));
+        });
+
+        if (!requests.length) {
+          if (routeOverrideStatus) routeOverrideStatus.textContent = "No changes selected.";
+          return;
+        }
+
+        if (routeOverrideStatus) routeOverrideStatus.textContent = "Submitting suggestions...";
+        await Promise.allSettled(requests);
+        try {
+          appData.routeSuggestions = await fetchRouteSuggestions();
+        } catch {}
+        if (routeOverrideStatus) routeOverrideStatus.textContent = "Suggestions saved. Community scores update over time.";
         if (appData.routeActiveId) showRoute(appData.routeActiveId);
         renderRfList();
         renderRfDetail();
@@ -2170,11 +2370,42 @@
       return await res.json();
     }
 
+    async function fetchRouteSuggestions() {
+      const res = await fetch(`/api/route-suggestions?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
     function shortHex(value, len) {
       if (!value) return "--";
       const s = String(value);
       if (s.length <= len) return s;
       return s.slice(0, len);
+    }
+
+    function buildRepeatersByCode(data) {
+      const map = new Map();
+      const items = data?.items || [];
+      for (const item of items) {
+        const code = String(item.hashByte || "").toUpperCase();
+        if (!code) continue;
+        if (!map.has(code)) map.set(code, []);
+        map.get(code).push({
+          pub: item.pub,
+          name: item.name || code,
+          gps: item.gps || null
+        });
+      }
+      return map;
+    }
+
+    async function ensureRouteSuggestions() {
+      if (appData.routeSuggestions) return;
+      try {
+        appData.routeSuggestions = await fetchRouteSuggestions();
+      } catch {
+        appData.routeSuggestions = { byCode: {} };
+      }
     }
 
     const routeOverrides = (() => {
@@ -2205,6 +2436,8 @@
     function resolveRouteName(hash, fallback) {
       const key = String(hash || "").toUpperCase();
       if (key && routeOverrides[key]) return routeOverrides[key];
+      const suggestion = appData.routeSuggestions?.byCode?.[key];
+      if (suggestion?.accepted && suggestion.name) return suggestion.name;
       return fallback || hash || "#unknown";
     }
 
@@ -2264,19 +2497,20 @@
       const frag = document.createDocumentFragment();
       const header = document.createElement("div");
       header.className = "rf-row rf-header";
-      header.innerHTML = `
-        <div>Time</div>
-        <div>Type</div>
-        <div>Route</div>
-        <div>Hash</div>
-        <div>Path</div>
-        <div>Sender</div>
-        <div>Observers</div>
-        <div>RSSI</div>
-        <div>SNR</div>
-        <div>Len</div>
-        <div>CRC</div>
-      `;
+        header.innerHTML = `
+          <div>Time</div>
+          <div>Type</div>
+          <div>Route</div>
+          <div>Hash</div>
+          <div>Path</div>
+          <div>Sender</div>
+          <div>Observers</div>
+          <div>RSSI</div>
+          <div>SNR</div>
+          <div>Len</div>
+          <div>CRC</div>
+          <div>Edit</div>
+        `;
       frag.appendChild(header);
       slice.forEach((p) => {
         const row = document.createElement("div");
@@ -2298,10 +2532,24 @@
           <div>${Number.isFinite(p.snr) ? p.snr : "--"}</div>
           <div>${p.len ?? "--"}</div>
           <div>${p.crc === true ? "CRC" : p.crc === false ? "BAD" : "--"}</div>
+          <div><button class="link-btn rf-edit" type="button">Edit</button></div>
         `;
         row.addEventListener("click", () => {
           appData.rfSelected = p;
           renderRfDetail();
+        });
+        row.querySelector(".rf-edit")?.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          appData.routeActiveId = p.hash || null;
+          appData.routeActiveMsg = {
+            id: p.hash || "--",
+            path: Array.isArray(p.path) ? p.path : [],
+            pathNames: Array.isArray(p.pathNames) ? p.pathNames : []
+          };
+          appData.routeActivePathCodes = Array.isArray(p.path) ? p.path.slice() : [];
+          appData.routeActivePathPoints = [];
+          await ensureRouteSuggestions();
+          openRouteOverrideModal();
         });
         frag.appendChild(row);
       });
@@ -2402,6 +2650,7 @@
     function renderRankWithOptions(data, options) {
       const opts = options || {};
       appData.rankData = data;
+      appData.repeatersByCode = buildRepeatersByCode(data);
       const list = document.getElementById("rankList");
       list.innerHTML = "";
       rankLayer.clearLayers();

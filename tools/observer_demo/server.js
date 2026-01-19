@@ -14,6 +14,7 @@ const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
+const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const indexPath = path.join(__dirname, "index.html");
 const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
@@ -50,6 +51,12 @@ function readJsonSafe(p, def) {
   } catch {
     return def;
   }
+}
+
+function writeJsonSafe(p, data) {
+  const tmp = p + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, p);
 }
 
 function parseIso(ts) {
@@ -160,6 +167,62 @@ function normalizePathHash(val) {
   }
   if (typeof val === "string") return val.toUpperCase();
   return "??";
+}
+
+function sanitizeRepeaterPub(val) {
+  const pub = String(val || "").trim().toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(pub)) return "";
+  return pub;
+}
+
+function getRouteSuggestions() {
+  const data = readJsonSafe(routeSuggestionsPath, { byCode: {}, updatedAt: null });
+  if (!data.byCode || typeof data.byCode !== "object") data.byCode = {};
+  return data;
+}
+
+function calcSuggestionScores(suggestions, devices) {
+  const byPub = (devices && devices.byPub) ? devices.byPub : {};
+  const out = {};
+  for (const [code, entry] of Object.entries(suggestions.byCode || {})) {
+    const candidates = entry?.candidates || {};
+    let best = null;
+    for (const [pub, cand] of Object.entries(candidates)) {
+      const votes = Number(cand.votes || 0);
+      const unique = cand.voters ? Object.keys(cand.voters).length : 0;
+      const dist = Number.isFinite(cand.minDistanceKm) ? cand.minDistanceKm : null;
+      const distanceScore = dist === null ? 0 : Math.max(0, 50 - dist) / 10;
+      const score = votes * 1.5 + unique * 2 + distanceScore;
+      const confidence = Math.round((score / (score + 6)) * 100);
+      const accepted = (votes >= 3 && unique >= 2) || (votes >= 2 && dist !== null && dist <= 50);
+      const candOut = {
+        pub,
+        name: cand.name || byPub[pub]?.name || null,
+        votes,
+        uniqueVoters: unique,
+        minDistanceKm: dist,
+        score,
+        confidence,
+        accepted
+      };
+      if (!best || candOut.score > best.score) best = candOut;
+    }
+    if (best) out[code] = best;
+  }
+  return out;
+}
+
+function minDistanceKmFromPath(candidateGps, pathGps) {
+  if (!candidateGps || !Number.isFinite(candidateGps.lat) || !Number.isFinite(candidateGps.lon)) return null;
+  if (!Array.isArray(pathGps) || !pathGps.length) return null;
+  let best = null;
+  for (const gps of pathGps) {
+    if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) continue;
+    const d = haversineKm(candidateGps.lat, candidateGps.lon, gps.lat, gps.lon);
+    if (!Number.isFinite(d)) continue;
+    if (best === null || d < best) best = d;
+  }
+  return best;
 }
 
 async function tailLines(filePath, limit) {
@@ -1031,6 +1094,66 @@ const server = http.createServer(async (req, res) => {
       await observerRankRefresh;
     }
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(observerRankCache));
+  }
+
+  if (u.pathname === "/api/route-suggestions") {
+    const suggestions = getRouteSuggestions();
+    const devices = readJsonSafe(devicesPath, { byPub: {} });
+    const byCode = calcSuggestionScores(suggestions, devices);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+      updatedAt: suggestions.updatedAt,
+      byCode
+    }));
+  }
+
+  if (u.pathname === "/api/route-suggest" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const code = String(body.code || "").trim().toUpperCase();
+      const repeaterPub = sanitizeRepeaterPub(body.repeaterPub || "");
+      const repeaterName = String(body.repeaterName || "").trim();
+      const voterId = String(body.voterId || "").trim();
+      const pathGps = Array.isArray(body.pathGps) ? body.pathGps : [];
+      if (!/^[0-9A-F]{2}$/.test(code)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid code" }));
+      }
+      if (!repeaterPub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid repeater pub" }));
+      }
+      if (!/^[a-zA-Z0-9_-]{6,64}$/.test(voterId)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid voter id" }));
+      }
+      const devices = readJsonSafe(devicesPath, { byPub: {} });
+      const byPub = devices.byPub || {};
+      const candGps = byPub[repeaterPub]?.gps || null;
+      const minDistanceKm = minDistanceKmFromPath(candGps, pathGps);
+
+      const suggestions = getRouteSuggestions();
+      if (!suggestions.byCode[code]) suggestions.byCode[code] = { candidates: {} };
+      const bucket = suggestions.byCode[code];
+      if (!bucket.candidates[repeaterPub]) {
+        bucket.candidates[repeaterPub] = { name: repeaterName || byPub[repeaterPub]?.name || null, votes: 0, voters: {}, lastAt: null, minDistanceKm: null };
+      }
+      const cand = bucket.candidates[repeaterPub];
+      cand.voters = cand.voters || {};
+      if (!cand.voters[voterId]) {
+        cand.voters[voterId] = 1;
+        cand.votes = Number(cand.votes || 0) + 1;
+      } else {
+        cand.voters[voterId] += 1;
+      }
+      if (repeaterName) cand.name = repeaterName;
+      if (Number.isFinite(minDistanceKm)) cand.minDistanceKm = minDistanceKm;
+      cand.lastAt = new Date().toISOString();
+      suggestions.updatedAt = cand.lastAt;
+      writeJsonSafe(routeSuggestionsPath, suggestions);
+
+      const byCode = calcSuggestionScores(suggestions, devices);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, best: byCode[code] || null }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
   }
 
   if (u.pathname === "/api/rf-latest") {
