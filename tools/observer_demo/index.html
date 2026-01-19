@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>MeshRank</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -182,6 +182,32 @@
       background: rgba(0, 0, 0, 0.4);
       z-index: 8;
     }
+    .mobile-menu {
+      display: none;
+      position: fixed;
+      top: 52px;
+      right: 8px;
+      left: 8px;
+      z-index: 9;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 10px;
+      gap: 6px;
+    }
+    .mobile-menu a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--ink);
+      font-weight: 600;
+      background: rgba(0, 122, 255, 0.08);
+    }
+    .mobile-menu a.active {
+      background: rgba(0, 122, 255, 0.18);
+    }
     .mobile-nav {
       display: none;
       flex-direction: column;
@@ -323,25 +349,50 @@
     .mobile-channels {
       display: none;
       gap: 8px;
-      padding: 8px 12px 0;
+      padding: 10px 12px;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+      scroll-snap-type: x mandatory;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
     .mobile-channel {
       flex: 0 0 auto;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 2px solid transparent;
       font-size: 12px;
       font-weight: 600;
       background: rgba(0, 122, 255, 0.08);
       color: var(--ink);
       cursor: pointer;
       white-space: nowrap;
+      scroll-snap-align: start;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 6px 14px rgba(10, 11, 14, 0.12);
     }
     .mobile-channel.active {
-      background: rgba(0, 122, 255, 0.2);
-      color: var(--ink);
+      background: var(--blue);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .mobile-channel .badge-bubble {
+      min-width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 5px;
     }
 
     .messages {
@@ -1434,20 +1485,22 @@
         transform: translateX(-110%);
         transition: transform 0.2s ease;
       }
-      body.menu-open .sidebar-panel { transform: translateX(0); }
+      body.view-channels.menu-open .sidebar-panel { transform: translateX(0); }
       body.menu-open .menu-backdrop { display: block; }
+      body.menu-open .mobile-menu { display: flex; }
       .mobile-nav { display: flex; }
       .sidebar { padding: 8px; gap: 8px; }
       .channel { padding: 8px; grid-template-columns: 36px 1fr auto; gap: 8px; }
       .channel .snippet { font-size: 11px; }
       .panel { min-height: 0; }
-      .content { min-height: 0; height: 100%; }
+      .content { min-height: 0; height: 100%; padding-bottom: env(safe-area-inset-bottom); }
       .mobile-channels { display: flex; }
       .messages {
         padding: 10px 12px;
         gap: 10px;
         flex: 1;
         overflow: auto;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom));
       }
       .message { grid-template-columns: 36px 1fr; gap: 10px; }
       .avatar { width: 32px; height: 32px; font-size: 12px; }
@@ -1458,10 +1511,20 @@
         position: fixed;
         left: 8px;
         right: 8px;
-        bottom: 8px;
+        bottom: max(8px, env(safe-area-inset-bottom));
         height: 60vh;
+        max-width: calc(100vw - 16px);
         z-index: 10;
         display: none;
+      }
+      .analysis-panel .title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .analysis-panel .title .route-close {
+        margin-left: auto;
       }
       body.view-channels .analysis-panel { display: none; }
       body.route-open.view-channels .analysis-panel { display: flex; }
@@ -1508,6 +1571,15 @@
       <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">Menu</button>
     </header>
     <div class="menu-backdrop" id="menuBackdrop"></div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="#" class="active" data-view="channels">Channels</a>
+      <a href="#" data-view="rank">Repeater Rank</a>
+      <a href="#" data-view="meshscore">MeshRank</a>
+      <a href="#" data-view="observer-rank">Observer Rank</a>
+      <a href="#" data-view="rf">MeshFlow</a>
+      <a href="#" data-view="why">Why MeshRank?</a>
+      <a href="#" data-view="observer">Become an Observer</a>
+    </div>
 
     <section class="panel sidebar-panel">
       <div class="title column">
@@ -1994,6 +2066,12 @@
           chip.type = "button";
           chip.className = "mobile-channel" + (ch.id === activeChannelId ? " active" : "");
           chip.textContent = displayName;
+          if (unread) {
+            const badge = document.createElement("span");
+            badge.className = "badge-bubble";
+            badge.textContent = unread;
+            chip.appendChild(badge);
+          }
           chip.addEventListener("click", () => {
             activeChannelId = ch.id;
             document.getElementById("activeChannel").textContent = displayName;
@@ -3307,7 +3385,7 @@
     }
 
 
-    const navLinks = document.querySelectorAll(".nav a, .mobile-nav a");
+    const navLinks = document.querySelectorAll(".nav a, .mobile-nav a, .mobile-menu a");
     const menuToggle = document.getElementById("menuToggle");
     const menuBackdrop = document.getElementById("menuBackdrop");
     const closeMenu = () => document.body.classList.remove("menu-open");
