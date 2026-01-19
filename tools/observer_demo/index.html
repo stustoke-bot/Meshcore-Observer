@@ -3252,6 +3252,19 @@
         appendFlashLog(`Downloaded ${bin.byteLength} bytes.`);
         appendFlashLog("Preparing firmware...");
         appendFlashLog(`Firmware header: 0x${bin[0]?.toString(16).padStart(2, "0")}`);
+        if (bin[0] === 0xe9) {
+          const oldMode = bin[2];
+          const oldFreqSize = bin[3];
+          const newMode = 0x02; // DIO
+          const newFreqSize = (oldFreqSize & 0xf0) | 0x00; // 40MHz
+          if (oldMode !== newMode || oldFreqSize !== newFreqSize) {
+            bin[2] = newMode;
+            bin[3] = newFreqSize;
+            appendFlashLog(`Patched header: mode 0x${oldMode.toString(16)}->0x${newMode.toString(16)}, freq 0x${oldFreqSize.toString(16)}->0x${newFreqSize.toString(16)}`);
+          } else {
+            appendFlashLog("Header already set for DIO/40MHz.");
+          }
+        }
         let binStr = "";
         try {
           binStr = new TextDecoder("latin1").decode(bin);
@@ -3296,9 +3309,9 @@
 
         await loader.writeFlash({
           fileArray: [{ data: binStr, address: 0x0 }],
-          flashSize: "8MB",
-          flashMode: "dio",
-          flashFreq: "40m",
+          flashSize: "keep",
+          flashMode: "keep",
+          flashFreq: "keep",
           compress: true
         });
 
@@ -3306,15 +3319,19 @@
         try {
           const verify = await loader.readFlash(0x0, 16);
           let ok = verify.length === 16;
+          let mismatchAt = -1;
           for (let i = 0; i < 16 && ok; i++) {
-            if (verify[i] !== bin[i]) ok = false;
+            if (verify[i] !== bin[i]) {
+              ok = false;
+              mismatchAt = i;
+            }
           }
           if (ok) {
             appendFlashLog("Header verify OK.");
           } else {
-            const got = Array.from(verify.slice(0, 4)).map((b) => b.toString(16).padStart(2, "0")).join("");
-            const want = Array.from(bin.slice(0, 4)).map((b) => b.toString(16).padStart(2, "0")).join("");
-            appendFlashLog(`Header verify mismatch: got 0x${got}, expected 0x${want}`);
+            const got = Array.from(verify).map((b) => b.toString(16).padStart(2, "0")).join("");
+            const want = Array.from(bin.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join("");
+            appendFlashLog(`Header verify mismatch at byte ${mismatchAt}: got 0x${got}, expected 0x${want}`);
           }
         } catch (err) {
           appendFlashLog(`Header verify failed: ${err?.message || err}`);
