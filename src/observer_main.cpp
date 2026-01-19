@@ -21,6 +21,7 @@
 #define LORA_RST   12
 #define LORA_BUSY  13
 #define LORA_DIO1  14
+#define VEXT_EN    36
 
 // ================= RF PARAMETERS =================
 #define FREQ_MHZ   869.618
@@ -29,16 +30,16 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.2"
+#define OBSERVER_FW_VER "1.1.4"
 
 // ================= OLED (Heltec V3) =================
 #define OLED_SDA   17
 #define OLED_SCL   18
-#define OLED_ADDR  0x3C
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
 bool displayReady = false;
 bool displayDirty = true;
 unsigned long lastDisplayMs = 0;
+uint8_t oledAddr = 0x3C;
 
 // PubSubClient default buffer is too small for full hex payloads.
 #define MQTT_BUFFER_SIZE 2048
@@ -199,6 +200,16 @@ static inline void renderDisplay() {
   display.display();
 }
 
+static inline bool probeI2c(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
+
+static inline void enableVext() {
+  pinMode(VEXT_EN, OUTPUT);
+  digitalWrite(VEXT_EN, LOW);
+}
+
 static inline void saveConfig() {
   prefs.begin(PREFS_NS, false);
   prefs.putString("ssid", wifiSsid);
@@ -298,11 +309,25 @@ void setup() {
   Serial.print("[observer] ssid=");
   Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
 
+  enableVext();
   Wire.begin(OLED_SDA, OLED_SCL);
-  if (display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+  Wire.setClock(400000);
+  if (probeI2c(0x3C)) {
+    oledAddr = 0x3C;
+  } else if (probeI2c(0x3D)) {
+    oledAddr = 0x3D;
+  } else {
+    Serial.println("[observer] oled not detected");
+  }
+  if (probeI2c(oledAddr) && display.begin(SSD1306_SWITCHCAPVCC, oledAddr)) {
     displayReady = true;
     displayDirty = true;
     renderDisplay();
+    Serial.print("[observer] oled ok addr=0x");
+    Serial.println(oledAddr, HEX);
+  } else if (probeI2c(oledAddr)) {
+    Serial.print("[observer] oled init failed addr=0x");
+    Serial.println(oledAddr, HEX);
   }
 
   WiFi.mode(WIFI_STA);
