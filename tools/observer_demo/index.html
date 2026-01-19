@@ -349,46 +349,31 @@
       flex-direction: column;
       min-height: 0;
     }
-    .mobile-channels {
+    .channels-tab {
       display: none;
-      gap: 8px;
-      padding: 10px 12px;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scroll-snap-type: x mandatory;
+      position: fixed;
+      left: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 9;
+      border: 1px solid var(--line);
       background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      position: sticky;
-      top: 0;
-      z-index: 2;
-    }
-    .mobile-channel {
-      flex: 0 0 auto;
-      padding: 8px 12px;
-      border-radius: 12px;
-      border: 2px solid transparent;
-      font-size: 12px;
-      font-weight: 600;
-      background: rgba(0, 122, 255, 0.08);
       color: var(--ink);
-      cursor: pointer;
-      white-space: nowrap;
-      scroll-snap-align: start;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      box-shadow: 0 6px 14px rgba(10, 11, 14, 0.12);
+      cursor: pointer;
+      box-shadow: var(--shadow);
     }
-    .mobile-channel.active {
-      background: var(--blue);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.3);
-    }
-    .mobile-channel .badge-bubble {
+    .channels-tab .badge-bubble {
       min-width: 18px;
       height: 18px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.2);
+      background: var(--blue);
       color: #fff;
       font-size: 10px;
       font-weight: 700;
@@ -1497,7 +1482,7 @@
       .channel .snippet { font-size: 11px; }
       .panel { min-height: 0; }
       .content { min-height: 0; height: 100%; padding-bottom: env(safe-area-inset-bottom); }
-      .mobile-channels { display: flex; }
+      .channels-tab { display: inline-flex; }
       .messages {
         padding: 10px 12px;
         gap: 10px;
@@ -1596,9 +1581,9 @@
       </div>
     </section>
 
+    <button class="channels-tab" id="channelsTab" type="button">Channels <span class="badge-bubble" id="channelsUnread">0</span></button>
     <section class="panel content">
       <div class="title">Public <span class="chip" id="activeChannel">#public</span></div>
-      <div class="mobile-channels" id="mobileChannels"></div>
       <div class="messages" id="messages"></div>
     </section>
 
@@ -2018,12 +2003,13 @@
 
     function renderChannels() {
       const el = document.getElementById("channels");
-      const mobileEl = document.getElementById("mobileChannels");
-      if (mobileEl) mobileEl.innerHTML = "";
+      const tabBadge = document.getElementById("channelsUnread");
       el.innerHTML = "";
       const list = appData.channels.length
         ? appData.channels
         : [{ id: "public", name: "#public", snippet: "No channels yet.", time: "--" }];
+      const totalUnread = Object.values(appData.unreadByChannel || {}).reduce((sum, v) => sum + (v || 0), 0);
+      if (tabBadge) tabBadge.textContent = totalUnread || 0;
       list.forEach((ch, idx) => {
         const unread = appData.unreadByChannel[ch.id] || 0;
         const displayName = ch.name || "#unknown";
@@ -2058,32 +2044,6 @@
           loadMessages(true);
           document.body.classList.remove("menu-open");
         });
-        if (mobileEl) {
-          const chip = document.createElement("button");
-          chip.type = "button";
-          chip.className = "mobile-channel" + (ch.id === activeChannelId ? " active" : "");
-          chip.textContent = displayName;
-          if (unread) {
-            const badge = document.createElement("span");
-            badge.className = "badge-bubble";
-            badge.textContent = unread;
-            chip.appendChild(badge);
-          }
-          chip.addEventListener("click", () => {
-            activeChannelId = ch.id;
-            document.getElementById("activeChannel").textContent = displayName;
-            const latest = appData.messages
-              .filter((msg) => msg.channelId === activeChannelId)
-              .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
-              .reduce((a, b) => Math.max(a, b), 0);
-            if (latest) appData.lastReadByChannel[activeChannelId] = latest;
-            appData.unreadByChannel[activeChannelId] = 0;
-            saveReadState();
-            renderChannels();
-            loadMessages(true);
-          });
-          mobileEl.appendChild(chip);
-        }
         row.querySelector(".channel-remove").addEventListener("click", async (e) => {
           e.stopPropagation();
           const name = e.currentTarget.dataset.name;
@@ -3391,11 +3351,15 @@
     const navLinks = document.querySelectorAll(".nav a, .mobile-nav a, .mobile-menu a");
     const menuToggle = document.getElementById("menuToggle");
     const menuBackdrop = document.getElementById("menuBackdrop");
+    const channelsTab = document.getElementById("channelsTab");
     const closeMenu = () => document.body.classList.remove("menu-open");
     menuToggle?.addEventListener("click", () => {
       document.body.classList.toggle("menu-open");
     });
     menuBackdrop?.addEventListener("click", closeMenu);
+    channelsTab?.addEventListener("click", () => {
+      document.body.classList.toggle("menu-open");
+    });
     navLinks.forEach((link) => {
         link.addEventListener("click", async (e) => {
           e.preventDefault();
