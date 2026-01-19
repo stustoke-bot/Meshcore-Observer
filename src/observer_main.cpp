@@ -6,6 +6,9 @@
 #include <Preferences.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <RadioLib.h>
 #include <PubSubClient.h>
 #include <mbedtls/sha256.h>
@@ -26,7 +29,16 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.1"
+#define OBSERVER_FW_VER "1.1.2"
+
+// ================= OLED (Heltec V3) =================
+#define OLED_SDA   17
+#define OLED_SCL   18
+#define OLED_ADDR  0x3C
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
+bool displayReady = false;
+bool displayDirty = true;
+unsigned long lastDisplayMs = 0;
 
 // PubSubClient default buffer is too small for full hex payloads.
 #define MQTT_BUFFER_SIZE 2048
@@ -152,6 +164,41 @@ static inline void loadConfig() {
   if (observerName.length() == 0) observerName = observerId;
 }
 
+static inline void renderDisplay() {
+  if (!displayReady) return;
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("MeshRank Observer");
+  display.setCursor(0, 12);
+  display.print("Name: ");
+  display.println(observerName.length() ? observerName : "-");
+
+  display.setCursor(0, 24);
+  display.print("WiFi: ");
+  if (WiFi.status() == WL_CONNECTED) {
+    display.print(wifiSsid.length() ? wifiSsid : "connected");
+  } else if (wifiSsid.length()) {
+    display.print("connecting");
+  } else {
+    display.print("not set");
+  }
+
+  display.setCursor(0, 36);
+  display.print("IP: ");
+  if (WiFi.status() == WL_CONNECTED) {
+    display.print(WiFi.localIP().toString());
+  } else {
+    display.print("--");
+  }
+
+  display.setCursor(0, 48);
+  display.print("MQTT: ");
+  display.println(mqttClient.connected() ? "connected" : "offline");
+  display.display();
+}
+
 static inline void saveConfig() {
   prefs.begin(PREFS_NS, false);
   prefs.putString("ssid", wifiSsid);
@@ -210,20 +257,25 @@ static inline void handleSerialConfig() {
       if (buffer.startsWith("wifi.ssid ")) {
         wifiSsid = buffer.substring(10);
         saveConfig();
+        displayDirty = true;
       } else if (buffer.startsWith("wifi.pass ")) {
         wifiPass = buffer.substring(10);
         saveConfig();
+        displayDirty = true;
       } else if (buffer.startsWith("mqtt.")) {
         // MQTT endpoint is fixed (TLS-only).
       } else if (buffer.startsWith("observer.lat ")) {
         observerLat = buffer.substring(13).toFloat();
         saveConfig();
+        displayDirty = true;
       } else if (buffer.startsWith("observer.lon ")) {
         observerLon = buffer.substring(13).toFloat();
         saveConfig();
+        displayDirty = true;
       } else if (buffer.startsWith("observer.name ")) {
         observerName = buffer.substring(14);
         saveConfig();
+        displayDirty = true;
       } else if (buffer == "status") {
         Serial.println("{\"ok\":true,\"fw\":\"" OBSERVER_FW_VER "\",\"ssid\":\"" + wifiSsid + "\",\"host\":\"" + mqttHost + "\",\"port\":" + String(mqttPort) + ",\"id\":\"" + observerId + "\",\"name\":\"" + observerName + "\",\"lat\":" + String(observerLat, 6) + ",\"lon\":" + String(observerLon, 6) + "}");
       }
@@ -245,6 +297,13 @@ void setup() {
   Serial.println(String("[observer] fw=") + OBSERVER_FW_VER);
   Serial.print("[observer] ssid=");
   Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+  if (display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    displayReady = true;
+    displayDirty = true;
+    renderDisplay();
+  }
 
   WiFi.mode(WIFI_STA);
   if (wifiSsid.length()) {
@@ -275,11 +334,13 @@ void loop() {
     wifiWasConnected = true;
     Serial.print("[observer] wifi connected ip=");
     Serial.println(WiFi.localIP());
+    displayDirty = true;
   }
 
   if (WiFi.status() != WL_CONNECTED && wifiWasConnected) {
     wifiWasConnected = false;
     Serial.println("[observer] wifi disconnected");
+    displayDirty = true;
   }
 
   if (WiFi.status() == WL_CONNECTED && !mqttClient.connected()) {
@@ -296,6 +357,7 @@ void loop() {
         Serial.print(mqttHost);
         Serial.print(":");
         Serial.println(mqttPort);
+        displayDirty = true;
       }
       spoolFlush();
     }
@@ -303,8 +365,15 @@ void loop() {
   if (!mqttClient.connected() && mqttWasConnected) {
     mqttWasConnected = false;
     Serial.println("[observer] mqtt disconnected");
+    displayDirty = true;
   }
   mqttClient.loop();
+
+  if (displayReady && (displayDirty || millis() - lastDisplayMs > 3000)) {
+    renderDisplay();
+    displayDirty = false;
+    lastDisplayMs = millis();
+  }
 
   if (!takeRxFlag()) {
     delay(2);
