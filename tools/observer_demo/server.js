@@ -335,16 +335,17 @@ async function buildObserverRank() {
   function colorForAge(ageHours) {
     if (ageHours <= 1) return "#34c759";
     if (ageHours <= 6) return "#ff9500";
-    if (ageHours <= 24) return "#ff3b30";
+    if (ageHours <= 48) return "#ff3b30";
     return "#8e8e93";
   }
 
   const items = [];
-  for (const s of stats.values()) {
-    const lastSeen = s.lastSeen ? new Date(s.lastSeen).getTime() : 0;
-    const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
-    const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
-    const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
+    for (const s of stats.values()) {
+      const lastSeen = s.lastSeen ? new Date(s.lastSeen).getTime() : 0;
+      const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
+      const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
+      if (ageHours > 24 * 7) continue;
+      const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
     let locSource = s.locSource;
     if (!gps && s.bestRepeaterPub && repeatersByPub.has(String(s.bestRepeaterPub).toUpperCase())) {
@@ -384,6 +385,7 @@ async function buildObserverRank() {
     const coverageCount = s.repeaters.size;
     const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
     const scoreColor = colorForAge(ageHours);
+    const isStale = ageHours > 48;
     items.push({
       id: s.id,
       name: s.name || s.id,
@@ -391,6 +393,7 @@ async function buildObserverRank() {
       lastSeen: s.lastSeen,
       firstSeen: s.firstSeen,
       ageHours,
+      stale: isStale,
       uptimeHours,
       packetsToday: s.packetsToday,
       coverageKm,
@@ -518,8 +521,9 @@ async function buildRepeaterRank() {
       const lastSeen = s.lastSeenTs ? s.lastSeenTs.toISOString() : (d.lastSeen || null);
       const lastSeenDate = parseIso(lastSeen);
       const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
-      const isStale = ageHours > 24;
-      const uniqueMsgs = s.msgCounts.size || 0;
+        const isStale = ageHours > 48;
+        if (ageHours > 24 * 7) return null;
+        const uniqueMsgs = s.msgCounts.size || 0;
       const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
@@ -555,11 +559,11 @@ async function buildRepeaterRank() {
         else color = "#ff9500";
       }
 
-      return {
-        pub,
-        hashByte: nodeHashFromPub(pub),
-        name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
-        gps: d.gps || null,
+        return {
+          pub,
+          hashByte: nodeHashFromPub(pub),
+          name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
+          gps: d.gps || null,
         lastSeen,
         isObserver: !!d.isObserver,
         bestRssi,
@@ -575,8 +579,9 @@ async function buildRepeaterRank() {
         color,
         hiddenOnMap: !!d.hiddenOnMap
       };
-    })
-    .sort((a, b) => b.score - a.score);
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
 
   return {
     updatedAt: new Date().toISOString(),

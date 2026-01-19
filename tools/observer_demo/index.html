@@ -854,6 +854,7 @@
     .badge.badge-blue { background: rgba(0, 122, 255, 0.16); border-color: rgba(0, 122, 255, 0.28); color: #0a60d1; }
     .badge.badge-amber { background: rgba(255, 149, 0, 0.18); border-color: rgba(255, 149, 0, 0.28); color: #9a5b00; }
     .badge.badge-purple { background: rgba(88, 86, 214, 0.18); border-color: rgba(88, 86, 214, 0.28); color: #3b39a5; }
+    .badge.badge-gray { background: rgba(142, 142, 147, 0.18); border-color: rgba(142, 142, 147, 0.28); color: #4a4a4f; }
     .list {
       display: flex;
       flex-direction: column;
@@ -1575,7 +1576,7 @@
     }
 
     function isRepeaterHidden(r) {
-      return !!r?.hiddenOnMap || !hasValidGps(r);
+      return !!r?.hiddenOnMap || !hasValidGps(r) || r?.stale;
     }
 
     function confidence(msg) {
@@ -2324,7 +2325,7 @@
           ? items.map((o) => {
               const scoreBadge = String(Math.round(o.score || 0)).padStart(2, "0");
               return `
-                <div class="rank-item">
+                <div class="rank-item${o.stale ? " hidden" : ""}">
                   <div class="score">
                     <span class="rank-dot" style="background:${o.scoreColor}">${scoreBadge}</span>
                     <div class="rank-main">
@@ -2426,6 +2427,7 @@
 
     function buildRepeaterBadges(r, nearestObserverSet) {
       const badges = [];
+      if (r.stale) badges.push({ label: "Stale repeater", tone: "gray" });
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
       if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
@@ -2438,6 +2440,7 @@
 
     function buildObserverBadges(o) {
       const badges = [];
+      if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
       if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
       if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(o.coverageCount || 0) >= 5) badges.push({ label: "Strong Local Mesh", tone: "purple" });
@@ -2773,6 +2776,7 @@
         sorted.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
+          const hiddenLabel = r.stale ? "Stale repeater" : "GPS unreliable";
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
@@ -2790,7 +2794,7 @@
             <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
             <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
             ${badgeHtml(badges)}
-            ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
+              ${isHidden ? `<div class="row"><span class="badge">${hiddenLabel}</span></div>` : ""}
             ${observerBadge}
           `;
         item.addEventListener("click", () => {
