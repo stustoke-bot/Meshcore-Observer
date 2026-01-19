@@ -88,6 +88,15 @@ function getHex(rec) {
   return null;
 }
 
+function sha256Hex(hex) {
+  try {
+    const buf = Buffer.from(hex, "hex");
+    return crypto.createHash("sha256").update(buf).digest("hex").toUpperCase();
+  } catch {
+    return null;
+  }
+}
+
 function saveKeys(obj) {
   const tmp = keysPath + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
@@ -704,7 +713,13 @@ async function buildChannelMessages() {
     const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
     if (!chName) continue;
 
-      const msgHash = String(rec.frameHash || decoded.messageHash || hex.slice(0, 16) || "unknown").toUpperCase();
+      const msgHash = String(
+        rec.frameHash ||
+        decoded.messageHash ||
+        sha256Hex(hex) ||
+        hex.slice(0, 16) ||
+        "unknown"
+      ).toUpperCase();
       const hits = observerMap.get(msgHash);
       const observerHits = hits ? Array.from(hits) : [];
       const observerCount = observerHits.length;
