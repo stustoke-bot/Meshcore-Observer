@@ -30,12 +30,13 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.7"
+#define OBSERVER_FW_VER "1.1.8"
 
 // ================= OLED (Heltec V3) =================
 #define OLED_SDA   17
 #define OLED_SCL   18
-Adafruit_SSD1306 display(128, 64, &Wire, -1);
+#define OLED_RST   21
+Adafruit_SSD1306 display(128, 64, &Wire, OLED_RST);
 bool displayReady = false;
 bool displayDirty = true;
 unsigned long lastDisplayMs = 0;
@@ -344,6 +345,13 @@ void setup() {
   Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
 
   setVext(true);
+  pinMode(OLED_RST, OUTPUT);
+  digitalWrite(OLED_RST, HIGH);
+  delay(10);
+  digitalWrite(OLED_RST, LOW);
+  delay(50);
+  digitalWrite(OLED_RST, HIGH);
+  delay(50);
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(400000);
   delay(120);
