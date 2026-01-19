@@ -3282,7 +3282,7 @@
         const transport = new esptool.Transport(port, true);
         const loader = new esptool.ESPLoader({
           transport,
-          baudrate: 921600,
+          baudrate: 115200,
           terminal: {
             clean: () => {},
             writeLine: appendFlashLog,
@@ -3305,8 +3305,26 @@
           flashSize: "8MB",
           flashMode: "dio",
           flashFreq: "40m",
-          compress: true
+          compress: false
         });
+
+        appendFlashLog("Verifying header...");
+        try {
+          const verify = await loader.readFlash(0x0, 16);
+          let ok = verify.length === 16;
+          for (let i = 0; i < 16 && ok; i++) {
+            if (verify[i] !== bin[i]) ok = false;
+          }
+          if (ok) {
+            appendFlashLog("Header verify OK.");
+          } else {
+            const got = Array.from(verify.slice(0, 4)).map((b) => b.toString(16).padStart(2, "0")).join("");
+            const want = Array.from(bin.slice(0, 4)).map((b) => b.toString(16).padStart(2, "0")).join("");
+            appendFlashLog(`Header verify mismatch: got 0x${got}, expected 0x${want}`);
+          }
+        } catch (err) {
+          appendFlashLog(`Header verify failed: ${err?.message || err}`);
+        }
 
         appendFlashLog("Flash complete. Rebooting...");
         await transport.disconnect();
