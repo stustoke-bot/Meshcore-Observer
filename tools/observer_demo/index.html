@@ -747,6 +747,12 @@
       min-height: 18px;
     }
 
+    .route-override-empty {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 12px 0;
+    }
+
     .field {
       display: grid;
       gap: 6px;
@@ -1827,8 +1833,13 @@
     function openRouteOverrideModal() {
       if (!routeOverrideModal || !routeOverrideList) return;
       const codes = appData.routeActivePathCodes || [];
-      if (!codes.length) return;
       routeOverrideList.innerHTML = "";
+      if (!codes.length) {
+        routeOverrideList.innerHTML = `<div class="route-override-empty">Select a packet in MeshFlow first, then try again.</div>`;
+        if (routeOverrideStatus) routeOverrideStatus.textContent = "No route selected yet.";
+        routeOverrideModal.classList.add("open");
+        return;
+      }
       const repeatersByCode = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
       const suggestions = appData.routeSuggestions?.byCode || {};
       const points = appData.routeActivePathPoints || [];
