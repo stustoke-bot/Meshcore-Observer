@@ -3283,8 +3283,6 @@
           } catch (err2) {
             esptool = await import("https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js");
           }
-        } catch (err) {
-          throw err;
         }
         const transport = new esptool.Transport(port, true);
         const flashOptions = {
