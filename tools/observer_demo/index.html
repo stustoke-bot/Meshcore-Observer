@@ -73,15 +73,15 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       font-weight: 700;
       letter-spacing: 0.2px;
       flex: 0 0 auto;
     }
 
     .brand-logo {
-      width: clamp(300px, 55vw, 820px);
-      height: 48px;
+      width: 44px;
+      height: 44px;
       border-radius: 12px;
       display: block;
       overflow: hidden;
@@ -91,10 +91,25 @@
     .brand-logo img {
       width: 100%;
       height: 100%;
-      object-fit: contain;
-      object-position: left center;
+      object-fit: cover;
+      object-position: center;
       display: block;
-      min-width: 320px;
+      min-width: 0;
+    }
+
+    .brand-text {
+      display: grid;
+      gap: 2px;
+      line-height: 1.1;
+    }
+
+    .brand-text strong {
+      font-size: 16px;
+    }
+
+    .brand-text span {
+      font-size: 12px;
+      color: var(--muted);
     }
 
     .status-dot {
@@ -733,6 +748,15 @@
     body.view-observer .rf-panel,
     body.view-observer .observer-rank-panel { display: none; }
     body.view-observer .observer-panel { display: flex; }
+    body.view-why .sidebar-panel,
+    body.view-why .content,
+    body.view-why .analysis-panel,
+    body.view-why .rank-panel,
+    body.view-why .meshscore-panel,
+    body.view-why .rf-panel,
+    body.view-why .observer-panel,
+    body.view-why .observer-rank-panel { display: none; }
+    body.view-why .why-panel { display: flex; }
 
     body.view-observer-rank .sidebar-panel,
     body.view-observer-rank .content,
@@ -803,6 +827,56 @@
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
+    }
+
+    .why-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .why-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .why-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      background: #ffffff;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .why-card h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .why-card p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+
+    .faq-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .faq-item p {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
     }
 
     .observer-body {
@@ -984,7 +1058,7 @@
         padding: 8px 10px;
         min-height: 48px;
       }
-      .brand-logo { width: min(100%, 460px); height: 42px; }
+      .brand-logo { width: 40px; height: 40px; }
       .nav { flex-wrap: wrap; gap: 8px; }
       .sidebar-panel { display: none; }
       .panel { min-height: auto; }
@@ -1001,6 +1075,7 @@
       .observer-map { height: 260px; }
       .observer-rank-body { grid-template-columns: 1fr; }
       .observer-rank-map { min-height: 280px; }
+      .why-body { grid-template-columns: 1fr; }
       body.view-observer .observer-panel { display: none; }
     }
   </style>
@@ -1012,6 +1087,10 @@
           <div class="brand-logo">
             <img src="/meshrank.png?v=1.1.1" alt="MeshRank logo"/>
           </div>
+          <div class="brand-text">
+            <strong>MeshRank.net</strong>
+            <span>by G5AIL</span>
+          </div>
         </div>
       <nav class="nav">
         <a href="#" class="active" data-view="channels">Channels</a>
@@ -1020,6 +1099,7 @@
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
         <a href="#" data-view="observer">Become an Observer</a>
+        <a href="#" data-view="why">Why MeshRank?</a>
       </nav>
     </header>
 
@@ -1286,6 +1366,65 @@
           <input class="rank-search" id="observerRankSearch" type="text" placeholder="Search observers"/>
           <div class="rank-scroll" id="observerRankScroll">
             <div id="observerRankList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel why-panel">
+      <div class="title">Why MeshRank?</div>
+      <div class="why-body">
+        <div class="why-card">
+          <h3>Why MeshRank?</h3>
+          <p>Mesh networks promise resilience, but in their early stages they often struggle with something more basic: confidence.</p>
+          <p>With MeshCORE, new repeaters are frequently deployed into sparse or growing networks. When messages don’t appear to move — or there’s no clear feedback — operators naturally assume the repeater isn’t helping. Too often, it gets switched off, and the network loses coverage just when it needs it most.</p>
+          <p>MeshRank exists to answer one question early mesh networks struggle with: “Is this helping?”</p>
+          <p>By giving honest, low-impact feedback, MeshRank helps good repeaters stay online long enough for the mesh to become truly resilient. MeshRank exists to change that experience.</p>
+          <p>It provides visibility into how the mesh is actually performing:</p>
+          <p>Which repeaters are active and contributing over time. Which messages were delivered, with a confidence score rather than guesswork. Where messages were observed but failed to fully propagate.</p>
+          <p>This feedback loop keeps operators engaged and informed, even when the network is still maturing.</p>
+          <p>MeshRank uses a passive observer network to provide insight without increasing mesh traffic. By reducing the need for repeated test messages, it lowers network load while giving users meaningful information about what’s happening behind the scenes.</p>
+          <p>Repeaters are ranked based on real contribution, not assumptions — encouraging operators to keep nodes online, improve placement, and actively strengthen the network.</p>
+          <p>MeshRank doesn’t replace the mesh, and it doesn’t route traffic through the internet. It simply helps the mesh understand itself.</p>
+          <p>Visibility builds confidence. Confidence builds resilience.</p>
+        </div>
+        <div class="why-card">
+          <h3>Frequently Asked Questions</h3>
+          <div class="faq-item">
+            <strong>Does MeshRank route messages over the internet?</strong>
+            <p>No. MeshRank does not forward, relay, or complete mesh messages using the internet. All mesh communication still happens entirely over RF. MeshRank only observes what has already occurred and reports that information back to users.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Does this break the idea of a “pure” mesh?</strong>
+            <p>No. The mesh remains fully autonomous and functional without MeshRank. If MeshRank disappeared tomorrow, the mesh would continue to operate exactly as it does today. MeshRank does not participate in routing decisions, message delivery, or network control — it provides visibility, not dependency.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Why involve the internet at all?</strong>
+            <p>Because feedback matters. In early and sparse networks, lack of feedback causes repeaters to be switched off, not improved. MeshRank uses off-mesh observation to help operators understand what’s happening without increasing RF traffic or adding test spam to the network. This strengthens the mesh — it doesn’t weaken it.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Could this become a central point of failure?</strong>
+            <p>No. MeshRank is not in the message path. It cannot block, delay, or interfere with mesh traffic. If MeshRank goes offline, the mesh continues to operate unchanged. There is no reliance on MeshRank for delivery, routing, or authentication.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Does this reduce resilience by encouraging internet dependence?</strong>
+            <p>Quite the opposite. MeshRank encourages: better repeater placement, higher uptime, reduced test traffic, and faster identification of coverage gaps. All of these increase RF-only resilience, even when the internet is unavailable.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Is this surveillance or message tracking?</strong>
+            <p>No. Observers do not inject traffic or control the network. They report limited metadata needed to understand propagation — not to monitor users. The goal is network health, not message content analysis.</p>
+          </div>
+          <div class="faq-item">
+            <strong>Why ranking repeaters? Isn’t that gamification?</strong>
+            <p>Yes — intentionally. Visibility and motivation matter. Ranking makes contribution measurable, encourages operators to keep repeaters online, and helps the network grow during its most fragile phase. Strong networks are built by engaged operators.</p>
+          </div>
+          <div class="faq-item">
+            <strong>What happens when the mesh becomes dense and mature?</strong>
+            <p>MeshRank becomes less critical — and that’s a success. As density increases, confidence becomes self-sustaining. MeshRank’s role naturally shifts toward diagnostics, optimisation, and historical insight rather than reassurance.</p>
+          </div>
+          <div class="faq-item">
+            <strong>So what is MeshRank really for?</strong>
+            <p>MeshRank exists to answer one question early mesh networks struggle with: “Is this helping?” By giving honest, low-impact feedback, MeshRank helps good repeaters stay online long enough for the mesh to become truly resilient.</p>
           </div>
         </div>
       </div>
@@ -2410,6 +2549,7 @@
           document.body.classList.toggle("view-rf", view === "rf");
       document.body.classList.toggle("view-observer", view === "observer");
       document.body.classList.toggle("view-observer-rank", view === "observer-rank");
+          document.body.classList.toggle("view-why", view === "why");
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
@@ -2463,6 +2603,9 @@
             renderObserverRank(data);
             renderObserverRankMap(data);
           } catch {}
+        }
+        if (view === "why") {
+          // static content
         }
       });
     });
