@@ -1392,7 +1392,8 @@
         z-index: 10;
         display: none;
       }
-      body.route-open .analysis-panel { display: flex; }
+      body.view-channels .analysis-panel { display: none; }
+      body.route-open.view-channels .analysis-panel { display: flex; }
       body.route-open .route-backdrop { display: block; }
       .analysis { grid-template-rows: 1fr auto; }
       #routeMap { min-height: 200px; }
@@ -2419,6 +2420,9 @@
 
     async function boot() {
       await checkServerStatus();
+      if (window.matchMedia?.("(max-width: 860px)")?.matches) {
+        document.body.classList.remove("route-open");
+      }
       try {
         await loadChannels();
         await loadMessages(true);
