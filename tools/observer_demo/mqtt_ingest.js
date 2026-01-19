@@ -131,6 +131,9 @@ function updateEstimatedLocation(record, entry, byPub) {
   }
   const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
   if (payloadType !== "Advert") return;
+  const pathRaw = Array.isArray(decoded.path) ? decoded.path : [];
+  const hopCount = pathRaw.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
+  if (hopCount > 1) return;
   const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
   const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
   if (!pub) return;
@@ -139,12 +142,16 @@ function updateEstimatedLocation(record, entry, byPub) {
   if (!rpt || !rpt.gps || !Number.isFinite(rpt.gps.lat) || !Number.isFinite(rpt.gps.lon)) return;
 
   const best = Number.isFinite(entry.bestRssi) ? entry.bestRssi : -999;
-  if (record.rssi > best) {
+  const bestHop = Number.isFinite(entry.bestHopCount) ? entry.bestHopCount : 99;
+  const isBetterHop = hopCount < bestHop;
+  const isBetterRssi = record.rssi > best;
+  if (isBetterHop || (hopCount === bestHop && isBetterRssi)) {
     entry.bestRssi = record.rssi;
+    entry.bestHopCount = hopCount;
     entry.bestRepeaterPub = key;
     entry.bestRepeaterName = rpt.name || key;
     entry.gps = rpt.gps;
-    entry.locSource = rpt.name || key;
+    entry.locSource = rpt.name ? `${rpt.name} (direct)` : `${key} (direct)`;
   }
 
   const firstSeen = entry.firstSeen ? new Date(entry.firstSeen).getTime() : 0;
