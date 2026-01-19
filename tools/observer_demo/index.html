@@ -3256,6 +3256,12 @@
         if (!res.ok) throw new Error(`download failed (${res.status})`);
         const bin = new Uint8Array(await res.arrayBuffer());
         appendFlashLog(`Downloaded ${bin.byteLength} bytes.`);
+        appendFlashLog("Encoding firmware...");
+        let binB64 = "";
+        for (let i = 0; i < bin.length; i += 0x8000) {
+          binB64 += String.fromCharCode(...bin.subarray(i, i + 0x8000));
+        }
+        binB64 = btoa(binB64);
 
         appendFlashLog("Requesting serial port...");
         const port = await navigator.serial.requestPort();
@@ -3289,7 +3295,7 @@
         appendFlashLog("Writing firmware...");
 
         await loader.writeFlash({
-          fileArray: [{ data: bin, address: 0x0 }],
+          fileArray: [{ data: binB64, address: 0x0 }],
           flashSize: "8MB",
           flashMode: "dio",
           flashFreq: "40m"
