@@ -720,7 +720,8 @@ async function buildChannelMessages() {
         hex.slice(0, 16) ||
         "unknown"
       ).toUpperCase();
-      const hits = observerMap.get(msgHash);
+      const frameHash = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
+      const hits = observerMap.get(msgHash) || (frameHash ? observerMap.get(frameHash) : null);
       const observerHits = hits ? Array.from(hits) : [];
       const observerCount = observerHits.length;
       const msgKey = chName + "|" + msgHash;

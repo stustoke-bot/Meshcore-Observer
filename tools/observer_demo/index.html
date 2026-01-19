@@ -1547,7 +1547,7 @@
         left: 8px;
         bottom: 8px;
         width: min(86vw, 360px);
-        z-index: 9;
+        z-index: 960;
         transform: translateX(-110%);
         transition: transform 0.2s ease;
       }
@@ -1608,6 +1608,8 @@
       .summary-card strong { font-size: 14px; }
       .rank-body { height: auto; }
       .rank-map { min-height: 200px; }
+      #rankMap { min-height: 200px; }
+      #observerRankMap { min-height: 200px; }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
       body.view-rf .rf-row { min-width: 0; grid-template-columns: 70px 70px 1fr 70px 60px 60px; }
@@ -1620,7 +1622,8 @@
       .observer-body { grid-template-columns: 1fr; }
       .observer-map { height: 260px; }
       .observer-rank-body { grid-template-columns: 1fr; }
-      .observer-rank-map { min-height: 200px; }
+      .observer-rank-map { height: 220px; min-height: 220px; }
+      #observerRankMap { height: 100%; min-height: 0; }
       .why-body { grid-template-columns: 1fr; }
       .repeater-body { grid-template-columns: 1fr; }
       .meshscore-panel { min-height: 0; overflow: hidden; }
@@ -2308,7 +2311,9 @@
         const normalized = [];
 
         function hasGps(p) {
-          return p && p.gps && Number.isFinite(p.gps.lat) && Number.isFinite(p.gps.lon);
+          if (!p || !p.gps || !Number.isFinite(p.gps.lat) || !Number.isFinite(p.gps.lon)) return false;
+          if (p.gps.lat === 0 && p.gps.lon === 0) return false;
+          return true;
         }
 
         function estimateFromNeighbors(idx) {
