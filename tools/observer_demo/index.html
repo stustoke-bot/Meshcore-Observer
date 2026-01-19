@@ -2431,6 +2431,7 @@
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
       if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
+      if (Number(r.zeroHopNeighbors24h || 0) >= 3) badges.push({ label: "Great Mesh Neighbour", tone: "amber" });
       if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) badges.push({ label: "Great Throughput", tone: "amber" });
       if (nearestObserverSet && r.pub && nearestObserverSet.has(String(r.pub).toUpperCase())) {
         badges.push({ label: "Close to Observer", tone: "green" });
@@ -2790,7 +2791,7 @@
               </div>
             <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
             <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
+            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}${(r.zeroHopNeighbors24h ?? 0) >= 3 && Array.isArray(r.zeroHopNeighborNames) && r.zeroHopNeighborNames.length ? ` — ${r.zeroHopNeighborNames.slice(0, 5).join(", ")}${r.zeroHopNeighborNames.length > 5 ? ` +${r.zeroHopNeighborNames.length - 5}` : ""}` : ""}</div>
             <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
             <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
             ${badgeHtml(badges)}

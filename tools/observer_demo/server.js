@@ -413,6 +413,7 @@ async function buildObserverRank() {
 async function buildRepeaterRank() {
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
+  const nodeMap = buildNodeHashMap();
   const isRepeaterPub = (pub) => {
     if (!pub) return false;
     const entry = byPub[String(pub).toUpperCase()];
@@ -459,7 +460,7 @@ async function buildRepeaterRank() {
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
       const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
       const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
-      if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
+        if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
       const msgKey = String(rec.messageHash || rec.hash || rec.id || "unknown");
       s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
     }
@@ -505,7 +506,7 @@ async function buildRepeaterRank() {
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
       const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
       const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
-      if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
+        if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
       const msgKey = String(rec.frameHash || hex.slice(0, 16) || "unknown");
       s.msgCounts.set(msgKey, (s.msgCounts.get(msgKey) || 0) + 1);
     }
@@ -531,7 +532,13 @@ async function buildRepeaterRank() {
         const isStale = ageHours > 48;
         if (ageHours > 24 * 7) return null;
         const uniqueMsgs = s.msgCounts.size || 0;
-      const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
+        const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
+        const zeroHopNeighbors24h = s.zeroHopNeighbors ? s.zeroHopNeighbors.size : 0;
+        const zeroHopNeighborNames = s.zeroHopNeighbors
+          ? Array.from(s.zeroHopNeighbors)
+            .map((hash) => nodeMap.get(hash)?.name || hash)
+            .filter(Boolean)
+          : [];
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
       const avgSnr = trimmedMean(s.snr, 0.1);
@@ -544,18 +551,20 @@ async function buildRepeaterRank() {
       const snrScore = clamp((snrBase + 20) / 30, 0, 1);
       const bestRssiScore = clamp((bestRssi + 120) / 70, 0, 1);
       const bestSnrScore = clamp((bestSnr + 20) / 30, 0, 1);
-      const throughputScore = clamp(s.total24h / 50, 0, 1);
-      const repeatScore = clamp(avgRepeats / 5, 0, 1);
+        const throughputScore = clamp(s.total24h / 50, 0, 1);
+        const repeatScore = clamp(avgRepeats / 5, 0, 1);
+        const meshNeighborScore = clamp(zeroHopNeighbors24h / 5, 0, 1);
 
-      let score = 100 * clamp(
-        0.30 * rssiScore +
-        0.10 * snrScore +
-        0.10 * bestRssiScore +
-        0.05 * bestSnrScore +
-        0.30 * throughputScore +
-        0.15 * repeatScore,
-        0, 1
-      );
+        let score = 100 * clamp(
+          0.30 * rssiScore +
+          0.10 * snrScore +
+          0.10 * bestRssiScore +
+          0.05 * bestSnrScore +
+          0.25 * throughputScore +
+          0.10 * repeatScore +
+          0.10 * meshNeighborScore,
+          0, 1
+        );
 
       if (isStale) score = 0;
 
@@ -577,10 +586,11 @@ async function buildRepeaterRank() {
         bestSnr,
         avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
         avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
-        total24h: s.total24h,
-        zeroHopNeighbors24h: s.zeroHopNeighbors ? s.zeroHopNeighbors.size : 0,
-        uniqueMsgs,
-        avgRepeats: Number(avgRepeats.toFixed(2)),
+          total24h: s.total24h,
+          zeroHopNeighbors24h,
+          zeroHopNeighborNames,
+          uniqueMsgs,
+          avgRepeats: Number(avgRepeats.toFixed(2)),
         score: Math.round(score),
         stale: isStale,
         color,
