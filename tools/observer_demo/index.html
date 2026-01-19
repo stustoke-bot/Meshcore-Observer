@@ -933,6 +933,17 @@
     body.theme-dark .rank-item {
       background: rgba(255, 255, 255, 0.04);
     }
+    body.theme-dark .rank-summary,
+    body.theme-dark .summary-card,
+    body.theme-dark .rank-search,
+    body.theme-dark .rank-item {
+      background: var(--panel);
+      color: var(--ink);
+    }
+    body.theme-dark .rank-item .row,
+    body.theme-dark .rank-search::placeholder {
+      color: var(--muted);
+    }
 
     .modal-actions {
       display: flex;
