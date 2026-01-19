@@ -2106,6 +2106,17 @@
     }
     routeClose?.addEventListener("click", closeRouteOverlay);
     routeBackdrop?.addEventListener("click", closeRouteOverlay);
+    const messageList = document.getElementById("messages");
+    const isMobile = () => window.matchMedia?.("(max-width: 860px)")?.matches;
+    messageList?.addEventListener("scroll", () => {
+      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+    });
+    messageList?.addEventListener("click", () => {
+      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+    });
+    messageList?.addEventListener("touchstart", () => {
+      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+    }, { passive: true });
     window.addEventListener("resize", () => {
       if (!window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
