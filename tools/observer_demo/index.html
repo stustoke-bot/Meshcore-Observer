@@ -3257,9 +3257,16 @@
         const bin = new Uint8Array(await res.arrayBuffer());
         appendFlashLog(`Downloaded ${bin.byteLength} bytes.`);
         appendFlashLog("Preparing firmware...");
+        appendFlashLog(`Firmware header: 0x${bin[0]?.toString(16).padStart(2, "0")}`);
         let binStr = "";
-        for (let i = 0; i < bin.length; i += 0x8000) {
-          binStr += String.fromCharCode(...bin.subarray(i, i + 0x8000));
+        try {
+          binStr = new TextDecoder("latin1").decode(bin);
+        } catch {
+          const parts = [];
+          for (let i = 0; i < bin.length; i += 0x4000) {
+            parts.push(String.fromCharCode(...bin.subarray(i, i + 0x4000)));
+          }
+          binStr = parts.join("");
         }
 
         appendFlashLog("Requesting serial port...");
