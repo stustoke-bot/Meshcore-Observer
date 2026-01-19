@@ -2625,11 +2625,18 @@
     function mergeMessages(raw) {
       const byKey = new Map();
       raw.forEach((m) => {
-        const key = m.id || `${m.channelName || ""}|${m.sender || ""}|${m.ts || ""}|${m.body || ""}`;
+        const stableId = m.hash || m.fp || m.id;
+        const ts = m.ts ? new Date(m.ts).getTime() : 0;
+        const bucket = ts ? Math.round(ts / 10000) * 10000 : 0;
+        const body = (m.body || "").trim();
+        const key = stableId
+          ? String(stableId).toLowerCase()
+          : `${m.channelName || ""}|${m.sender || ""}|${body}|${bucket}`;
         let entry = byKey.get(key);
         if (!entry) {
           entry = {
             ...m,
+            id: m.id || stableId || key,
             _observerSet: new Set(),
             _pathSet: new Set()
           };
@@ -2637,6 +2644,8 @@
         }
         const observerHits = Array.isArray(m.observerHits) ? m.observerHits : [];
         observerHits.forEach((o) => entry._observerSet.add(o));
+        const singleObserver = m.observerName || m.observerId || m.observer || null;
+        if (singleObserver) entry._observerSet.add(singleObserver);
         const path = Array.isArray(m.path) ? m.path : [];
         path.forEach((code) => {
           if (code !== undefined && code !== null && String(code).length) {
