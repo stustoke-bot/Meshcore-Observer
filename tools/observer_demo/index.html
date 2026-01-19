@@ -3272,8 +3272,9 @@
           transport,
           baudrate: 921600,
           terminal: {
-            clean: false,
-            writeLine: appendFlashLog
+            clean: () => {},
+            writeLine: appendFlashLog,
+            write: (data) => appendFlashLog(String(data || "").trimEnd())
           }
         });
 
