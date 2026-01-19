@@ -98,9 +98,8 @@ function nodeHashFromPub(pubHex) {
   if (!pubHex || typeof pubHex !== "string") return null;
   const clean = pubHex.replace(/\s+/g, "");
   if (!/^[0-9a-fA-F]+$/.test(clean)) return null;
-  const bytes = Buffer.from(clean, "hex");
-  const hash = crypto.createHash("sha256").update(bytes).digest();
-  return hash[0].toString(16).toUpperCase().padStart(2, "0");
+  if (clean.length < 2) return null;
+  return clean.slice(0, 2).toUpperCase();
 }
 
 function buildNodeHashMap() {

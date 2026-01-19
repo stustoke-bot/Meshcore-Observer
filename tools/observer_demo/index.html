@@ -67,7 +67,7 @@
       flex-wrap: wrap;
       padding: 2px 12px;
       gap: 12px;
-      min-height: 52px;
+      min-height: 48px;
     }
 
     .brand {
@@ -80,8 +80,8 @@
     }
 
     .brand-logo {
-      width: 44px;
-      height: 44px;
+      width: 48px;
+      height: 48px;
       border-radius: 12px;
       display: block;
       overflow: hidden;
@@ -443,16 +443,21 @@
     .rank-item .score {
       font-weight: 700;
       font-size: 14px;
-      display: inline-flex;
-      align-items: center;
+      display: flex;
+      align-items: flex-start;
       gap: 8px;
     }
 
     .rank-dot {
-      width: 10px;
-      height: 10px;
+      width: 32px;
+      height: 32px;
       border-radius: 999px;
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
     }
 
     .meshscore-panel {
@@ -833,6 +838,16 @@
       background: #f7f7f7;
     }
 
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge.badge-green { background: rgba(52, 199, 89, 0.16); border-color: rgba(52, 199, 89, 0.28); color: #1b6b35; }
+    .badge.badge-blue { background: rgba(0, 122, 255, 0.16); border-color: rgba(0, 122, 255, 0.28); color: #0a60d1; }
+    .badge.badge-amber { background: rgba(255, 149, 0, 0.18); border-color: rgba(255, 149, 0, 0.28); color: #9a5b00; }
+    .badge.badge-purple { background: rgba(88, 86, 214, 0.18); border-color: rgba(88, 86, 214, 0.28); color: #3b39a5; }
     .list {
       display: flex;
       flex-direction: column;
@@ -1108,7 +1123,7 @@
         height: auto;
         gap: 8px;
         padding: 8px 10px;
-        min-height: 48px;
+        min-height: 44px;
       }
       .brand-logo { width: 40px; height: 40px; }
       .nav { flex-wrap: wrap; gap: 8px; }
@@ -1137,7 +1152,7 @@
     <header class="topbar">
         <div class="brand">
           <div class="brand-logo">
-            <img src="/meshrank.png?v=1.1.1" alt="MeshRank logo"/>
+            <img src="/meshrank.png?v=1.1.2" alt="MeshRank logo"/>
           </div>
           <div class="brand-text">
             <strong>MeshRank.net</strong>
@@ -2288,19 +2303,25 @@
       if (!list || !data?.items) return;
       const query = (document.getElementById("observerRankSearch")?.value || "").trim().toLowerCase();
       const items = data.items.filter((o) => !query || String(o.name || o.id).toLowerCase().includes(query));
-      list.innerHTML = items.length
-        ? items.map((o) => `
-            <div class="rank-item">
-              <div class="rank-main">
-                <strong>${o.name || o.id}</strong>
-                <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}</div>
-                <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
-                <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
-              </div>
-              <div class="rank-score" style="color:${o.scoreColor}">${o.score}</div>
-            </div>
-          `).join("")
-        : "<div class='rank-item'>No observers yet.</div>";
+        list.innerHTML = items.length
+          ? items.map((o) => {
+              const scoreBadge = String(Math.round(o.score || 0)).padStart(2, "0");
+              return `
+                <div class="rank-item">
+                  <div class="score">
+                    <span class="rank-dot" style="background:${o.scoreColor}">${scoreBadge}</span>
+                    <div class="rank-main">
+                      <strong>${o.name || o.id}</strong>
+                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}</div>
+                      <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
+                      <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
+                      ${badgeHtml(buildObserverBadges(o))}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : "<div class='rank-item'>No observers yet.</div>";
 
       document.getElementById("observerRankUpdated").textContent = data.updatedAt
         ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -2350,6 +2371,62 @@
       const hh = String(d.getHours()).padStart(2, "0");
       const min = String(d.getMinutes()).padStart(2, "0");
       return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+    }
+
+    function distanceKm(a, b) {
+      const toRad = (v) => (v * Math.PI) / 180;
+      const R = 6371;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lon - a.lon);
+      const val = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.atan2(Math.sqrt(val), Math.sqrt(1 - val));
+    }
+
+    function badgeHtml(badges) {
+      if (!badges.length) return "";
+      return `<div class="badge-row">${badges.map((b) => `<span class="badge badge-${b.tone}">${b.label}</span>`).join("")}</div>`;
+    }
+
+    function buildNearestObserverRepeaters(repeaters, observers) {
+      const flagged = new Set();
+      if (!Array.isArray(observers) || !Array.isArray(repeaters)) return flagged;
+      const repeaterPoints = repeaters.filter((r) => r?.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon));
+      observers.forEach((o) => {
+        if (!o?.gps || !Number.isFinite(o.gps.lat) || !Number.isFinite(o.gps.lon)) return;
+        let best = null;
+        let bestKm = Infinity;
+        repeaterPoints.forEach((r) => {
+          const km = distanceKm(o.gps, r.gps);
+          if (km < bestKm) {
+            bestKm = km;
+            best = r;
+          }
+        });
+        if (best?.pub) flagged.add(String(best.pub).toUpperCase());
+      });
+      return flagged;
+    }
+
+    function buildRepeaterBadges(r, nearestObserverSet) {
+      const badges = [];
+      if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
+      if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
+      if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
+      if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) badges.push({ label: "Great Throughput", tone: "amber" });
+      if (nearestObserverSet && r.pub && nearestObserverSet.has(String(r.pub).toUpperCase())) {
+        badges.push({ label: "Close to Observer", tone: "green" });
+      }
+      return badges;
+    }
+
+    function buildObserverBadges(o) {
+      const badges = [];
+      if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
+      if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
+      if (Number(o.coverageCount || 0) >= 5) badges.push({ label: "Strong Local Mesh", tone: "purple" });
+      if (Number(o.coverageKm || 0) >= 20) badges.push({ label: "Wide Coverage", tone: "amber" });
+      if (Number(o.nearestRepeaterKm || 999) <= 5) badges.push({ label: "Close to Repeater", tone: "green" });
+      return badges;
     }
 
     async function fetchRank() {
@@ -2675,26 +2752,30 @@
           const code = String(r.hashByte || "").toLowerCase();
           return name.includes(needle) || pub.includes(needle) || code.includes(needle);
         });
-      sorted.forEach((r) => {
-        const item = document.createElement("div");
-        const isHidden = isRepeaterHidden(r);
-        item.className = "rank-item" + (isHidden ? " hidden" : "");
-        item.dataset.pub = (r.pub || "").toUpperCase();
-        const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
-        const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
-        item.innerHTML = `
-          <div class="score">
-            <span class="rank-dot" style="background:${r.color}"></span>
-            ${r.name} ${code} (${r.score})
-          </div>
-          <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
-          <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-          <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
-          <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
-          <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
-          ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
-          ${observerBadge}
-        `;
+        const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
+        sorted.forEach((r) => {
+          const item = document.createElement("div");
+          const isHidden = isRepeaterHidden(r);
+          const badges = buildRepeaterBadges(r, nearestObserverSet);
+          item.className = "rank-item" + (isHidden ? " hidden" : "");
+          item.dataset.pub = (r.pub || "").toUpperCase();
+          const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
+          const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
+            const scoreBadge = String(Math.round(r.score || 0)).padStart(2, "0");
+            item.innerHTML = `
+              <div class="score">
+                <span class="rank-dot" style="background:${r.color}">${scoreBadge}</span>
+                ${r.name} ${code}
+              </div>
+            <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
+            <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
+            <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
+            <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
+            ${badgeHtml(badges)}
+            ${isHidden ? `<div class="row"><span class="badge">GPS unreliable</span></div>` : ""}
+            ${observerBadge}
+          `;
         item.addEventListener("click", () => {
           openRankPopup(r, false);
         });
