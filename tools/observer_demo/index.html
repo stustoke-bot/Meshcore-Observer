@@ -3266,14 +3266,8 @@
           }
         }
         let binStr = "";
-        try {
-          binStr = new TextDecoder("latin1").decode(bin);
-        } catch {
-          const parts = [];
-          for (let i = 0; i < bin.length; i += 0x4000) {
-            parts.push(String.fromCharCode(...bin.subarray(i, i + 0x4000)));
-          }
-          binStr = parts.join("");
+        for (let i = 0; i < bin.length; i++) {
+          binStr += String.fromCharCode(bin[i]);
         }
 
         appendFlashLog("Requesting serial port...");
@@ -3282,22 +3276,41 @@
 
         let esptool;
         try {
-          esptool = await import("https://unpkg.com/esptool-js@0.5.4/bundle.js");
+          esptool = await import("/esp32.js");
         } catch (err) {
-          esptool = await import("https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js");
+          try {
+            esptool = await import("https://unpkg.com/esptool-js@0.5.4/bundle.js");
+          } catch (err2) {
+            esptool = await import("https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js");
+          }
+        } catch (err) {
+          throw err;
         }
         const transport = new esptool.Transport(port, true);
-        const loader = new esptool.ESPLoader({
+        const flashOptions = {
           transport,
           baudrate: 115200,
+          romBaudrate: 115200,
           terminal: {
             clean: () => {},
             writeLine: appendFlashLog,
             write: (data) => appendFlashLog(String(data || "").trimEnd())
-          }
-        });
+          },
+          fileArray: [{ data: binStr, address: 0x0 }],
+          flashSize: "keep",
+          flashMode: "keep",
+          flashFreq: "keep",
+          compress: true
+        };
+        const loader = new esptool.ESPLoader(flashOptions);
+        try {
+          loader.hr = new esptool.HardReset(transport);
+        } catch {}
 
         await loader.main();
+        try {
+          await loader.flashId?.();
+        } catch {}
         try {
           if (typeof loader.chipName === "function") {
             appendFlashLog(`Chip: ${loader.chipName()}`);
@@ -3307,13 +3320,7 @@
         await loader.eraseFlash();
         appendFlashLog("Writing firmware...");
 
-        await loader.writeFlash({
-          fileArray: [{ data: binStr, address: 0x0 }],
-          flashSize: "keep",
-          flashMode: "keep",
-          flashFreq: "keep",
-          compress: true
-        });
+        await loader.writeFlash(flashOptions);
 
         appendFlashLog("Verifying header...");
         try {
@@ -3338,6 +3345,14 @@
         }
 
         appendFlashLog("Flash complete. Rebooting...");
+        try {
+          await loader.after?.("hard_reset");
+        } catch {}
+        try {
+          await transport.setRTS(true);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          await transport.setRTS(false);
+        } catch {}
         await transport.disconnect();
         appendFlashLog("Done. You can now send Wi-Fi config.");
       } catch (err) {
