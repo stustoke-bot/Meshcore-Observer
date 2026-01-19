@@ -2162,6 +2162,9 @@
       appData.routeActiveMsg = msg;
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.add("route-open");
+        setTimeout(() => {
+          if (map) map.invalidateSize();
+        }, 120);
       }
 
       await ensureRouteSuggestions();
@@ -2270,6 +2273,9 @@
         } else if (latlngs.length === 1) {
           map.setView(latlngs[0], 9);
         }
+        setTimeout(() => {
+          if (map) map.invalidateSize();
+        }, 120);
       }
     }
 
