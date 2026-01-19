@@ -629,6 +629,7 @@ async function buildChannelMessages() {
   const messagesMap = new Map(); // key -> msg
   const keyCfg = loadKeys();
   const nodeMap = buildNodeHashMap();
+  const observerMap = new Map(); // msgHash -> Set(observerName)
   const keyMap = {};
   for (const ch of keyCfg.channels || []) {
     const hb = typeof ch.hashByte === "string" ? ch.hashByte.toUpperCase() : null;
@@ -647,6 +648,24 @@ async function buildChannelMessages() {
   const tail = await tailLines(sourcePath, CHANNEL_TAIL_LINES);
   if (!tail.length) {
     return { channels: Array.from(channelMap.values()), messages: [] };
+  }
+  if (fs.existsSync(observerPath)) {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(observerPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    for await (const line of rl) {
+      const t = line.trim();
+      if (!t) continue;
+      let rec;
+      try { rec = JSON.parse(t); } catch { continue; }
+      const observerName = rec.observerName || rec.observerId;
+      const msgKey = rec.frameHash || rec.hash || rec.messageHash;
+      if (!observerName || !msgKey) continue;
+      const key = String(msgKey).toUpperCase();
+      if (!observerMap.has(key)) observerMap.set(key, new Set());
+      observerMap.get(key).add(observerName);
+    }
   }
   let baseNow = Date.now();
   try {
@@ -685,8 +704,11 @@ async function buildChannelMessages() {
     const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
     if (!chName) continue;
 
-    const msgHash = String(decoded.messageHash || hex.slice(0, 16) || "unknown");
-    const msgKey = chName + "|" + msgHash;
+      const msgHash = String(rec.frameHash || decoded.messageHash || hex.slice(0, 16) || "unknown").toUpperCase();
+      const hits = observerMap.get(msgHash);
+      const observerHits = hits ? Array.from(hits) : [];
+      const observerCount = observerHits.length;
+      const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");
     const sender = String(payload.decrypted.sender || "unknown");
     let ts = null;
@@ -713,27 +735,33 @@ async function buildChannelMessages() {
     const pathNames = pathPoints.map((p) => p.name);
 
     if (!messagesMap.has(msgKey)) {
-      messagesMap.set(msgKey, {
-        id: msgHash,
-        channelName: chName,
-        sender,
-        body,
-        ts,
-        repeats: hopCount,
-        path,
-        pathNames,
-        pathPoints
-      });
-    } else {
-      const m = messagesMap.get(msgKey);
-      m.repeats += hopCount;
-      if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
-      if (path.length > (m.path?.length || 0)) {
-        m.path = path;
-        m.pathNames = pathNames;
-        m.pathPoints = pathPoints;
+        messagesMap.set(msgKey, {
+          id: msgHash,
+          channelName: chName,
+          sender,
+          body,
+          ts,
+          repeats: hopCount,
+          path,
+          pathNames,
+          pathPoints,
+          observerHits,
+          observerCount
+        });
+      } else {
+        const m = messagesMap.get(msgKey);
+        m.repeats += hopCount;
+        if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
+        if (path.length > (m.path?.length || 0)) {
+          m.path = path;
+          m.pathNames = pathNames;
+          m.pathPoints = pathPoints;
+        }
+        if (observerCount && !m.observerCount) {
+          m.observerCount = observerCount;
+          m.observerHits = observerHits;
+        }
       }
-    }
 
     const ch = channelMap.get(chName) || { name: chName, lastTs: null, snippet: "" };
     if (ts && (!ch.lastTs || new Date(ts) > new Date(ch.lastTs))) {

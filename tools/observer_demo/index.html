@@ -1579,9 +1579,13 @@
     }
 
     function confidence(msg) {
-      const repeats = msg.repeats || 1;
+      const repeats = msg.repeats || msg.pathLength || 1;
+      const observerCount = Number.isFinite(msg.observerCount)
+        ? msg.observerCount
+        : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
       const repeatScore = clamp(repeats / 8, 0, 1);
-      const score = 100 * clamp(0.7 * repeatScore + 0.3, 0, 1);
+      const observerScore = clamp(observerCount / 3, 0, 1);
+      const score = 100 * clamp(0.2 + (0.5 * repeatScore) + (0.3 * observerScore), 0, 1);
       return Math.round(score);
     }
 
@@ -1657,6 +1661,9 @@
         const row = document.createElement("div");
         row.className = "message";
         const conf = confidence(msg);
+        const observerCount = Number.isFinite(msg.observerCount)
+          ? msg.observerCount
+          : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
         const observerList = msg.observerHits ? msg.observerHits.join(", ") : "";
         row.innerHTML = `
           <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
@@ -1668,7 +1675,7 @@
             </div>
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
-                <span>Observers: ${msg.observerCount ?? 0}</span>
+                <span>Observers: ${observerCount}</span>
                 <span>Total hops: ${msg.pathLength ?? msg.repeats ?? 0}</span>
                 <span>MeshRank Confidence: ${conf}%</span>
                 <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
