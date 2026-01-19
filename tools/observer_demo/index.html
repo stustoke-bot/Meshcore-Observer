@@ -1393,9 +1393,8 @@
               <div class="observer-step"><strong>5</strong> If your node appears in Pending Observers, send a repeater advert to speed up geolocation.</div>
               <div class="observer-step"><strong>6</strong> Once validated, it moves to Observer Rank automatically.</div>
             </div>
-          <div class="observer-status" id="observerStatus">Flash via MeshCore flasher, then send Wi-Fi config. MQTT is fixed to `meshrank.net:8883` TLS.</div>
+          <div class="observer-status" id="observerStatus"></div>
           <div id="installLog" class="install-log">Verbose install log ready.</div>
-          <div style="font-size:12px;color:var(--muted);">Location is estimated automatically from strong repeater signals.</div>
         </div>
         <div class="observer-right">
           <div class="observer-card">
@@ -1668,11 +1667,12 @@
               <span class="badge">${msg.type}</span>
             </div>
             <div class="bubble ${msg.type}">${msg.body}</div>
-            <div class="msg-footer">
-              <span>Repeater hops heard: ${msg.repeats || 0}</span>
-              <span>Confidence: ${conf}%</span>
-              <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
-            </div>
+              <div class="msg-footer">
+                <span>Observers: ${msg.observerCount ?? 0}</span>
+                <span>Total hops: ${msg.pathLength ?? msg.repeats ?? 0}</span>
+                <span>MeshRank Confidence: ${conf}%</span>
+                <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
+              </div>
           </div>
         `;
         el.appendChild(row);
