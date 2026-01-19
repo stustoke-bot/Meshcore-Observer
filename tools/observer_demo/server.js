@@ -413,6 +413,11 @@ async function buildObserverRank() {
 async function buildRepeaterRank() {
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
+  const isRepeaterPub = (pub) => {
+    if (!pub) return false;
+    const entry = byPub[String(pub).toUpperCase()];
+    return !!entry?.isRepeater;
+  };
 
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
@@ -433,13 +438,14 @@ async function buildRepeaterRank() {
       const decoded = rec.decoded || null;
       const payloadTypeName = rec.payloadType || (decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null);
       if (payloadTypeName !== "Advert") continue;
-      const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
-      if (!adv || typeof adv !== "object") continue;
-      const pub = adv.publicKey || adv.pub || adv.pubKey;
-      if (!pub) continue;
-      const ts = parseIso(rec.ts);
-      if (!ts) continue;
-      if (now - ts.getTime() > windowMs) continue;
+        const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
+        if (!adv || typeof adv !== "object") continue;
+        const pub = adv.publicKey || adv.pub || adv.pubKey;
+        if (!pub) continue;
+        if (!isRepeaterPub(pub)) continue;
+        const ts = parseIso(rec.ts);
+        if (!ts) continue;
+        if (now - ts.getTime() > windowMs) continue;
 
       if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set() });
       const s = stats.get(pub);
@@ -478,13 +484,14 @@ async function buildRepeaterRank() {
       }
       const payloadTypeName = Utils.getPayloadTypeName(decoded.payloadType);
       if (payloadTypeName !== "Advert") continue;
-      const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
-      if (!adv || typeof adv !== "object") continue;
-      const pub = adv.publicKey || adv.pub || adv.pubKey;
-      if (!pub) continue;
-      const ts = parseIso(rec.archivedAt);
-      if (!ts) continue;
-      if (now - ts.getTime() > windowMs) continue;
+        const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
+        if (!adv || typeof adv !== "object") continue;
+        const pub = adv.publicKey || adv.pub || adv.pubKey;
+        if (!pub) continue;
+        if (!isRepeaterPub(pub)) continue;
+        const ts = parseIso(rec.archivedAt);
+        if (!ts) continue;
+        if (now - ts.getTime() > windowMs) continue;
 
       if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set() });
       const s = stats.get(pub);
