@@ -1360,7 +1360,7 @@
               <div class="observer-step">
                 <strong>2</strong> Download the latest observer firmware.
                 <div class="observer-actions">
-                  <a class="btn" id="observerBinLink" href="/observer-merged.bin?v=1.1.1" target="_blank" rel="noopener">Download observer .bin</a>
+                  <a class="btn" id="observerBinLink" href="/observer-merged.bin?v=1.1.7" target="_blank" rel="noopener">Download observer .bin</a>
                 </div>
               </div>
               <div class="observer-step">
@@ -3048,34 +3048,39 @@
       return new TextDecoder().decode(bytes);
     }
 
-    async function sendObserverConfig() {
-      if (!navigator.serial) {
-        setObserverStatus("WebSerial not available in this browser.", true);
-        alert("WebSerial not available. Use Chrome/Edge over HTTPS.");
-        return;
-      }
-      const payload = buildObserverEnvSnippet() + "\n";
-      const logEl = document.getElementById("installLog");
-      if (logEl) {
-        logEl.textContent = "Select the observer serial port to send Wi-Fi config...";
-        logEl.classList.add("active");
-      }
-      setObserverStatus("Waiting for serial port selection...", false);
-      let port;
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 115200 });
-        const writer = port.writable.getWriter();
-        await writer.write(new TextEncoder().encode(payload));
-        writer.releaseLock();
-        const reply = await readSerialOnce(port, 1500);
-        if (reply && logEl) {
-          logEl.textContent += "\nDevice replied:\n" + reply.trim();
+      async function sendObserverConfig() {
+        if (!navigator.serial) {
+          setObserverStatus("WebSerial not available in this browser.", true);
+          alert("WebSerial not available. Use Chrome/Edge over HTTPS.");
+          return;
         }
-        await port.close();
+        const payloadLines = buildObserverEnvSnippet().split("\n").filter(Boolean);
+        const logEl = document.getElementById("installLog");
         if (logEl) {
-          logEl.textContent += "\nWi-Fi config sent. Device will reconnect using new settings.";
+          logEl.textContent = "Select the observer serial port to send Wi-Fi config...";
+          logEl.classList.add("active");
         }
+        setObserverStatus("Waiting for serial port selection...", false);
+        let port;
+        try {
+          port = await navigator.serial.requestPort();
+          await port.open({ baudRate: 115200 });
+          const writer = port.writable.getWriter();
+          for (const line of payloadLines) {
+            await writer.write(new TextEncoder().encode(line + "\r\n"));
+            await new Promise((r) => setTimeout(r, 40));
+          }
+          writer.releaseLock();
+          const reply = await readSerialOnce(port, 2000);
+          if (reply && logEl) {
+            logEl.textContent += "\nDevice replied:\n" + reply.trim();
+          } else if (logEl) {
+            logEl.textContent += "\nNo device reply detected. Check the serial port and power.";
+          }
+          await port.close();
+          if (logEl) {
+            logEl.textContent += "\nWi-Fi config sent. Device will reconnect using new settings.";
+          }
         setObserverStatus("Wi-Fi config sent. Device will reconnect using new settings.", false);
         alert("Wi-Fi config sent.");
       } catch (err) {

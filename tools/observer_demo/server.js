@@ -966,20 +966,48 @@ async function buildRfLatest(limit) {
       observerName
     });
   }
-  const observerMap = new Map();
+  const grouped = new Map();
   for (const item of items) {
     if (!item.hash) continue;
-    if (!item.observerName) continue;
-    if (!observerMap.has(item.hash)) observerMap.set(item.hash, new Set());
-    observerMap.get(item.hash).add(item.observerName);
+    const key = String(item.hash);
+    const observerLabel = item.observerName || item.observerId || null;
+    const existing = grouped.get(key);
+    if (!existing) {
+      const clone = { ...item };
+      clone.observerHits = new Set();
+      if (observerLabel) clone.observerHits.add(observerLabel);
+      grouped.set(key, clone);
+      continue;
+    }
+    if (observerLabel) existing.observerHits.add(observerLabel);
+    if (item.ts && (!existing.ts || new Date(item.ts) > new Date(existing.ts))) {
+      existing.ts = item.ts;
+    }
+    if (Number.isFinite(item.rssi) && (!Number.isFinite(existing.rssi) || item.rssi > existing.rssi)) {
+      existing.rssi = item.rssi;
+    }
+    if (Number.isFinite(item.snr) && (!Number.isFinite(existing.snr) || item.snr > existing.snr)) {
+      existing.snr = item.snr;
+    }
+    if (Number.isFinite(item.len) && (!Number.isFinite(existing.len) || item.len > existing.len)) {
+      existing.len = item.len;
+    }
+    if (item.pathLength > existing.pathLength) {
+      existing.pathLength = item.pathLength;
+      existing.path = item.path;
+      existing.pathNames = item.pathNames;
+    }
   }
-  for (const item of items) {
-    const hits = observerMap.get(item.hash);
-    if (!hits) continue;
-    item.observerHits = Array.from(hits);
-    item.observerCount = item.observerHits.length;
-  }
-  return { updatedAt: new Date().toISOString(), items };
+  const merged = Array.from(grouped.values()).map((item) => {
+    const hits = item.observerHits ? Array.from(item.observerHits) : [];
+    return {
+      ...item,
+      observerHits: hits,
+      observerCount: hits.length
+    };
+  });
+  merged.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  return { updatedAt: new Date().toISOString(), items: merged };
 }
 
 async function readBody(req) {

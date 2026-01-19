@@ -30,7 +30,7 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.6"
+#define OBSERVER_FW_VER "1.1.7"
 
 // ================= OLED (Heltec V3) =================
 #define OLED_SDA   17
@@ -148,7 +148,7 @@ static inline String sha256Hex(const uint8_t *data, size_t len) {
 }
 
 static inline void loadConfig() {
-  prefs.begin(PREFS_NS, true);
+  prefs.begin(PREFS_NS, false);
   wifiSsid = prefs.getString("ssid", OBSERVER_WIFI_SSID);
   wifiPass = prefs.getString("pass", OBSERVER_WIFI_PASS);
   observerId = prefs.getString("id", OBSERVER_DEVICE_ID);
@@ -289,11 +289,21 @@ static inline void handleSerialConfig() {
         saveConfig();
         displayDirty = true;
         Serial.println("[observer] cfg ssid updated");
+        if (wifiSsid.length()) {
+          WiFi.disconnect(true);
+          delay(100);
+          WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+        }
       } else if (buffer.startsWith("wifi.pass ")) {
         wifiPass = buffer.substring(10);
         saveConfig();
         displayDirty = true;
         Serial.println("[observer] cfg pass updated");
+        if (wifiSsid.length()) {
+          WiFi.disconnect(true);
+          delay(100);
+          WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+        }
       } else if (buffer.startsWith("mqtt.")) {
         // MQTT endpoint is fixed (TLS-only).
       } else if (buffer.startsWith("observer.lat ")) {
@@ -336,15 +346,22 @@ void setup() {
   setVext(true);
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(400000);
-  delay(50);
+  delay(120);
 
   String found;
   uint8_t addr = scanI2c(found);
   if (!addr) {
     vextActiveLow = false;
     setVext(true);
-    delay(50);
+    delay(120);
     addr = scanI2c(found);
+    if (!addr) {
+      setVext(false);
+      delay(120);
+      setVext(true);
+      delay(120);
+      addr = scanI2c(found);
+    }
   }
 
   if (found.length()) {
