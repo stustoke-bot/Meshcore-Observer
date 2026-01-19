@@ -1207,7 +1207,7 @@
           <div class="row"><span>Packets heard</span><span class="badge" id="routeCount">0</span></div>
           <div class="list" id="routeList"></div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <button class="link-btn" id="routeOverrideBtn" type="button">Route path wrong?</button>
+            <button class="link-btn" id="routeOverrideBtn" type="button" onclick="window.openRouteOverride && window.openRouteOverride()">Route path wrong?</button>
             <span style="font-size:12px;color:var(--muted);">Suggest a correction for a 2-digit code.</span>
           </div>
         </div>
@@ -1902,6 +1902,11 @@
         openRouteOverrideModal();
       });
     }
+
+    window.openRouteOverride = async () => {
+      await ensureRouteSuggestions();
+      openRouteOverrideModal();
+    };
 
     if (routeOverrideClose) {
       routeOverrideClose.addEventListener("click", () => {
