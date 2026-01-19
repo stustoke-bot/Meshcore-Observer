@@ -932,6 +932,16 @@
       min-height: 18px;
     }
 
+    .link-btn {
+      border: 0;
+      background: transparent;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+    }
+
     .install-log {
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -1042,6 +1052,10 @@
 
           <div class="row"><span>Packets heard</span><span class="badge" id="routeCount">0</span></div>
           <div class="list" id="routeList"></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="link-btn" id="routeOverrideBtn" type="button">Route path wrong?</button>
+            <span style="font-size:12px;color:var(--muted);">Save a local override for a 2‑digit code.</span>
+          </div>
         </div>
       </div>
     </section>
@@ -1449,6 +1463,7 @@
     function showRoute(msgId) {
       const msg = appData.messages.find((m) => m.id === msgId);
       if (!msg) return;
+      appData.routeActiveId = msgId;
 
       document.getElementById("routeKey").textContent = msg.id;
       document.getElementById("routeMessage").textContent = msg.id;
@@ -1459,7 +1474,8 @@
       const slider = document.getElementById("depthSlider");
       slider.max = Math.max(6, depth);
       slider.value = Math.min(8, slider.max);
-      document.getElementById("routeDepth").textContent = slider.value + " hops";
+      const maxDepth = slider.value;
+      document.getElementById("routeDepth").textContent = maxDepth + " hops";
 
       routeLayer.clearLayers();
 
@@ -1467,20 +1483,22 @@
       list.innerHTML = "";
       const lines = msg.path && msg.path.length ? msg.path : ["no route data"];
       const names = msg.pathNames && msg.pathNames.length ? msg.pathNames : [];
-      lines.forEach((node, idx) => {
-        const label = names[idx] ? names[idx] : node;
+      const slicedLines = lines.slice(0, maxDepth);
+      const slicedNames = names.slice(0, maxDepth);
+      slicedLines.forEach((node, idx) => {
+        const label = resolveRouteName(node, slicedNames[idx] ? slicedNames[idx] : node);
         const item = document.createElement("div");
         item.className = "list-item";
-        item.innerHTML = `<span>${label}</span><span>${idx + 1}/${lines.length}</span>`;
+        item.innerHTML = `<span>${label}</span><span>${idx + 1}/${slicedLines.length}</span>`;
         list.appendChild(item);
       });
 
-      document.getElementById("routeCount").textContent = lines.length;
+      document.getElementById("routeCount").textContent = slicedLines.length;
 
       if (routeLayer) {
         routeLayer.clearLayers();
-        const path = Array.isArray(msg.path) ? msg.path : [];
-        const rawPoints = Array.isArray(msg.pathPoints) ? msg.pathPoints : [];
+        const path = Array.isArray(msg.path) ? msg.path.slice(0, maxDepth) : [];
+        const rawPoints = Array.isArray(msg.pathPoints) ? msg.pathPoints.slice(0, maxDepth) : [];
         const pathLen = Math.max(path.length, rawPoints.length);
         const normalized = [];
 
@@ -1516,7 +1534,8 @@
 
         for (let i = 0; i < pathLen; i += 1) {
           const base = rawPoints[i] || { hash: path[i], name: msg.pathNames?.[i] || path[i] || "#unknown" };
-          normalized.push(base);
+          const resolvedName = resolveRouteName(base.hash || path[i], base.name);
+          normalized.push({ ...base, name: resolvedName });
         }
 
         const latlngs = [];
@@ -1558,6 +1577,29 @@
       e.preventDefault();
       showRoute(link.dataset.id);
     });
+
+    const routeOverrideBtn = document.getElementById("routeOverrideBtn");
+    if (routeOverrideBtn) {
+      routeOverrideBtn.addEventListener("click", () => {
+        const code = prompt("Enter 2-digit repeater code to rename (hex):");
+        if (!code) return;
+        const key = String(code).trim().toUpperCase();
+        const current = routeOverrides[key] || "";
+        const name = prompt(`Name for ${key} (leave blank to remove):`, current);
+        if (name === null) return;
+        overrideRouteName(key, name.trim());
+        if (appData.routeActiveId) showRoute(appData.routeActiveId);
+        renderRfList();
+        renderRfDetail();
+      });
+    }
+
+    const depthSliderEl = document.getElementById("depthSlider");
+    if (depthSliderEl) {
+      depthSliderEl.addEventListener("input", () => {
+        if (appData.routeActiveId) showRoute(appData.routeActiveId);
+      });
+    }
 
     const modal = document.getElementById("channelModal");
     const addBtn = document.getElementById("addChannelBtn");
@@ -1859,14 +1901,15 @@
           fillOpacity: 0.35,
           weight: 2
         });
-        const name = entry.name || entry.id || "Observer";
-        const label = entry.locSource ? `${name} | ${entry.locSource}` : name;
-        circle.bindTooltip(label, { direction: "top", opacity: 0.9 });
+      const name = entry.name || entry.id || "Observer";
+      circle.bindTooltip(name, { direction: "top", opacity: 0.9 });
         circle.addTo(observerLayer);
         points.push([gps.lat, gps.lon]);
       });
       if (points.length) {
-        observerMap.fitBounds(points, { padding: [20, 20] });
+        observerMap.fitBounds(points, { padding: [20, 20], maxZoom: 6 });
+      } else {
+        observerMap.setView([54.0, -2.5], 6);
       }
       if (observerMap) {
         observerMap.invalidateSize();
@@ -1913,6 +1956,7 @@
                 <strong>${o.name || o.id}</strong>
                 <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}</div>
                 <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
+                <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
               </div>
               <div class="rank-score" style="color:${o.scoreColor}">${o.score}</div>
             </div>
@@ -1994,14 +2038,46 @@
       return s.slice(0, len);
     }
 
+    const routeOverrides = (() => {
+      try {
+        return JSON.parse(localStorage.getItem("routeOverrides") || "{}");
+      } catch {
+        return {};
+      }
+    })();
+
+    function saveRouteOverrides() {
+      try {
+        localStorage.setItem("routeOverrides", JSON.stringify(routeOverrides));
+      } catch {}
+    }
+
+    function overrideRouteName(hash, name) {
+      const key = String(hash || "").toUpperCase();
+      if (!key) return;
+      if (!name) {
+        delete routeOverrides[key];
+      } else {
+        routeOverrides[key] = name;
+      }
+      saveRouteOverrides();
+    }
+
+    function resolveRouteName(hash, fallback) {
+      const key = String(hash || "").toUpperCase();
+      if (key && routeOverrides[key]) return routeOverrides[key];
+      return fallback || hash || "#unknown";
+    }
+
     function formatPathLabel(p) {
       const names = Array.isArray(p.pathNames) ? p.pathNames : [];
       const codes = Array.isArray(p.path) ? p.path : [];
       if (names.length) {
         const merged = names.map((name, idx) => {
           const code = codes[idx] || "";
-          if (name === "#unknown") return code || "#unknown";
-          return code ? `${name} (${code})` : name;
+          if (name === "#unknown") return resolveRouteName(code, code || "#unknown");
+          const resolved = resolveRouteName(code, name);
+          return code ? `${resolved} (${code})` : resolved;
         });
         return merged.join(" > ");
       }

@@ -186,7 +186,10 @@ async function buildObserverRank() {
   const repeatersByPub = new Map();
   for (const d of Object.values(byPub)) {
     if (!d?.gps || !Number.isFinite(d.gps.lat) || !Number.isFinite(d.gps.lon)) continue;
-    repeatersByPub.set(String(d.pub || d.publicKey || d.pubKey || "").toUpperCase(), d.gps);
+    repeatersByPub.set(String(d.pub || d.publicKey || d.pubKey || "").toUpperCase(), {
+      gps: d.gps,
+      name: d.name || null
+    });
   }
 
   const now = Date.now();
@@ -253,8 +256,8 @@ async function buildObserverRank() {
       const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
       const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
       if (!pub) continue;
-      const gps = repeatersByPub.get(String(pub).toUpperCase());
-      if (gps) s.repeaters.add(String(pub).toUpperCase());
+      const rpt = repeatersByPub.get(String(pub).toUpperCase());
+      if (rpt?.gps) s.repeaters.add(String(pub).toUpperCase());
     }
   }
 
@@ -280,19 +283,38 @@ async function buildObserverRank() {
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
     let locSource = s.locSource;
     if (!gps && s.bestRepeaterPub && repeatersByPub.has(String(s.bestRepeaterPub).toUpperCase())) {
-      gps = repeatersByPub.get(String(s.bestRepeaterPub).toUpperCase());
+      gps = repeatersByPub.get(String(s.bestRepeaterPub).toUpperCase())?.gps || null;
       locSource = locSource || s.bestRepeaterPub;
     }
     let coverageKm = 0;
+    let nearestRepeaterName = null;
+    let nearestRepeaterKm = null;
     if (gps && s.repeaters.size) {
       let maxKm = 0;
       for (const pub of s.repeaters) {
-        const rptGps = repeatersByPub.get(pub);
+        const rpt = repeatersByPub.get(pub);
+        const rptGps = rpt?.gps;
         if (!rptGps) continue;
         const km = haversineKm(gps.lat, gps.lon, rptGps.lat, rptGps.lon);
         if (km > maxKm) maxKm = km;
       }
       coverageKm = Math.round(maxKm * 10) / 10;
+    }
+    if (gps) {
+      let bestKm = Infinity;
+      let bestName = null;
+      for (const rpt of repeatersByPub.values()) {
+        if (!rpt?.gps) continue;
+        const km = haversineKm(gps.lat, gps.lon, rpt.gps.lat, rpt.gps.lon);
+        if (km < bestKm) {
+          bestKm = km;
+          bestName = rpt.name || null;
+        }
+      }
+      if (Number.isFinite(bestKm) && bestName) {
+        nearestRepeaterName = bestName;
+        nearestRepeaterKm = Math.round(bestKm * 10) / 10;
+      }
     }
     const coverageCount = s.repeaters.size;
     const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
@@ -308,6 +330,8 @@ async function buildObserverRank() {
       packetsToday: s.packetsToday,
       coverageKm,
       coverageCount,
+      nearestRepeaterName,
+      nearestRepeaterKm,
       locSource,
       score,
       scoreColor
