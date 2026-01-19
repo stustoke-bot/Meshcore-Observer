@@ -6,7 +6,7 @@
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "observer-merged.bin", "offset": "0x0" }
+        { "path": "observer-merged-1.1.8.bin", "offset": "0x0" }
       ]
     }
   ]
