@@ -196,6 +196,8 @@
       box-shadow: var(--shadow);
       padding: 10px;
       gap: 6px;
+      flex-direction: column;
+      align-items: stretch;
       transform: translateX(110%);
       transition: transform 0.2s ease;
     }
@@ -379,6 +381,24 @@
       justify-content: center;
       padding: 0 5px;
     }
+    .channels-rail {
+      display: none;
+      position: fixed;
+      left: 6px;
+      top: 120px;
+      z-index: 9;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 8px 10px;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      gap: 6px;
+      align-items: center;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .channels-rail .badge-bubble { display: inline-flex; }
 
     .messages {
       padding: 16px 18px;
@@ -1484,6 +1504,7 @@
       .panel { min-height: 0; }
       .content { min-height: 0; height: 100%; padding-bottom: env(safe-area-inset-bottom); }
       .channel-selector { display: inline-flex; }
+      body.view-channels .channels-rail { display: inline-flex; }
       .messages {
         padding: 10px 12px;
         gap: 10px;
@@ -1582,12 +1603,17 @@
       </div>
     </section>
 
+    <button class="channels-rail" type="button" data-channels-toggle>
+      Channels
+      <span class="badge-bubble channels-unread">0</span>
+    </button>
+
     <section class="panel content">
       <div class="title">
         <span>Channel</span>
-        <button class="channel-selector" id="channelsTab" type="button">
+        <button class="channel-selector" id="channelsTab" type="button" data-channels-toggle>
           <span id="activeChannel">#public</span>
-          <span class="badge-bubble" id="channelsUnread">0</span>
+          <span class="badge-bubble channels-unread">0</span>
         </button>
       </div>
       <div class="messages" id="messages"></div>
@@ -2009,13 +2035,16 @@
 
     function renderChannels() {
       const el = document.getElementById("channels");
-      const tabBadge = document.getElementById("channelsUnread");
+      const tabBadges = document.querySelectorAll(".channels-unread");
       el.innerHTML = "";
       const list = appData.channels.length
         ? appData.channels
         : [{ id: "public", name: "#public", snippet: "No channels yet.", time: "--" }];
       const totalUnread = Object.values(appData.unreadByChannel || {}).reduce((sum, v) => sum + (v || 0), 0);
-      if (tabBadge) tabBadge.textContent = totalUnread || 0;
+      tabBadges.forEach((badge) => {
+        badge.textContent = totalUnread || 0;
+        badge.style.display = totalUnread ? "inline-flex" : "none";
+      });
       list.forEach((ch, idx) => {
         const unread = appData.unreadByChannel[ch.id] || 0;
         const displayName = ch.name || "#unknown";
@@ -3357,7 +3386,7 @@
     const navLinks = document.querySelectorAll(".nav a, .mobile-nav a, .mobile-menu a");
     const menuToggle = document.getElementById("menuToggle");
     const menuBackdrop = document.getElementById("menuBackdrop");
-    const channelsTab = document.getElementById("channelsTab");
+    const channelToggles = document.querySelectorAll("[data-channels-toggle]");
     const closeMenu = () => {
       document.body.classList.remove("menu-open-left", "menu-open-right");
     };
@@ -3366,9 +3395,11 @@
       document.body.classList.remove("menu-open-left");
     });
     menuBackdrop?.addEventListener("click", closeMenu);
-    channelsTab?.addEventListener("click", () => {
-      document.body.classList.toggle("menu-open-left");
-      document.body.classList.remove("menu-open-right");
+    channelToggles.forEach((toggle) => {
+      toggle.addEventListener("click", () => {
+        document.body.classList.toggle("menu-open-left");
+        document.body.classList.remove("menu-open-right");
+      });
     });
     navLinks.forEach((link) => {
         link.addEventListener("click", async (e) => {
