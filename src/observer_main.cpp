@@ -30,7 +30,7 @@
 #define CR_DENOM   8        // 4/8
 
 // ================= FIRMWARE VERSION =================
-#define OBSERVER_FW_VER "1.1.5"
+#define OBSERVER_FW_VER "1.1.6"
 
 // ================= OLED (Heltec V3) =================
 #define OLED_SDA   17
@@ -40,6 +40,7 @@ bool displayReady = false;
 bool displayDirty = true;
 unsigned long lastDisplayMs = 0;
 uint8_t oledAddr = 0x3C;
+bool vextActiveLow = true;
 
 // PubSubClient default buffer is too small for full hex payloads.
 #define MQTT_BUFFER_SIZE 2048
@@ -205,9 +206,27 @@ static inline bool probeI2c(uint8_t addr) {
   return Wire.endTransmission() == 0;
 }
 
-static inline void enableVext() {
+static inline void setVext(bool enabled) {
   pinMode(VEXT_EN, OUTPUT);
-  digitalWrite(VEXT_EN, LOW);
+  if (vextActiveLow) {
+    digitalWrite(VEXT_EN, enabled ? LOW : HIGH);
+  } else {
+    digitalWrite(VEXT_EN, enabled ? HIGH : LOW);
+  }
+}
+
+static inline uint8_t scanI2c(String &out) {
+  out = "";
+  uint8_t first = 0;
+  for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+    if (!probeI2c(addr)) continue;
+    if (!first) first = addr;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "0x%02X", addr);
+    if (out.length()) out += " ";
+    out += buf;
+  }
+  return first;
 }
 
 static inline void saveConfig() {
@@ -314,25 +333,42 @@ void setup() {
   Serial.print("[observer] ssid=");
   Serial.println(wifiSsid.length() ? wifiSsid : "<empty>");
 
-  enableVext();
+  setVext(true);
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(400000);
-  if (probeI2c(0x3C)) {
-    oledAddr = 0x3C;
-  } else if (probeI2c(0x3D)) {
-    oledAddr = 0x3D;
-  } else {
-    Serial.println("[observer] oled not detected");
+  delay(50);
+
+  String found;
+  uint8_t addr = scanI2c(found);
+  if (!addr) {
+    vextActiveLow = false;
+    setVext(true);
+    delay(50);
+    addr = scanI2c(found);
   }
-  if (probeI2c(oledAddr) && display.begin(SSD1306_SWITCHCAPVCC, oledAddr)) {
+
+  if (found.length()) {
+    Serial.print("[observer] i2c devices: ");
+    Serial.println(found);
+  } else {
+    Serial.println("[observer] i2c scan empty");
+  }
+
+  if (addr) {
+    oledAddr = addr;
+  }
+
+  if (addr && display.begin(SSD1306_SWITCHCAPVCC, oledAddr)) {
     displayReady = true;
     displayDirty = true;
     renderDisplay();
-    Serial.print("[observer] oled ok addr=0x");
+    Serial.print("[observer] oled ok addr=");
     Serial.println(oledAddr, HEX);
-  } else if (probeI2c(oledAddr)) {
-    Serial.print("[observer] oled init failed addr=0x");
+  } else if (addr) {
+    Serial.print("[observer] oled init failed addr=");
     Serial.println(oledAddr, HEX);
+  } else {
+    Serial.println("[observer] oled not detected");
   }
 
   WiFi.mode(WIFI_STA);
