@@ -25,7 +25,7 @@ const CHANNEL_TAIL_LINES = 1000;
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
 const MESSAGE_DEBUG_TAIL_LINES = 20000;
 
-let observerHitsCache = { mtimeMs: null, size: null, map: new Map() };
+let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, lastReadAt: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
 const CHANNEL_CACHE_MIN_MS = 500;
@@ -43,12 +43,24 @@ async function getObserverHitsMap() {
   if (observerHitsCache.mtimeMs === stat.mtimeMs && observerHitsCache.size === stat.size) {
     return observerHitsCache.map;
   }
-  const map = new Map();
-  const rl = readline.createInterface({
-    input: fs.createReadStream(observerPath, { encoding: "utf8" }),
-    crlfDelay: Infinity
-  });
+  const now = Date.now();
+  if (observerHitsCache.lastReadAt && (now - observerHitsCache.lastReadAt) < 500) {
+    return observerHitsCache.map;
+  }
+  let map = observerHitsCache.map || new Map();
+  let offset = observerHitsCache.offset || 0;
+  if (stat.size < offset) {
+    map = new Map();
+    offset = 0;
+  }
+  const stream = fs.createReadStream(observerPath, { encoding: "utf8", start: offset });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let isFirst = true;
   for await (const line of rl) {
+    if (isFirst && offset > 0) {
+      isFirst = false;
+      continue; // skip partial line
+    }
     const t = line.trim();
     if (!t) continue;
     let rec;
@@ -84,7 +96,13 @@ async function getObserverHitsMap() {
       map.get(key).add(observerKey);
     });
   }
-  observerHitsCache = { mtimeMs: stat.mtimeMs, size: stat.size, map };
+  observerHitsCache = {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    map,
+    offset: stat.size,
+    lastReadAt: now
+  };
   return map;
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
