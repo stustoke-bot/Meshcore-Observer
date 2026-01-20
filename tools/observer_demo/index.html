@@ -1709,6 +1709,16 @@
       #observerRankMap { display: none; }
       .node-rank-map { display: none; }
       #nodeRankMap { display: none; }
+      .rank-scroll,
+      #channels {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .rank-scroll::-webkit-scrollbar,
+      #channels::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
       body.view-rf .rf-row { min-width: 0; grid-template-columns: 70px 70px 1fr 70px 60px 60px; }
