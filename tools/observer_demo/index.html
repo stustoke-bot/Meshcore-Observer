@@ -1714,10 +1714,11 @@
         scrollbar-width: none;
         -ms-overflow-style: none;
       }
-      .rank-scroll::-webkit-scrollbar,
-      #channels::-webkit-scrollbar {
-        width: 0;
-        height: 0;
+      .rank-scroll ::-webkit-scrollbar,
+      #channels ::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        opacity: 0;
       }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
