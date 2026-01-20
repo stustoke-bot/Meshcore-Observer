@@ -1344,6 +1344,33 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
+  if (u.pathname === "/api/observer-location" && req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const id = String(body.id || "").trim();
+      const lat = Number(body.lat);
+      const lon = Number(body.lon);
+      if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "id, lat, lon required" }));
+      }
+      const data = readJsonSafe(observersPath, { byId: {} });
+      const byId = data.byId || {};
+      const entry = byId[id] || { id, firstSeen: new Date().toISOString(), count: 0 };
+      entry.gpsApprox = { lat, lon };
+      entry.locApprox = true;
+      entry.locApproxAt = new Date().toISOString();
+      entry.locSource = "manual";
+      byId[id] = entry;
+      data.byId = byId;
+      data.updatedAt = new Date().toISOString();
+      writeJsonSafe(observersPath, data);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
   if (u.pathname === "/api/observer-debug") {
     const id = u.searchParams.get("id");
     const payload = await buildObserverDebug(id);

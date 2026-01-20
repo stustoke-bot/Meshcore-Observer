@@ -1288,6 +1288,56 @@
       min-height: 0;
       overflow: auto;
     }
+    .observer-location-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1200;
+    }
+    .observer-location-modal.open { display: flex; }
+    .observer-location-card {
+      width: min(92vw, 560px);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+    .observer-location-map {
+      height: 260px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .observer-location-meta {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .observer-location-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .observer-location-button {
+      border: 1px solid var(--line);
+      background: rgba(0, 122, 255, 0.1);
+      color: var(--blue);
+      padding: 6px 10px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 11px;
+    }
 
     .observer-rank-panel {
       grid-column: 1 / -1;
@@ -1956,6 +2006,23 @@
         </div>
       </div>
     </section>
+
+    <div class="observer-location-modal" id="observerLocationModal">
+      <div class="observer-location-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>Set Observer Location</strong>
+          <button class="observer-location-button" type="button" id="observerLocationClose">Close</button>
+        </div>
+        <div class="observer-location-map" id="observerLocationMap"></div>
+        <div class="observer-location-meta">
+          <span id="observerLocationLabel">Observer: --</span>
+          <span id="observerLocationCoords">Lat/Lon: --</span>
+        </div>
+        <div class="observer-location-actions">
+          <button class="btn" type="button" id="observerLocationSave">Save location</button>
+        </div>
+      </div>
+    </div>
 
     <section class="panel why-panel">
       <div class="title">Why MeshRank?</div>
@@ -2626,6 +2693,51 @@
       });
     }
 
+    const observerLocationModal = document.getElementById("observerLocationModal");
+    const observerLocationClose = document.getElementById("observerLocationClose");
+    const observerLocationSave = document.getElementById("observerLocationSave");
+    const observerListEl = document.getElementById("observerList");
+
+    observerLocationClose?.addEventListener("click", closeObserverLocationModal);
+    observerLocationModal?.addEventListener("click", (e) => {
+      if (e.target === observerLocationModal) closeObserverLocationModal();
+    });
+
+    observerListEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-observer-locate]");
+      if (!btn) return;
+      const id = btn.getAttribute("data-observer-locate");
+      const entry = appData.observersById?.[id];
+      if (!entry) return;
+      openObserverLocationModal(entry);
+    });
+
+    observerLocationSave?.addEventListener("click", async () => {
+      if (!observerLocationTarget || !observerLocationCoords) {
+        alert("Click a location on the map first.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/observer-location", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: observerLocationTarget.id,
+            lat: observerLocationCoords.lat,
+            lon: observerLocationCoords.lng
+          })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await fetchObservers();
+        updateObserversData(data);
+        renderObserverMap(data);
+        renderObserverList(data);
+        closeObserverLocationModal();
+      } catch (err) {
+        alert("Unable to save location: " + (err?.message || err));
+      }
+    });
+
     const modal = document.getElementById("channelModal");
     const addBtn = document.getElementById("addChannelBtn");
     const cancelBtn = document.getElementById("cancelChannel");
@@ -3043,6 +3155,7 @@
         return `<div class="rf-row">
           <div class="rf-head">${name}</div>
           <div class="rf-meta">${status} | ${location}${source}</div>
+          <div><button class="observer-location-button" type="button" data-observer-locate="${entry.id}">Set location</button></div>
         </div>`;
       }).join("");
     }
@@ -3109,6 +3222,67 @@
         }
       });
       if (observerRankMap) observerRankMap.setView([54.0, -2.5], 6);
+    }
+
+    let observerLocationMap;
+    let observerLocationMarker;
+    let observerLocationTarget = null;
+    let observerLocationCoords = null;
+
+    function openObserverLocationModal(entry) {
+      const modal = document.getElementById("observerLocationModal");
+      const label = document.getElementById("observerLocationLabel");
+      const coords = document.getElementById("observerLocationCoords");
+      if (!modal) return;
+      observerLocationTarget = entry;
+      observerLocationCoords = null;
+      label.textContent = `Observer: ${entry?.name || entry?.id || "--"}`;
+      coords.textContent = "Lat/Lon: --";
+      modal.classList.add("open");
+
+      if (!observerLocationMap) {
+        observerLocationMap = L.map("observerLocationMap", { zoomControl: true });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 18,
+          attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(observerLocationMap);
+        observerLocationMap.on("click", (ev) => {
+          observerLocationCoords = ev.latlng;
+          coords.textContent = `Lat/Lon: ${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)}`;
+          if (observerLocationMarker) observerLocationMarker.remove();
+          observerLocationMarker = L.circleMarker(ev.latlng, {
+            radius: 6,
+            color: "#007aff",
+            fillColor: "#007aff",
+            fillOpacity: 0.9,
+            weight: 2
+          }).addTo(observerLocationMap);
+        });
+      }
+
+      const gps = entry?.gps || entry?.gpsApprox || null;
+      if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
+        observerLocationMap.setView([gps.lat, gps.lon], 10);
+        observerLocationCoords = { lat: gps.lat, lng: gps.lon };
+        coords.textContent = `Lat/Lon: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`;
+        if (observerLocationMarker) observerLocationMarker.remove();
+        observerLocationMarker = L.circleMarker([gps.lat, gps.lon], {
+          radius: 6,
+          color: "#007aff",
+          fillColor: "#007aff",
+          fillOpacity: 0.9,
+          weight: 2
+        }).addTo(observerLocationMap);
+      } else {
+        observerLocationMap.setView([54.0, -2.5], 6);
+      }
+      setTimeout(() => observerLocationMap.invalidateSize(), 80);
+    }
+
+    function closeObserverLocationModal() {
+      const modal = document.getElementById("observerLocationModal");
+      if (!modal) return;
+      modal.classList.remove("open");
     }
 
     function formatDateTime(value) {
