@@ -906,10 +906,29 @@ async function buildChannelMessages() {
     try {
       decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
     } catch {
-      continue;
+      if (rec?.source === "external" && rec.decodedBody && rec.decodedChannel) {
+        decoded = {
+          payloadType: Utils.getPayloadTypeId ? Utils.getPayloadTypeId("GroupText") : 0,
+          messageHash: rec.messageHash || rec.hash || null,
+          payload: {
+            decoded: {
+              channelHash: rec.decodedChannel,
+              decrypted: {
+                sender: rec.decodedSender || "external",
+                message: rec.decodedBody
+              }
+            }
+          }
+        };
+      } else {
+        continue;
+      }
     }
 
-    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    let payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (rec?.source === "external" && rec.decodedBody && rec.decodedChannel) {
+      payloadType = "GroupText";
+    }
     if (payloadType !== "GroupText") continue;
     const payload = decoded.payload?.decoded;
     if (!payload || !payload.decrypted) continue;
