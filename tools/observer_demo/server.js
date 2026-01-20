@@ -937,10 +937,16 @@ async function buildChannelMessages() {
       }
       const observerHits = Array.from(observerSet);
       const observerCount = observerHits.length;
+      const msgShort = msgHash ? msgHash.slice(0, 8) : null;
+      const frameShort = frameHash ? frameHash.slice(0, 8) : null;
+      const messageShort = messageHash ? messageHash.slice(0, 8) : null;
       const externalHopCount = Math.max(
         Number(externalByHash[msgHash]?.maxHops || 0),
+        Number(externalByHash[msgShort]?.maxHops || 0),
         Number(externalByHash[frameHash]?.maxHops || 0),
-        Number(messageHash ? externalByHash[messageHash]?.maxHops || 0 : 0)
+        Number(externalByHash[frameShort]?.maxHops || 0),
+        Number(messageHash ? externalByHash[messageHash]?.maxHops || 0 : 0),
+        Number(messageShort ? externalByHash[messageShort]?.maxHops || 0 : 0)
       );
       const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");

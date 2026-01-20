@@ -17,6 +17,7 @@ const externalPacketsPath = path.join(dataDir, "external_packets.ndjson");
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const localPacketsPath = path.join(dataDir, "letsmesh_packets.json");
 const localObserversPath = path.join(dataDir, "letsmesh_observers.json");
+const crypto = require("crypto");
 
 const UK_REGIONS = new Set([
   "LHR", "LCY", "LON", "LTN", "OXF", "MAN", "UPV", "LPL", "BHX", "LBA", "MME", "CBG"
@@ -72,6 +73,21 @@ function anonymizeName(id) {
   const noun = nouns[hash[1] % nouns.length];
   const suffix = String((hash[2] % 90) + 10);
   return `${adj} ${noun} ${suffix}`;
+}
+
+function shortHash(value) {
+  if (!value) return null;
+  const s = String(value).toUpperCase();
+  return s.length >= 8 ? s.slice(0, 8) : null;
+}
+
+function sha256Hex(hex) {
+  try {
+    const buf = Buffer.from(String(hex).replace(/\s+/g, ""), "hex");
+    return crypto.createHash("sha256").update(buf).digest("hex").toUpperCase();
+  } catch {
+    return null;
+  }
 }
 
 function parseIso(value) {
@@ -196,6 +212,7 @@ async function main() {
       });
       byId[id].count = Number(byId[id].count || 0) + 1;
 
+      const hops = Array.isArray(pkt?.path) ? pkt.path.length : 0;
       if (hash) {
         let msgHash = hash;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
@@ -204,25 +221,16 @@ async function main() {
             if (decoded?.messageHash) msgHash = String(decoded.messageHash).toUpperCase();
           } catch {}
         }
-        if (!byHash[hash]) byHash[hash] = { observers: {}, maxHops: 0, lastSeen: null };
-        byHash[hash].observers[id] = true;
-        const hops = Array.isArray(pkt?.path) ? pkt.path.length : 0;
-        if (hops > byHash[hash].maxHops) byHash[hash].maxHops = hops;
-        if (heardAt) {
-          const prev = byHash[hash].lastSeen ? new Date(byHash[hash].lastSeen).getTime() : 0;
-          const next = new Date(heardAt).getTime();
-          if (next > prev) byHash[hash].lastSeen = heardAt;
-        }
-
+        const rawHash = typeof pkt?.raw_data === "string" ? sha256Hex(pkt.raw_data) : null;
+        addHashStat(hash, id, hops, heardAt);
+        addHashStat(shortHash(hash), id, hops, heardAt);
         if (msgHash && msgHash !== hash) {
-          if (!byHash[msgHash]) byHash[msgHash] = { observers: {}, maxHops: 0, lastSeen: null };
-          byHash[msgHash].observers[id] = true;
-          if (hops > byHash[msgHash].maxHops) byHash[msgHash].maxHops = hops;
-          if (heardAt) {
-            const prev = byHash[msgHash].lastSeen ? new Date(byHash[msgHash].lastSeen).getTime() : 0;
-            const next = new Date(heardAt).getTime();
-            if (next > prev) byHash[msgHash].lastSeen = heardAt;
-          }
+          addHashStat(msgHash, id, hops, heardAt);
+          addHashStat(shortHash(msgHash), id, hops, heardAt);
+        }
+        if (rawHash) {
+          addHashStat(rawHash, id, hops, heardAt);
+          addHashStat(shortHash(rawHash), id, hops, heardAt);
         }
       }
 
@@ -267,3 +275,15 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+  function addHashStat(hashKey, observerId, hops, heardAt) {
+    if (!hashKey) return;
+    const key = String(hashKey).toUpperCase();
+    if (!byHash[key]) byHash[key] = { observers: {}, maxHops: 0, lastSeen: null };
+    byHash[key].observers[observerId] = true;
+    if (Number.isFinite(hops) && hops > byHash[key].maxHops) byHash[key].maxHops = hops;
+    if (heardAt) {
+      const prev = byHash[key].lastSeen ? new Date(byHash[key].lastSeen).getTime() : 0;
+      const next = new Date(heardAt).getTime();
+      if (next > prev) byHash[key].lastSeen = heardAt;
+    }
+  }
