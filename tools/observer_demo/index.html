@@ -2205,11 +2205,15 @@
       const el = document.getElementById("messages");
       const filtered = appData.messages.filter((msg) => msg.channelId === activeChannelId);
       const key = activeChannelId;
+      let rendered = appData.renderedIdsByChannel[key] || new Set();
+      if (!full && rendered.size !== filtered.length) {
+        full = true;
+      }
       if (full) {
         el.innerHTML = "";
-        appData.renderedIdsByChannel[key] = new Set();
+        rendered = new Set();
+        appData.renderedIdsByChannel[key] = rendered;
       }
-      const rendered = appData.renderedIdsByChannel[key] || new Set();
 
       filtered.forEach((msg, idx) => {
         const keyId = msg.frameHash || msg.id;
@@ -2415,18 +2419,18 @@
             const key = String(raw || "").trim();
             if (!key) return;
             const entry = byId[key] || byName[key] || null;
-            const gps = entry?.gps;
+            const gps = entry?.gps || entry?.gpsApprox;
             if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
             const latlng = [gps.lat, gps.lon];
             latlngs.push(latlng);
             const label = entry?.name || entry?.id || key;
             L.circleMarker(latlng, {
               radius: 6,
-              color: "#00c853",
-              fillColor: "#00c853",
+              color: entry?.locValidated ? "#00c853" : "#8fd3ff",
+              fillColor: entry?.locValidated ? "#00c853" : "#8fd3ff",
               fillOpacity: 0.9,
               weight: 2
-            }).bindPopup(`Observer: ${label}`).addTo(routeLayer);
+            }).bindPopup(`Observer: ${label}${entry?.locValidated ? "" : " (approx)"}`).addTo(routeLayer);
           });
         }
 
@@ -2985,8 +2989,7 @@
       const now = Date.now();
       const points = [];
       entries.forEach((entry) => {
-        const gps = entry.gps;
-        if (!entry.locValidated) return;
+        const gps = entry.locValidated ? entry.gps : (entry.gpsApprox || null);
         if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
         const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
         const ageHours = ts ? (now - ts) / 3600000 : 999;
@@ -2996,11 +2999,13 @@
           radius: 5000,
           color,
           fillColor: color,
-          fillOpacity: 0.35,
-          weight: 2
+          fillOpacity: entry.locValidated ? 0.35 : 0.12,
+          weight: entry.locValidated ? 2 : 1,
+          dashArray: entry.locValidated ? null : "4 6"
         });
       const name = entry.name || entry.id || "Observer";
-      circle.bindTooltip(name, { direction: "top", opacity: 0.9 });
+      const tag = entry.locValidated ? "" : " (approx)";
+      circle.bindTooltip(name + tag, { direction: "top", opacity: 0.9 });
         circle.addTo(observerLayer);
         points.push([gps.lat, gps.lon]);
       });

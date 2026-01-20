@@ -147,6 +147,19 @@ function updateEstimatedLocation(record, entry, byPub) {
   const key = String(pub).toUpperCase();
   const rpt = byPub[key];
   if (!rpt || !rpt.gps || !Number.isFinite(rpt.gps.lat) || !Number.isFinite(rpt.gps.lon)) return;
+  if (rpt.gps.lat === 0 && rpt.gps.lon === 0) return;
+
+  if (!entry.locValidated) {
+    entry.approxLatSum = (entry.approxLatSum || 0) + rpt.gps.lat;
+    entry.approxLonSum = (entry.approxLonSum || 0) + rpt.gps.lon;
+    entry.approxCount = (entry.approxCount || 0) + 1;
+    entry.gpsApprox = {
+      lat: entry.approxLatSum / entry.approxCount,
+      lon: entry.approxLonSum / entry.approxCount
+    };
+    entry.locApprox = true;
+    entry.locApproxAt = new Date().toISOString();
+  }
 
   const best = Number.isFinite(entry.bestRssi) ? entry.bestRssi : -999;
   const bestHop = Number.isFinite(entry.bestHopCount) ? entry.bestHopCount : 99;
