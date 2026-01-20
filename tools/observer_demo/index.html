@@ -490,6 +490,15 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .observer-tag {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 200, 83, 0.35);
+      background: rgba(0, 200, 83, 0.12);
+      color: #00a849;
+      font-size: 11px;
+      font-weight: 700;
+    }
 
     .analyze {
       color: var(--blue);
@@ -2053,6 +2062,9 @@
         rfSelected: null,
         rfLastSig: "",
         observerRank: null,
+        observersById: {},
+        observersByName: {},
+        observersUpdatedAt: 0,
         routeSuggestions: null,
         repeatersByCode: null,
         routeActivePathCodes: [],
@@ -2248,6 +2260,7 @@
       }
 
       await ensureRouteSuggestions();
+      await ensureObservers();
       document.getElementById("routeKey").textContent = msg.id;
       document.getElementById("routeMessage").textContent = msg.frameHash || msg.messageHash || msg.id;
       document.getElementById("routeSource").textContent = msg.type;
@@ -2274,7 +2287,23 @@
         list.appendChild(item);
       });
 
-      document.getElementById("routeCount").textContent = slicedLines.length;
+      const observerHits = Array.isArray(msg.observerHits) ? msg.observerHits : [];
+      if (observerHits.length) {
+        const byId = appData.observersById || {};
+        const byName = appData.observersByName || {};
+        observerHits.forEach((raw) => {
+          const key = String(raw || "").trim();
+          if (!key) return;
+          const entry = byId[key] || byName[key] || null;
+          const label = entry?.name || entry?.id || key;
+          const item = document.createElement("div");
+          item.className = "list-item";
+          item.innerHTML = `<span>${label}</span><span class="observer-tag">Observer</span>`;
+          list.appendChild(item);
+        });
+      }
+
+      document.getElementById("routeCount").textContent = slicedLines.length + observerHits.length;
 
       if (routeLayer) {
         routeLayer.clearLayers();
@@ -2346,6 +2375,28 @@
             weight: 1
           }).bindPopup(estimated ? `${p.name || "#unknown"} (estimated)` : (p.name || "#unknown")).addTo(routeLayer);
         });
+
+        if (observerHits.length) {
+          const byId = appData.observersById || {};
+          const byName = appData.observersByName || {};
+          observerHits.forEach((raw) => {
+            const key = String(raw || "").trim();
+            if (!key) return;
+            const entry = byId[key] || byName[key] || null;
+            const gps = entry?.gps;
+            if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+            const latlng = [gps.lat, gps.lon];
+            latlngs.push(latlng);
+            const label = entry?.name || entry?.id || key;
+            L.circleMarker(latlng, {
+              radius: 6,
+              color: "#00c853",
+              fillColor: "#00c853",
+              fillOpacity: 0.9,
+              weight: 2
+            }).bindPopup(`Observer: ${label}`).addTo(routeLayer);
+          });
+        }
 
         if (latlngs.length >= 2) {
           map.fitBounds(latlngs, { padding: [20, 20] });
@@ -2797,6 +2848,7 @@
         if (!activeObserver) return;
         try {
           const data = await fetchObservers();
+          updateObserversData(data);
           renderObserverMap(data);
           renderObserverList(data);
         } catch {}
@@ -2868,6 +2920,23 @@
       const res = await fetch("/api/observer-rank?_ts=" + Date.now(), { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
+    }
+
+    function updateObserversData(data) {
+      appData.observersById = data?.byId || {};
+      appData.observersByName = {};
+      Object.values(appData.observersById).forEach((entry) => {
+        if (!entry) return;
+        const name = String(entry.name || "").trim();
+        if (name) appData.observersByName[name] = entry;
+      });
+      appData.observersUpdatedAt = Date.now();
+    }
+
+    async function ensureObservers() {
+      if (Date.now() - appData.observersUpdatedAt < 60000) return;
+      const data = await fetchObservers();
+      updateObserversData(data);
     }
 
     function observerColor(ageHours) {

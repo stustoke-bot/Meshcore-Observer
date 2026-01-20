@@ -22,6 +22,7 @@ const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 
 const CHANNEL_TAIL_LINES = 1000;
+const OBSERVER_DEBUG_TAIL_LINES = 5000;
 
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map() };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
@@ -461,6 +462,49 @@ async function buildObserverRank() {
 
   items.sort((a, b) => (b.score - a.score) || (b.packetsToday - a.packetsToday));
   return { updatedAt: new Date().toISOString(), items };
+}
+
+async function buildObserverDebug(observerId) {
+  const id = String(observerId || "").trim();
+  if (!id) return { ok: false, error: "observerId required" };
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const seen = new Map();
+  if (!fs.existsSync(observerPath)) return { ok: true, observerId: id, items: [] };
+  const tail = await tailLines(observerPath, OBSERVER_DEBUG_TAIL_LINES);
+  for (const line of tail) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (String(rec.observerId || "") !== id) continue;
+    const hex = getHex(rec);
+    if (!hex) continue;
+    let decoded;
+    try {
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase());
+    } catch {
+      continue;
+    }
+    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (payloadType !== "Advert") continue;
+    const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
+    const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
+    if (!pub) continue;
+    const key = String(pub).toUpperCase();
+    if (!seen.has(key)) {
+      const dev = byPub[key] || null;
+      seen.set(key, {
+        pub: key,
+        name: dev?.name || adv?.name || null,
+        hasGps: !!(dev?.gps && Number.isFinite(dev.gps.lat) && Number.isFinite(dev.gps.lon)),
+        gps: dev?.gps || null,
+        count: 0
+      });
+    }
+    const entry = seen.get(key);
+    entry.count += 1;
+  }
+  const items = Array.from(seen.values()).sort((a, b) => b.count - a.count);
+  return { ok: true, observerId: id, items };
 }
 
 async function buildRepeaterRank() {
@@ -1243,6 +1287,12 @@ const server = http.createServer(async (req, res) => {
 
   if (u.pathname === "/api/observers") {
     const payload = readJsonSafe(observersPath, { byId: {}, updatedAt: null });
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/observer-debug") {
+    const id = u.searchParams.get("id");
+    const payload = await buildObserverDebug(id);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
