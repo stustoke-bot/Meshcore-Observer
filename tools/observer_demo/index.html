@@ -2178,8 +2178,6 @@
         observersById: {},
         observersByName: {},
         observersUpdatedAt: 0,
-        rankLimitMobile: 50,
-        observerRankLimitMobile: 50,
         routeSuggestions: null,
         repeatersByCode: null,
         routeActivePathCodes: [],
@@ -3233,9 +3231,7 @@
     }
 
     async function fetchObserverRank() {
-      const limit = isMobile() ? 50 : 0;
-      const qs = limit ? `&_limit=${limit}` : "";
-      const res = await fetch(`/api/observer-rank?_ts=${Date.now()}${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/observer-rank?_ts=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
@@ -3341,11 +3337,8 @@
       if (!list || !data?.items) return;
       const query = (document.getElementById("observerRankSearch")?.value || "").trim().toLowerCase();
       const items = data.items.filter((o) => !query || String(o.name || o.id).toLowerCase().includes(query));
-      const onMobile = isMobile();
-      const limit = onMobile ? (appData.observerRankLimitMobile || 50) : items.length;
-      const visible = onMobile ? items.slice(0, limit) : items;
-        list.innerHTML = visible.length
-          ? visible.map((o) => {
+      list.innerHTML = items.length
+        ? items.map((o) => {
               const scoreBadge = String(Math.round(o.score || 0)).padStart(2, "0");
               return `
                 <div class="rank-item${o.stale ? " hidden" : ""}">
@@ -3364,17 +3357,6 @@
             }).join("")
           : "<div class='rank-item'>No observers yet.</div>";
 
-      if (onMobile && items.length > visible.length) {
-        const btn = document.createElement("button");
-        btn.className = "btn";
-        btn.style.margin = "8px auto 16px";
-        btn.textContent = `Load more (${items.length - visible.length})`;
-        btn.addEventListener("click", () => {
-          appData.observerRankLimitMobile += 50;
-          renderObserverRank(data);
-        });
-        list.appendChild(btn);
-      }
 
       document.getElementById("observerRankUpdated").textContent = data.updatedAt
         ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -3385,6 +3367,7 @@
     }
 
     function renderObserverRankMap(data) {
+      if (isMobile()) return;
       if (!observerRankMap || !observerRankLayer || !observerRankRadiusLayer || !data?.items) return;
       observerRankLayer.clearLayers();
       observerRankRadiusLayer.clearLayers();
@@ -3554,9 +3537,7 @@
     }
 
     async function fetchRank() {
-      const limit = isMobile() ? 50 : 0;
-      const qs = limit ? `&_limit=${limit}` : "";
-      const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
@@ -3870,6 +3851,7 @@
       }
 
       const needle = (appData.rankFilter || "").toLowerCase();
+      const onMobile = isMobile();
       const sorted = [...data.items]
         .sort((a, b) => (b.score || 0) - (a.score || 0))
         .filter((r) => {
@@ -3879,9 +3861,7 @@
           const code = String(r.hashByte || "").toLowerCase();
           return name.includes(needle) || pub.includes(needle) || code.includes(needle);
         });
-      const onMobile = isMobile();
-      const limit = onMobile ? (appData.rankLimitMobile || 50) : sorted.length;
-      const visible = onMobile ? sorted.slice(0, limit) : sorted;
+      const visible = sorted;
       const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
       visible.forEach((r) => {
           const item = document.createElement("div");
@@ -3912,7 +3892,7 @@
         });
         list.appendChild(item);
 
-        if (!isHidden && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
+        if (!onMobile && !isHidden && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
           const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
             radius: 8,
             color: r.color,
@@ -3925,19 +3905,11 @@
         }
       });
 
-      if (onMobile && sorted.length > visible.length) {
-        const btn = document.createElement("button");
-        btn.className = "btn";
-        btn.style.margin = "8px auto 16px";
-        btn.textContent = `Load more (${sorted.length - visible.length})`;
-        btn.addEventListener("click", () => {
-          appData.rankLimitMobile += 50;
-          renderRankWithOptions(data, options);
-        });
-        list.appendChild(btn);
+      if (onMobile && rankMap) {
+        setTimeout(() => rankMap.invalidateSize(), 80);
       }
 
-      if (!opts.preserveView && sorted.length) {
+      if (!onMobile && !opts.preserveView && sorted.length) {
         const bounds = sorted
           .filter((r) => {
             if (isRepeaterHidden(r)) return false;
