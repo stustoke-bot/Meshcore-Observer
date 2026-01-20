@@ -21,7 +21,8 @@ const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 
-const CHANNEL_TAIL_LINES = 1000;
+const CHANNEL_TAIL_LINES = 10000;
+const CHANNEL_HISTORY_LIMIT = 10;
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
 const MESSAGE_DEBUG_TAIL_LINES = 20000;
 
@@ -991,6 +992,163 @@ async function buildChannelMessages() {
   }
 }
 
+async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
+  const sourcePath = getRfSourcePath();
+  if (!fs.existsSync(sourcePath)) return [];
+  const keyCfg = loadKeys();
+  const nodeMap = buildNodeHashMap();
+  const observerMap = await getObserverHitsMap();
+  const keyMap = {};
+  for (const ch of keyCfg.channels || []) {
+    const hb = typeof ch.hashByte === "string" ? ch.hashByte.toUpperCase() : null;
+    const nm = typeof ch.name === "string" ? ch.name : null;
+    if (hb && nm) keyMap[hb] = nm;
+  }
+  const keyStore = buildKeyStore(keyCfg);
+  const beforeMs = beforeTs instanceof Date ? beforeTs.getTime() : Number(beforeTs);
+
+  let baseNow = Date.now();
+  try {
+    const stat = fs.statSync(sourcePath);
+    if (Number.isFinite(stat.mtimeMs)) baseNow = stat.mtimeMs;
+  } catch {}
+
+  let maxNumericTs = null;
+  {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(sourcePath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    for await (const line of rl) {
+      try {
+        const rec = JSON.parse(line);
+        if (Number.isFinite(rec.ts)) {
+          if (maxNumericTs === null || rec.ts > maxNumericTs) maxNumericTs = rec.ts;
+        }
+      } catch {}
+    }
+  }
+
+  const messagesMap = new Map();
+  const rl = readline.createInterface({
+    input: fs.createReadStream(sourcePath, { encoding: "utf8" }),
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const hex = getHex(rec);
+    if (!hex) continue;
+
+    let decoded;
+    try {
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+    } catch {
+      continue;
+    }
+
+    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (payloadType !== "GroupText") continue;
+    const payload = decoded.payload?.decoded;
+    if (!payload || !payload.decrypted) continue;
+
+    const chHash = typeof payload.channelHash === "string" ? payload.channelHash.toUpperCase() : null;
+    const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
+    if (!chName || chName !== channelName) continue;
+
+    let ts = null;
+    if (typeof rec.archivedAt === "string" && parseIso(rec.archivedAt)) {
+      ts = rec.archivedAt;
+    } else if (typeof rec.ts === "string" && parseIso(rec.ts)) {
+      ts = rec.ts;
+    } else if (Number.isFinite(rec.ts) && maxNumericTs !== null) {
+      const approx = baseNow - (maxNumericTs - rec.ts);
+      ts = new Date(approx).toISOString();
+    }
+    if (!ts) continue;
+    const tsMs = new Date(ts).getTime();
+    if (!Number.isFinite(tsMs) || (Number.isFinite(beforeMs) && tsMs >= beforeMs)) continue;
+
+    const msgHash = String(
+      decoded.messageHash ||
+      rec.frameHash ||
+      sha256Hex(hex) ||
+      hex.slice(0, 16) ||
+      "unknown"
+    ).toUpperCase();
+    const messageHash = decoded.messageHash ? String(decoded.messageHash).toUpperCase() : null;
+    const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
+
+    const observerSet = new Set();
+    const hits = observerMap.get(msgHash);
+    if (hits) hits.forEach((o) => observerSet.add(o));
+    if (frameHash && frameHash !== msgHash) {
+      const frameHits = observerMap.get(frameHash);
+      if (frameHits) frameHits.forEach((o) => observerSet.add(o));
+    }
+    if (messageHash && messageHash !== msgHash) {
+      const msgHits = observerMap.get(messageHash);
+      if (msgHits) msgHits.forEach((o) => observerSet.add(o));
+    }
+    const observerHits = Array.from(messagesMap.get(chName + "|" + msgHash)?.observerHits || observerSet);
+    const observerCount = observerHits.length;
+
+    const body = String(payload.decrypted.message || "");
+    const sender = String(payload.decrypted.sender || "unknown");
+    const path = Array.isArray(decoded.path) ? decoded.path.map(normalizePathHash) : [];
+    const hopCount = path.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
+    const pathPoints = path.map((h) => {
+      const hit = nodeMap.get(h);
+      return {
+        hash: h,
+        name: hit ? hit.name : "#unknown",
+        gps: hit?.gps || null
+      };
+    });
+    const pathNames = pathPoints.map((p) => p.name);
+    const msgKey = chName + "|" + msgHash;
+
+    if (!messagesMap.has(msgKey)) {
+      messagesMap.set(msgKey, {
+        id: msgHash,
+        frameHash,
+        messageHash,
+        channelName: chName,
+        sender,
+        body,
+        ts,
+        repeats: hopCount,
+        path,
+        pathNames,
+        pathPoints,
+        observerHits,
+        observerCount
+      });
+    } else {
+      const m = messagesMap.get(msgKey);
+      m.repeats += hopCount;
+      if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
+      if (path.length > (m.path?.length || 0)) {
+        m.path = path;
+        m.pathNames = pathNames;
+        m.pathPoints = pathPoints;
+      }
+      if (observerCount && !m.observerCount) {
+        m.observerCount = observerCount;
+        m.observerHits = observerHits;
+      }
+    }
+  }
+
+  let list = Array.from(messagesMap.values())
+    .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  if (Number.isFinite(limit) && limit > 0 && list.length > limit) {
+    list = list.slice(Math.max(0, list.length - limit));
+  }
+  return list;
+}
+
 async function buildMeshScore() {
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
@@ -1312,7 +1470,49 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/messages") {
     const payload = await buildChannelMessages();
     const channel = u.searchParams.get("channel");
-    const list = channel ? payload.messages.filter((m) => m.channelName === channel) : payload.messages;
+    const limitRaw = u.searchParams.get("limit");
+    const beforeRaw = u.searchParams.get("before");
+    const limit = limitRaw ? Number(limitRaw) : null;
+    let beforeTs = null;
+    if (beforeRaw) {
+      const beforeDate = parseIso(beforeRaw);
+      if (beforeDate) beforeTs = beforeDate.getTime();
+    }
+
+    let list = payload.messages;
+    if (channel) {
+      const cutoff = Number.isFinite(beforeTs) ? beforeTs : Date.now();
+      list = await buildChannelMessagesBefore(channel, cutoff, limit);
+    } else {
+      if (channel) {
+        list = list.filter((m) => m.channelName === channel);
+      }
+      list = list.filter((m) => {
+        if (!beforeTs) return true;
+        const ts = m.ts ? new Date(m.ts).getTime() : 0;
+        return ts && ts < beforeTs;
+      });
+      list.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+    }
+
+    if (!channel) {
+      const perChannel = new Map();
+      for (const m of list) {
+        const key = m.channelName || "#unknown";
+        const bucket = perChannel.get(key) || [];
+        bucket.push(m);
+        perChannel.set(key, bucket);
+      }
+      const trimmed = [];
+      for (const bucket of perChannel.values()) {
+        const keep = bucket.slice(Math.max(0, bucket.length - CHANNEL_HISTORY_LIMIT));
+        keep.forEach((item) => trimmed.push(item));
+      }
+      list = trimmed.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+    } else if (Number.isFinite(limit) && limit > 0 && list.length > limit) {
+      list = list.slice(Math.max(0, list.length - limit));
+    }
+
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels, messages: list }));
   }
 

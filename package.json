@@ -15,8 +15,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@liamcottle/meshcore.js": "^1.10.0",
     "@michaelhart/meshcore-decoder": "0.2.7",
     "express": "^5.2.1",
-    "mqtt": "^5.10.3"
+    "mqtt": "^5.10.3",
+    "yargs": "^18.0.0"
   }
 }

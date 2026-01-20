@@ -1279,6 +1279,7 @@
       font-weight: 600;
       cursor: pointer;
       padding: 0;
+      display: none;
     }
 
     .slider {
@@ -2137,6 +2138,7 @@
         rankFilter: "",
         unreadByChannel: {},
         lastReadByChannel: {},
+        historyByChannel: {},
         rfPackets: [],
         rfSelected: null,
         rfLastSig: "",
@@ -2178,6 +2180,11 @@
 
     function normalizeChannelId(value) {
       return String(value || "").trim().replace(/^#/, "").toLowerCase();
+    }
+
+    function getChannelNameById(id) {
+      const entry = appData.channels.find((c) => c.id === id);
+      return entry ? entry.name : `#${id}`;
     }
 
     let activeChannelId = "public";
@@ -2236,7 +2243,6 @@
           <div style="display:grid;gap:6px;justify-items:end;">
             <div class="muted">${time}</div>
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
-            <button class="channel-remove" type="button" data-name="${ch.name}">Remove</button>
           </div>
         `;
         row.addEventListener("click", () => {
@@ -2252,29 +2258,23 @@
           saveReadState();
           renderChannels();
           renderMessages(true);
-          loadMessages(false);
+          loadMessages(false, { limit: 10 });
           document.body.classList.remove("menu-open-left", "menu-open-right");
-        });
-        row.querySelector(".channel-remove").addEventListener("click", async (e) => {
-          e.stopPropagation();
-          const name = e.currentTarget.dataset.name;
-          if (!name) return;
-          if (!confirm(`Remove ${name}?`)) return;
-          try {
-            await fetch(`/api/channels?name=${encodeURIComponent(name)}`, { method: "DELETE" });
-            await loadChannels();
-          } catch {
-            alert("Unable to remove channel.");
-          }
         });
         el.appendChild(row);
       });
     }
 
-    function renderMessages(full) {
+    function renderMessages(full, opts = {}) {
+      const preserveScroll = !!opts.preserveScroll;
       const el = document.getElementById("messages");
+      const nearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80;
       const filtered = appData.messages.filter((msg) => msg.channelId === activeChannelId);
       const key = activeChannelId;
+      const historyState = appData.historyByChannel[key] || { loading: false, done: false };
+      if (!filtered.length && !historyState.loading && !historyState.done) {
+        loadMoreHistory();
+      }
       let rendered = appData.renderedIdsByChannel[key] || new Set();
       if (!full && rendered.size !== filtered.length) {
         full = true;
@@ -2333,7 +2333,44 @@
         rendered.add(keyId);
       });
       appData.renderedIdsByChannel[key] = rendered;
-      el.scrollTop = el.scrollHeight;
+      if (!preserveScroll && nearBottom) el.scrollTop = el.scrollHeight;
+    }
+
+    function getOldestTs(channelId) {
+      let oldest = null;
+      appData.messages.forEach((msg) => {
+        if (msg.channelId !== channelId || !msg.tsRaw) return;
+        if (!oldest || new Date(msg.tsRaw) < new Date(oldest)) oldest = msg.tsRaw;
+      });
+      return oldest;
+    }
+
+    async function loadMoreHistory() {
+      const channelId = activeChannelId;
+      const state = appData.historyByChannel[channelId] || { loading: false, done: false };
+      if (state.loading || state.done) return;
+      const before = getOldestTs(channelId) || new Date().toISOString();
+
+      state.loading = true;
+      appData.historyByChannel[channelId] = state;
+      const el = document.getElementById("messages");
+      const prevHeight = el.scrollHeight;
+      try {
+        const added = await loadMessages(false, {
+          channel: getChannelNameById(channelId),
+          before,
+          limit: 10,
+          preserveScroll: true
+        });
+        const newHeight = el.scrollHeight;
+        el.scrollTop = newHeight - prevHeight;
+        if (!added) {
+          state.done = true;
+        }
+      } finally {
+        state.loading = false;
+        appData.historyByChannel[channelId] = state;
+      }
     }
 
     let map;
@@ -2535,6 +2572,9 @@
     const isMobile = () => window.matchMedia?.("(max-width: 860px)")?.matches;
     messageList?.addEventListener("scroll", () => {
       if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+      if (messageList.scrollTop <= 10) {
+        loadMoreHistory();
+      }
     });
     messageList?.addEventListener("click", () => {
       if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
@@ -2847,12 +2887,58 @@
       });
     }
 
-    async function loadMessages(forceFull) {
-      const res = await fetch("/api/messages", { cache: "no-store" });
+    function mergeMappedMessages(existing, incoming) {
+      const byId = new Map();
+      existing.forEach((msg) => {
+        byId.set(msg.id, { ...msg });
+      });
+      incoming.forEach((next) => {
+        const current = byId.get(next.id);
+        if (!current) {
+          byId.set(next.id, { ...next });
+          return;
+        }
+        const mergedHits = new Set([...(current.observerHits || []), ...(next.observerHits || [])]);
+        const nextTs = next.tsRaw ? new Date(next.tsRaw).getTime() : 0;
+        const curTs = current.tsRaw ? new Date(current.tsRaw).getTime() : 0;
+        byId.set(next.id, {
+          ...current,
+          frameHash: current.frameHash || next.frameHash,
+          messageHash: current.messageHash || next.messageHash,
+          tsRaw: nextTs > curTs ? next.tsRaw : current.tsRaw,
+          ts: nextTs > curTs ? next.ts : current.ts,
+          repeats: Math.max(current.repeats || 0, next.repeats || 0),
+          pathLength: Number.isFinite(next.pathLength)
+            ? Math.max(current.pathLength || 0, next.pathLength || 0)
+            : current.pathLength,
+          path: (next.path?.length || 0) > (current.path?.length || 0) ? next.path : current.path,
+          pathNames: (next.pathNames?.length || 0) > (current.pathNames?.length || 0) ? next.pathNames : current.pathNames,
+          pathPoints: (next.pathPoints?.length || 0) > (current.pathPoints?.length || 0) ? next.pathPoints : current.pathPoints,
+          observerHits: Array.from(mergedHits),
+          observerCount: mergedHits.size
+        });
+      });
+      return Array.from(byId.values()).sort((a, b) => {
+        const ta = a.tsRaw ? new Date(a.tsRaw).getTime() : 0;
+        const tb = b.tsRaw ? new Date(b.tsRaw).getTime() : 0;
+        return ta - tb;
+      });
+    }
+
+    async function fetchMessages(params = {}) {
+      const url = new URL("/api/messages", window.location.origin);
+      if (params.channel) url.searchParams.set("channel", params.channel);
+      if (params.limit) url.searchParams.set("limit", String(params.limit));
+      if (params.before) url.searchParams.set("before", params.before);
+      const res = await fetch(url.toString(), { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
+      return res.json();
+    }
+
+    async function loadMessages(forceFull, opts = {}) {
+      const data = await fetchMessages(opts);
       const raw = mergeMessages(data.messages || []);
-      appData.messages = raw.map((m) => ({
+      const mapped = raw.map((m) => ({
         id: m.id,
         frameHash: m.frameHash || null,
         messageHash: m.messageHash || null,
@@ -2875,6 +2961,9 @@
         const tb = b.tsRaw ? new Date(b.tsRaw).getTime() : 0;
         return ta - tb;
       });
+      appData.messages = opts.replace
+        ? mapped
+        : mergeMappedMessages(appData.messages || [], mapped);
       const unread = {};
       const latestByChannel = {};
       appData.messages.forEach((msg) => {
@@ -2900,10 +2989,11 @@
       } else {
         renderChannels();
       }
-      renderMessages(!!forceFull);
+      renderMessages(!!forceFull, { preserveScroll: !!opts.preserveScroll });
       if (forceFull && appData.messages.length && !isMobile()) {
         showRoute(appData.messages[0].id);
       }
+      return mapped.length;
     }
 
     async function checkServerStatus() {
@@ -2941,7 +3031,7 @@
       }
       try {
         await loadChannels();
-        await loadMessages(true);
+        await loadMessages(true, { replace: true, limit: 10 });
         try {
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);
@@ -2960,7 +3050,7 @@
         const ok = await checkServerStatus();
         if (!ok) return;
         try {
-          await loadMessages();
+          await loadMessages(false, { limit: 10 });
         } catch {}
       }, 2000);
 
@@ -3715,7 +3805,7 @@
               </div>
             <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
             <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}${(r.zeroHopNeighbors24h ?? 0) >= 3 && Array.isArray(r.zeroHopNeighborNames) && r.zeroHopNeighborNames.length ? ` — ${r.zeroHopNeighborNames.slice(0, 5).join(", ")}${r.zeroHopNeighborNames.length > 5 ? ` +${r.zeroHopNeighborNames.length - 5}` : ""}` : ""}</div>
+            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}${Array.isArray(r.zeroHopNeighborNames) && r.zeroHopNeighborNames.length ? ` — ${r.zeroHopNeighborNames.slice(0, 5).join(", ")}${r.zeroHopNeighborNames.length > 5 ? ` +${r.zeroHopNeighborNames.length - 5}` : ""}` : ""}</div>
             <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
             <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
             ${badgeHtml(badges)}
