@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta http-equiv="cache-control" content="no-store, no-cache, must-revalidate, max-age=0"/>
+  <meta http-equiv="pragma" content="no-cache"/>
+  <meta http-equiv="expires" content="0"/>
   <title>MeshRank</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -3352,6 +3355,10 @@
 
     function buildObserverBadges(o) {
       const badges = [];
+      if (Number.isFinite(o.ageHours)) {
+        if (o.ageHours <= 1) badges.push({ label: "Live", tone: "green" });
+        else badges.push({ label: "No packets 1h+", tone: "gray" });
+      }
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
       if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
       if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
