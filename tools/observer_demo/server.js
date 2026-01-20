@@ -33,9 +33,6 @@ let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 
 let channelMessagesInFlight = null;
 const CHANNEL_CACHE_MIN_MS = 500;
 const CHANNEL_CACHE_STALE_MS = 1500;
-const MESSAGE_RECENT_MINUTES = Number.isFinite(Number(process.env.MESHRANK_MESSAGE_RECENT_MINUTES))
-  ? Math.max(1, Number(process.env.MESHRANK_MESSAGE_RECENT_MINUTES))
-  : 2;
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
@@ -1040,12 +1037,7 @@ async function buildChannelMessages() {
       time: c.lastTs ? new Date(c.lastTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
     }));
 
-  const recentCutoff = Date.now() - (MESSAGE_RECENT_MINUTES * 60 * 1000);
   const messages = Array.from(messagesMap.values())
-    .filter((m) => {
-      const ts = m.ts ? new Date(m.ts).getTime() : 0;
-      return ts && ts >= recentCutoff;
-    })
     .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
 
   const payload = { channels, messages };
