@@ -490,11 +490,6 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    .msg-hash {
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 11px;
-      word-break: break-all;
-    }
 
     .analyze {
       color: var(--blue);
@@ -2217,7 +2212,6 @@
                 <span>Observers: ${observerCount}</span>
                 <span>Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
                 <span>MeshRank Confidence: ${conf}%</span>
-                <span class="msg-hash">Packet: ${msg.frameHash || msg.messageHash || msg.id}</span>
                 <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
               </div>
           </div>
@@ -3305,6 +3299,7 @@
         <div class="rf-kv">Type: ${p.payloadType || "Unknown"}</div>
         <div class="rf-kv">Route: ${p.routeTypeName || "--"}</div>
         <div class="rf-kv">Hash: ${(p.hash || p.fp || "--").toString()}</div>
+        <div class="rf-kv">Full hash: ${(p.frameHash || p.hash || p.fp || "--").toString()}</div>
         <div class="rf-kv">Time: ${p.ts ? new Date(p.ts).toLocaleString() : "--"}</div>
         <div class="rf-kv">RSSI/SNR: ${Number.isFinite(p.rssi) ? p.rssi : "--"} / ${Number.isFinite(p.snr) ? p.snr : "--"}</div>
         <div class="rf-kv">CRC: ${p.crc === true ? "ok" : p.crc === false ? "fail" : "unknown"}</div>
