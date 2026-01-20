@@ -149,6 +149,19 @@ async function main() {
   let observers = [];
   const keyStore = buildKeyStore(loadKeys());
 
+  function addHashStat(hashKey, observerId, hops, heardAt) {
+    if (!hashKey) return;
+    const key = String(hashKey).toUpperCase();
+    if (!byHash[key]) byHash[key] = { observers: {}, maxHops: 0, lastSeen: null };
+    byHash[key].observers[observerId] = true;
+    if (Number.isFinite(hops) && hops > byHash[key].maxHops) byHash[key].maxHops = hops;
+    if (heardAt) {
+      const prev = byHash[key].lastSeen ? new Date(byHash[key].lastSeen).getTime() : 0;
+      const next = new Date(heardAt).getTime();
+      if (next > prev) byHash[key].lastSeen = heardAt;
+    }
+  }
+
   if (fs.existsSync(localPacketsPath)) {
     packets = JSON.parse(fs.readFileSync(localPacketsPath, "utf8"));
   } else {
@@ -274,15 +287,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-  function addHashStat(hashKey, observerId, hops, heardAt) {
-    if (!hashKey) return;
-    const key = String(hashKey).toUpperCase();
-    if (!byHash[key]) byHash[key] = { observers: {}, maxHops: 0, lastSeen: null };
-    byHash[key].observers[observerId] = true;
-    if (Number.isFinite(hops) && hops > byHash[key].maxHops) byHash[key].maxHops = hops;
-    if (heardAt) {
-      const prev = byHash[key].lastSeen ? new Date(byHash[key].lastSeen).getTime() : 0;
-      const next = new Date(heardAt).getTime();
-      if (next > prev) byHash[key].lastSeen = heardAt;
-    }
-  }
