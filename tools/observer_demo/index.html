@@ -2325,6 +2325,12 @@
       }
     }
 
+    function setBootstrapVisibility(hasAdmin) {
+      const btn = document.getElementById("authBootstrap");
+      if (!btn) return;
+      btn.style.display = hasAdmin ? "none" : "inline-flex";
+    }
+
     async function fetchAuthMe() {
       const res = await fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" });
       if (!res.ok) return null;
@@ -3218,6 +3224,11 @@
       try {
         const user = await fetchAuthMe();
         setAuthUser(user);
+      } catch {}
+      try {
+        const res = await fetch("/api/admin/status", { cache: "no-store" });
+        const data = await res.json();
+        setBootstrapVisibility(!!data.hasAdmin);
       } catch {}
       await checkServerStatus();
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
@@ -4405,9 +4416,14 @@
     const authUserInput = document.getElementById("authUsername");
     const authPassInput = document.getElementById("authPassword");
 
-    loginBtn?.addEventListener("click", () => {
+    loginBtn?.addEventListener("click", async () => {
       authModal?.classList.add("open");
       setAuthUser(appData.authUser);
+      try {
+        const res = await fetch("/api/admin/status", { cache: "no-store" });
+        const data = await res.json();
+        setBootstrapVisibility(!!data.hasAdmin);
+      } catch {}
     });
     authClose?.addEventListener("click", () => authModal?.classList.remove("open"));
     authModal?.addEventListener("click", (e) => {

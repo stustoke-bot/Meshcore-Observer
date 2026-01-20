@@ -1617,6 +1617,12 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, user }));
   }
 
+  if (u.pathname === "/api/admin/status") {
+    const db = getDb();
+    const row = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hasAdmin: !!row }));
+  }
+
   if (u.pathname === "/api/admin/bootstrap" && req.method === "POST") {
     try {
       const db = getDb();
