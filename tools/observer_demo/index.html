@@ -499,6 +499,15 @@
       font-size: 11px;
       font-weight: 700;
     }
+    .repeater-tag {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 122, 255, 0.35);
+      background: rgba(0, 122, 255, 0.12);
+      color: #007aff;
+      font-size: 11px;
+      font-weight: 700;
+    }
 
     .analyze {
       color: var(--blue);
@@ -2203,9 +2212,26 @@
       const rendered = appData.renderedIdsByChannel[key] || new Set();
 
       filtered.forEach((msg, idx) => {
-        if (rendered.has(msg.id)) return;
+        if (rendered.has(msg.id)) {
+          const existing = el.querySelector(`.message[data-id="${msg.id}"]`);
+          if (existing) {
+            const observerEl = existing.querySelector(".msg-observers");
+            if (observerEl) observerEl.textContent = `Observers: ${observerCount}`;
+            const hopsEl = existing.querySelector(".msg-hops");
+            if (hopsEl) {
+              const hops = Number.isFinite(msg.uniqueHopCount)
+                ? msg.uniqueHopCount
+                : (msg.pathLength ?? msg.repeats ?? 0);
+              hopsEl.textContent = `Total hops: ${hops}`;
+            }
+            const confEl = existing.querySelector(".msg-confidence");
+            if (confEl) confEl.textContent = `MeshRank Confidence: ${conf}%`;
+          }
+          return;
+        }
         const row = document.createElement("div");
         row.className = "message";
+        row.dataset.id = msg.id;
         const conf = confidence(msg);
         const observerCount = Number.isFinite(msg.observerCount)
           ? msg.observerCount
@@ -2221,9 +2247,9 @@
             </div>
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
-                <span>Observers: ${observerCount}</span>
-                <span>Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
-                <span>MeshRank Confidence: ${conf}%</span>
+                <span class="msg-observers">Observers: ${observerCount}</span>
+                <span class="msg-hops">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
+                <span class="msg-confidence">MeshRank Confidence: ${conf}%</span>
                 <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
               </div>
           </div>
@@ -2279,11 +2305,16 @@
         const slicedLines = lines.slice(0, maxDepth);
         const slicedNames = names.slice(0, maxDepth);
         appData.routeActivePathCodes = slicedLines.slice();
+        const repeatersByCode = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
         slicedLines.forEach((node, idx) => {
           const label = resolveRouteName(node, slicedNames[idx] ? slicedNames[idx] : node);
+          const code = String(node || "").toUpperCase();
+          const isRepeater = repeatersByCode && repeatersByCode.has(code);
           const item = document.createElement("div");
           item.className = "list-item";
-        item.innerHTML = `<span>${label}</span>`;
+        item.innerHTML = isRepeater
+          ? `<span>${label}</span><span class="repeater-tag">Repeater</span>`
+          : `<span>${label}</span>`;
         list.appendChild(item);
       });
 
