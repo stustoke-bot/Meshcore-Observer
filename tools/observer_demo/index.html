@@ -2249,7 +2249,7 @@
 
       await ensureRouteSuggestions();
       document.getElementById("routeKey").textContent = msg.id;
-      document.getElementById("routeMessage").textContent = msg.id;
+      document.getElementById("routeMessage").textContent = msg.frameHash || msg.messageHash || msg.id;
       document.getElementById("routeSource").textContent = msg.type;
       document.getElementById("routeConfidence").textContent = confidence(msg) + "%";
 
@@ -2650,6 +2650,8 @@
       const raw = mergeMessages(data.messages || []);
       appData.messages = raw.map((m) => ({
         id: m.id,
+        frameHash: m.frameHash || null,
+        messageHash: m.messageHash || null,
         channelId: normalizeChannelId(m.channelName || "#unknown"),
         sender: m.sender,
         body: m.body,

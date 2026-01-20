@@ -772,6 +772,7 @@ async function buildChannelMessages() {
         hex.slice(0, 16) ||
         "unknown"
       ).toUpperCase();
+      const messageHash = decoded.messageHash ? String(decoded.messageHash).toUpperCase() : null;
       const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
       const observerSet = new Set();
       const hits = observerMap.get(msgHash);
@@ -811,6 +812,8 @@ async function buildChannelMessages() {
     if (!messagesMap.has(msgKey)) {
         messagesMap.set(msgKey, {
           id: msgHash,
+          frameHash,
+          messageHash,
           channelName: chName,
           sender,
           body,
