@@ -2486,7 +2486,9 @@
             const key = String(raw || "").trim();
             if (!key) return;
             const entry = byId[key] || byName[key] || null;
-            const gps = entry?.gps || entry?.gpsApprox;
+            const gps = entry?.manualLocation && entry?.gpsApprox
+              ? entry.gpsApprox
+              : (entry?.gps || entry?.gpsApprox);
             if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
             const latlng = [gps.lat, gps.lon];
             latlngs.push(latlng);
@@ -3101,7 +3103,9 @@
       const now = Date.now();
       const points = [];
       entries.forEach((entry) => {
-        const gps = entry.locValidated ? entry.gps : (entry.gpsApprox || null);
+        const gps = entry.manualLocation && entry.gpsApprox
+          ? entry.gpsApprox
+          : (entry.locValidated ? entry.gps : (entry.gpsApprox || null));
         if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
         const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
         const ageHours = ts ? (now - ts) / 3600000 : 999;
@@ -3260,7 +3264,9 @@
         });
       }
 
-      const gps = entry?.gps || entry?.gpsApprox || null;
+      const gps = entry?.manualLocation && entry?.gpsApprox
+        ? entry.gpsApprox
+        : (entry?.gps || entry?.gpsApprox || null);
       if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
         observerLocationMap.setView([gps.lat, gps.lon], 10);
         observerLocationCoords = { lat: gps.lat, lng: gps.lon };
