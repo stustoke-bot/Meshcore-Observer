@@ -50,12 +50,18 @@ async function getObserverHitsMap() {
     if (!t) continue;
     let rec;
     try { rec = JSON.parse(t); } catch { continue; }
-    const observerName = rec.observerName || rec.observerId;
+    let observerKey = rec.observerId || "";
+    if (!observerKey && rec.topic) {
+      const m = String(rec.topic).match(/observers\/([^/]+)\//i);
+      if (m) observerKey = m[1];
+    }
+    if (!observerKey) observerKey = rec.observerName || "";
+    observerKey = String(observerKey).trim();
     const msgKey = rec.frameHash || rec.hash || rec.messageHash;
-    if (!observerName || !msgKey) continue;
+    if (!observerKey || !msgKey) continue;
     const key = String(msgKey).toUpperCase();
     if (!map.has(key)) map.set(key, new Set());
-    map.get(key).add(observerName);
+    map.get(key).add(observerKey);
   }
   observerHitsCache = { mtimeMs: stat.mtimeMs, size: stat.size, map };
   return map;
