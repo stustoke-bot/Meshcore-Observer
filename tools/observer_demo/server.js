@@ -352,13 +352,14 @@ async function buildObserverRank() {
 
   for (const entry of Object.values(byId)) {
     if (!entry?.id) continue;
+    const manualGps = entry.manualLocation ? (entry.gpsApprox || entry.gps) : null;
     stats.set(entry.id, {
       id: entry.id,
       name: entry.name || entry.id,
       firstSeen: entry.firstSeen || null,
       lastSeen: entry.lastSeen || null,
-      gps: entry.gps || null,
-      locSource: entry.locSource || null,
+      gps: manualGps || entry.gps || null,
+      locSource: entry.locSource || (manualGps ? "manual" : null),
       bestRepeaterPub: entry.bestRepeaterPub || null,
       packetsToday: 0,
       repeaters: new Set()
