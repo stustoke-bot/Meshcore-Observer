@@ -3356,8 +3356,9 @@
     function buildObserverBadges(o) {
       const badges = [];
       if (Number.isFinite(o.ageHours)) {
-        if (o.ageHours <= 1) badges.push({ label: "Live", tone: "green" });
-        else badges.push({ label: "No packets 1h+", tone: "gray" });
+        const ageMinutes = o.ageHours * 60;
+        if (ageMinutes <= 2) badges.push({ label: "Live", tone: "green" });
+        else badges.push({ label: "Offline", tone: "gray" });
       }
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
       if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
