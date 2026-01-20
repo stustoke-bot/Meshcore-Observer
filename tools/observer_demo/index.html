@@ -2107,7 +2107,7 @@
     }
 
     function normalizeChannelId(value) {
-      return String(value || "").replace(/^#/, "").toLowerCase();
+      return String(value || "").trim().replace(/^#/, "").toLowerCase();
     }
 
     let activeChannelId = "public";
