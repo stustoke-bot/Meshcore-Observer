@@ -18,7 +18,6 @@ const UK_REGIONS = new Set(regionOverride.length ? regionOverride : [
 const PACKETS_URL = process.env.LETSMESH_PACKETS_URL
   ? String(process.env.LETSMESH_PACKETS_URL)
   : `${API_BASE}/packets/filtered?limit=${packetLimit}`;
-const skipRegionFilter = process.env.LETSMESH_SKIP_REGION_FILTER === "1" || !!process.env.LETSMESH_PACKETS_URL;
 const OBSERVERS_URL = `${API_BASE}/observers`;
 
 const projectRoot = path.resolve(__dirname, "..", "..");
@@ -32,7 +31,6 @@ const localObserversPath = path.join(dataDir, "letsmesh_observers.json");
 const crypto = require("crypto");
 
 function isUkRegion(regions) {
-  if (skipRegionFilter) return true;
   if (!Array.isArray(regions) || !regions.length) return false;
   return regions.some((r) => UK_REGIONS.has(String(r).toUpperCase()));
 }
