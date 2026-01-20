@@ -2139,6 +2139,15 @@
     }
 
     let activeChannelId = "public";
+    function updateChannelParam(channelId) {
+      const url = new URL(window.location.href);
+      if (channelId) {
+        url.searchParams.set("channel", channelId);
+      } else {
+        url.searchParams.delete("channel");
+      }
+      window.history.replaceState({}, "", url.toString());
+    }
 
     function renderChannels() {
       const el = document.getElementById("channels");
@@ -2175,6 +2184,7 @@
         row.addEventListener("click", () => {
           activeChannelId = ch.id;
           document.getElementById("activeChannel").textContent = ch.name;
+          updateChannelParam(activeChannelId);
           const latest = appData.messages
             .filter((msg) => msg.channelId === activeChannelId)
             .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
@@ -2184,7 +2194,7 @@
           saveReadState();
           renderChannels();
           renderMessages(true);
-          loadMessages(true);
+          loadMessages(false);
           document.body.classList.remove("menu-open-left", "menu-open-right");
         });
         row.querySelector(".channel-remove").addEventListener("click", async (e) => {
@@ -2767,6 +2777,11 @@
     }
 
     async function boot() {
+      const url = new URL(window.location.href);
+      const channelParam = url.searchParams.get("channel");
+      if (channelParam) {
+        activeChannelId = normalizeChannelId(channelParam);
+      }
       await checkServerStatus();
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
