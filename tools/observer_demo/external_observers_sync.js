@@ -240,7 +240,7 @@ async function main() {
         let textKey = null;
         let decodedBody = null;
         let decodedSender = null;
-        let decodedChannel = pkt?.channel_hash ? String(pkt.channel_hash).toUpperCase() : null;
+        let decodedChannel = null;
         let decodedMsgHash = null;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
           try {
@@ -252,7 +252,7 @@ async function main() {
             const payloadType = Utils ? Utils.getPayloadTypeName(decoded.payloadType) : null;
             const decodedPayload = decoded?.payload?.decoded || {};
             const decrypted = decodedPayload?.decrypted || decoded?.payload?.decrypted || null;
-            const channelHash = decodedPayload?.channelHash || decrypted?.channelHash || decodedChannel || null;
+            const channelHash = decodedPayload?.channelHash || decrypted?.channelHash || null;
             if (payloadType === "GroupText" && decrypted?.message) {
               decodedSender = String(decrypted.sender || "unknown");
               decodedBody = String(decrypted.message || "");
@@ -284,7 +284,7 @@ async function main() {
           hash: hash || null,
           messageHash: decodedMsgHash || null,
           decodedBody,
-          decodedSender: decodedSender || null,
+          decodedSender,
           decodedChannel,
           observerId: id,
           observerName: name,
