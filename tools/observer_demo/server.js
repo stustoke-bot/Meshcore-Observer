@@ -25,6 +25,7 @@ const CHANNEL_TAIL_LINES = 10000;
 const CHANNEL_HISTORY_LIMIT = 10;
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
 const MESSAGE_DEBUG_TAIL_LINES = 20000;
+const NODE_RANK_TAIL_LINES = 20000;
 
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, lastReadAt: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
@@ -107,12 +108,16 @@ async function getObserverHitsMap() {
   return map;
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
+const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
 
 let observerRankCache = { updatedAt: null, items: [] };
 let observerRankRefresh = null;
+
+let nodeRankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+let nodeRankRefreshInFlight = null;
 
 let ChannelCrypto;
 try {
@@ -170,6 +175,12 @@ function getHex(rec) {
   if (rec && typeof rec.hex === "string") return rec.hex;
   if (rec && typeof rec.payloadHex === "string") return rec.payloadHex;
   return null;
+}
+
+function extractSenderPublicKey(decoded) {
+  if (!decoded) return null;
+  const payload = decoded.payload?.decoded || decoded.decoded || decoded;
+  return payload?.senderPublicKey || payload?.publicKey || payload?.senderPub || payload?.pub || null;
 }
 
 function sha256Hex(hex) {
@@ -774,6 +785,99 @@ async function buildRepeaterRank() {
   };
 }
 
+async function buildNodeRank() {
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const all = Object.values(byPub).filter(Boolean);
+  const companions = all.filter((d) => !d.isRepeater && d.role !== "room_server" && d.role !== "chat");
+  const now = Date.now();
+  const windowMs = 24 * 60 * 60 * 1000;
+  const stats = new Map(); // pub -> {messages24h, msgCounts, lastMsgTs}
+  const sourcePath = getRfSourcePath();
+  const keyCfg = loadKeys();
+  const keyStore = buildKeyStore(keyCfg);
+
+  if (fs.existsSync(sourcePath)) {
+    const tail = await tailLines(sourcePath, NODE_RANK_TAIL_LINES);
+    for (const line of tail) {
+      let rec;
+      try { rec = JSON.parse(line); } catch { continue; }
+      let decoded = rec.decoded || null;
+      let payloadTypeName = rec.payloadType || (decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null);
+      if (!payloadTypeName) {
+        const hex = getHex(rec);
+        if (!hex) continue;
+        try {
+          decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+          payloadTypeName = Utils.getPayloadTypeName(decoded.payloadType);
+        } catch {
+          continue;
+        }
+      }
+      if (payloadTypeName !== "GroupText") continue;
+      const senderPublicKey = extractSenderPublicKey(decoded);
+      if (!senderPublicKey) continue;
+      const ts = parseIso(rec.ts || rec.archivedAt);
+      if (!ts) continue;
+      if (now - ts.getTime() > windowMs) continue;
+
+      const pubKey = String(senderPublicKey).toUpperCase();
+      const hex = getHex(rec);
+      const hash = decoded?.messageHash
+        ? String(decoded.messageHash).toUpperCase()
+        : (rec.frameHash ? String(rec.frameHash).toUpperCase() : (sha256Hex(hex || "") || (hex ? hex.slice(0, 16) : "unknown")).toUpperCase());
+
+      if (!stats.has(pubKey)) {
+        stats.set(pubKey, { messages24h: 0, msgCounts: new Map(), lastMsgTs: null });
+      }
+      const s = stats.get(pubKey);
+      s.messages24h += 1;
+      s.msgCounts.set(hash, (s.msgCounts.get(hash) || 0) + 1);
+      if (!s.lastMsgTs || ts > s.lastMsgTs) s.lastMsgTs = ts;
+    }
+  }
+
+  const items = companions.map((d) => {
+    const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey;
+    const pubKey = pub ? String(pub).toUpperCase() : null;
+    const s = pubKey && stats.has(pubKey) ? stats.get(pubKey) : { messages24h: 0, msgCounts: new Map(), lastMsgTs: null };
+    const lastSeen = d.lastSeen || null;
+    const lastSeenDate = parseIso(lastSeen);
+    const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
+    if (ageHours > 24 * 7) return null;
+    const messages24h = s.messages24h || 0;
+    const uniqueMessages24h = s.msgCounts.size || 0;
+    const activityScore = Number.isFinite(ageHours) ? clamp((24 - ageHours) / 24, 0, 1) : 0;
+    const messageScore = clamp(messages24h / 200, 0, 1);
+    const uniqueScore = clamp(uniqueMessages24h / 50, 0, 1);
+    let score = 100 * clamp(0.5 * messageScore + 0.3 * uniqueScore + 0.2 * activityScore, 0, 1);
+    if (!Number.isFinite(score)) score = 0;
+    const color = ageHours <= 1 ? "#34c759" : (ageHours <= 6 ? "#ff9500" : "#ff3b30");
+
+    return {
+      pub: pubKey,
+      name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
+      model: d.model || d.raw?.lastAdvert?.appData?.model || null,
+      role: d.role || "companion",
+      gps: d.gps || null,
+      lastSeen,
+      ageHours,
+      messages24h,
+      uniqueMessages24h,
+      lastMessageAt: s.lastMsgTs ? s.lastMsgTs.toISOString() : null,
+      score: Math.round(score),
+      scoreColor: color
+    };
+  }).filter(Boolean)
+    .sort((a, b) => (b.score - a.score) || (b.messages24h - a.messages24h));
+
+  return {
+    updatedAt: new Date().toISOString(),
+    count: items.length,
+    items
+  };
+}
+
 async function refreshRankCache(force) {
   const now = Date.now();
   const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
@@ -989,6 +1093,23 @@ async function buildChannelMessages() {
     return await channelMessagesInFlight;
   } finally {
     channelMessagesInFlight = null;
+  }
+}
+
+async function refreshNodeRankCache(force) {
+  const now = Date.now();
+  const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
+  if (!force && last && now - last < NODE_RANK_REFRESH_MS) return nodeRankCache;
+  if (nodeRankRefreshInFlight) return nodeRankRefreshInFlight;
+  nodeRankRefreshInFlight = (async () => {
+    const data = await buildNodeRank();
+    nodeRankCache = { ...data, cachedAt: new Date().toISOString() };
+    return nodeRankCache;
+  })();
+  try {
+    return await nodeRankRefreshInFlight;
+  } finally {
+    nodeRankRefreshInFlight = null;
   }
 }
 
@@ -1531,6 +1652,38 @@ const server = http.createServer(async (req, res) => {
       ? { ...rankCache, items: rankCache.items.slice(0, limit) }
       : rankCache;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+  if (u.pathname === "/api/node-rank") {
+    const now = Date.now();
+    const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
+    const force = u.searchParams.get("refresh") === "1";
+    const limitRaw = u.searchParams.get("_limit");
+    const limit = limitRaw ? Number(limitRaw) : 0;
+    if (force || !last) {
+      await refreshNodeRankCache(true);
+    } else if (now - last >= NODE_RANK_REFRESH_MS) {
+      refreshNodeRankCache(false).catch(() => {});
+    }
+    const payload = limit > 0
+      ? { ...nodeRankCache, items: nodeRankCache.items.slice(0, limit) }
+      : nodeRankCache;
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+  if (u.pathname === "/api/node-rank-summary") {
+    const now = Date.now();
+    const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
+    if (!last || now - last >= NODE_RANK_REFRESH_MS) {
+      await refreshNodeRankCache(true);
+    }
+    const summary = {
+      updatedAt: nodeRankCache.updatedAt,
+      count: nodeRankCache.count,
+      totals: {
+        active: nodeRankCache.items.filter((n) => Number.isFinite(n.ageHours) && n.ageHours < 24).length,
+        messages24h: nodeRankCache.items.reduce((sum, n) => sum + (n.messages24h || 0), 0)
+      }
+    };
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
   }
   if (u.pathname === "/api/repeater-rank-summary") {
     const now = Date.now();

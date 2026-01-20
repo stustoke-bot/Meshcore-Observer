@@ -571,6 +571,12 @@
       min-height: 0;
     }
 
+    .node-rank-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
     .rank-body {
       display: grid;
       grid-template-columns: 1.2fr 0.8fr;
@@ -1245,6 +1251,18 @@
     body.view-observer-rank .repeater-panel { display: none; }
     body.view-observer-rank .observer-rank-panel { display: flex; }
 
+    body.view-node-rank .sidebar-panel,
+    body.view-node-rank .content,
+    body.view-node-rank .analysis-panel,
+    body.view-node-rank .rank-panel,
+    body.view-node-rank .meshscore-panel,
+    body.view-node-rank .rf-panel,
+    body.view-node-rank .observer-panel,
+    body.view-node-rank .observer-rank-panel,
+    body.view-node-rank .repeater-panel,
+    body.view-node-rank .why-panel { display: none; }
+    body.view-node-rank .node-rank-panel { display: flex; }
+
     .row {
       display: flex;
       justify-content: space-between;
@@ -1681,6 +1699,8 @@
       .rank-map { display: none; }
       #rankMap { display: none; }
       #observerRankMap { display: none; }
+      .node-rank-map { display: none; }
+      #nodeRankMap { display: none; }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
       body.view-rf .rf-row { min-width: 0; grid-template-columns: 70px 70px 1fr 70px 60px 60px; }
@@ -1699,7 +1719,8 @@
       .meshscore-panel { min-height: 0; overflow: hidden; }
       .meshscore-body { min-height: 0; height: 100%; overflow: auto; }
       body.view-rank .rank-panel,
-      body.view-observer-rank .observer-rank-panel { overflow: auto; }
+      body.view-observer-rank .observer-rank-panel,
+      body.view-node-rank .node-rank-panel { overflow: auto; }
     }
   </style>
 </head>
@@ -1718,6 +1739,7 @@
       <nav class="nav">
         <a href="#" class="active" data-view="channels">Channels</a>
         <a href="#" data-view="rank">Repeater Rank</a>
+        <a href="#" data-view="node-rank">Node Rank</a>
         <a href="#" data-view="meshscore">MeshRank</a>
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
@@ -1737,6 +1759,7 @@
     <div class="mobile-menu" id="mobileMenu">
       <a href="#" class="active" data-view="channels">Channels</a>
       <a href="#" data-view="rank">Repeater Rank</a>
+      <a href="#" data-view="node-rank">Node Rank</a>
       <a href="#" data-view="meshscore">MeshRank</a>
       <a href="#" data-view="observer-rank">Observer Rank</a>
       <a href="#" data-view="rf">MeshFlow</a>
@@ -1814,6 +1837,35 @@
           <input class="rank-search" id="rankSearch" type="text" placeholder="Search repeaters"/>
           <div class="rank-scroll" id="rankScroll">
             <div id="rankList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel node-rank-panel">
+      <div class="title">Node Rank <span class="chip" id="nodeRankUpdated">--</span></div>
+      <div class="rank-summary">
+        <div class="summary-card">
+          <div>Total nodes</div>
+          <strong id="nodeRankTotal">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>Active (24h)</div>
+          <strong id="nodeRankActive">0</strong>
+        </div>
+        <div class="summary-card">
+          <div>Messages (24h)</div>
+          <strong id="nodeRankMessages">0</strong>
+        </div>
+      </div>
+      <div class="rank-body node-rank-body">
+        <div class="rank-map node-rank-map">
+          <div id="nodeRankMap"></div>
+        </div>
+        <div class="rank-list">
+          <input class="rank-search" id="nodeRankSearch" type="text" placeholder="Search nodes"/>
+          <div class="rank-scroll" id="nodeRankScroll">
+            <div id="nodeRankList"></div>
           </div>
         </div>
       </div>
@@ -2169,6 +2221,8 @@
         rankSummary: null,
         rankData: null,
         rankFilter: "",
+        nodeRankSummary: null,
+        nodeRank: null,
         unreadByChannel: {},
         lastReadByChannel: {},
         historyByChannel: {},
@@ -3126,6 +3180,12 @@
       }, 60 * 1000);
 
       setInterval(async () => {
+        const activeNodeRank = document.body.classList.contains("view-node-rank");
+        if (!activeNodeRank) return;
+        await refreshNodeRankSummary();
+      }, 60 * 1000);
+
+      setInterval(async () => {
         const activeObserverRank = document.body.classList.contains("view-observer-rank");
         if (!activeObserverRank) return;
         await refreshObserverRankSummary();
@@ -3150,6 +3210,16 @@
           renderRank(data);
         } catch {}
       }, 15 * 60 * 1000);
+
+      setInterval(async () => {
+        const activeNodeRank = document.body.classList.contains("view-node-rank");
+        if (!activeNodeRank) return;
+        try {
+          await refreshNodeRankSummary();
+          const data = await fetchNodeRank();
+          renderNodeRank(data);
+        } catch {}
+      }, 5 * 60 * 1000);
 
       setInterval(async () => {
         const activeRf = document.body.classList.contains("view-rf");
@@ -3202,6 +3272,9 @@
     let rankLayer;
     let rankMarkers = new Map();
     let meshRangeDays = 7;
+    let nodeRankMap;
+    let nodeRankLayer;
+    let nodeRankMarkers = new Map();
     let observerMap;
     let observerLayer;
     let observerRankMap;
@@ -3215,6 +3288,15 @@
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(rankMap);
       rankLayer = L.layerGroup().addTo(rankMap);
+    }
+
+    function initNodeRankMap() {
+      nodeRankMap = L.map("nodeRankMap", { zoomControl: true }).setView([54.0, -2.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(nodeRankMap);
+      nodeRankLayer = L.layerGroup().addTo(nodeRankMap);
     }
 
     function initObserverMap() {
@@ -3582,6 +3664,12 @@
       return await res.json();
     }
 
+    async function fetchNodeRank() {
+      const res = await fetch(`/api/node-rank?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
     async function fetchRankSummary() {
       const res = await fetch(`/api/repeater-rank-summary?_ts=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -3593,6 +3681,20 @@
         const summary = await fetchRankSummary();
         appData.rankSummary = summary;
         renderRankSummary(summary);
+      } catch {}
+    }
+
+    async function fetchNodeRankSummary() {
+      const res = await fetch(`/api/node-rank-summary?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function refreshNodeRankSummary() {
+      try {
+        const summary = await fetchNodeRankSummary();
+        appData.nodeRankSummary = summary;
+        renderNodeRankSummary(summary);
       } catch {}
     }
 
@@ -3886,6 +3988,76 @@
       document.getElementById("rankActive").textContent = summary.totals?.active ?? 0;
     }
 
+    function renderNodeRankSummary(summary) {
+      if (!summary) return;
+      document.getElementById("nodeRankUpdated").textContent = summary.updatedAt
+        ? formatDateTime(summary.updatedAt)
+        : "--";
+      document.getElementById("nodeRankTotal").textContent = summary.count ?? 0;
+      document.getElementById("nodeRankActive").textContent = summary.totals?.active ?? 0;
+      document.getElementById("nodeRankMessages").textContent = summary.totals?.messages24h ?? 0;
+    }
+
+    function renderNodeRank(data) {
+      if (!data?.items) return;
+      appData.nodeRank = data;
+      const list = document.getElementById("nodeRankList");
+      list.innerHTML = "";
+      if (nodeRankLayer) nodeRankLayer.clearLayers();
+      nodeRankMarkers = new Map();
+
+      const needle = (document.getElementById("nodeRankSearch")?.value || "").trim().toLowerCase();
+      const onMobile = isMobile();
+      const visible = data.items.filter((n) => {
+        if (!needle) return true;
+        const name = String(n.name || "").toLowerCase();
+        const pub = String(n.pub || "").toLowerCase();
+        const model = String(n.model || "").toLowerCase();
+        return name.includes(needle) || pub.includes(needle) || model.includes(needle);
+      });
+
+      visible.forEach((n) => {
+        const scoreBadge = String(Math.round(n.score || 0)).padStart(2, "0");
+        const lastMsg = n.lastMessageAt ? formatDateTime(n.lastMessageAt) : "unknown";
+        const lastSeen = n.lastSeen ? formatDateTime(n.lastSeen) : "unknown";
+        const model = n.model || "--";
+        const item = document.createElement("div");
+        item.className = "rank-item";
+        item.innerHTML = `
+          <div class="score">
+            <span class="rank-dot" style="background:${n.scoreColor}">${scoreBadge}</span>
+            <div class="rank-main">
+              <strong>${n.name || n.pub || "Unknown"}</strong>
+              <div class="rank-meta">Messages 24h: ${n.messages24h ?? 0} | Unique: ${n.uniqueMessages24h ?? 0}</div>
+              <div class="rank-meta">Last message: ${lastMsg}</div>
+              <div class="rank-meta">Last seen: ${lastSeen}</div>
+              <div class="rank-meta">Model: ${model}</div>
+            </div>
+          </div>
+        `;
+        list.appendChild(item);
+
+        if (!onMobile && n.gps && Number.isFinite(n.gps.lat) && Number.isFinite(n.gps.lon)) {
+          const marker = L.circleMarker([n.gps.lat, n.gps.lon], {
+            radius: 7,
+            color: n.scoreColor,
+            fillColor: n.scoreColor,
+            fillOpacity: 0.9,
+            weight: 2
+          }).bindPopup(`${n.name || n.pub} | ${n.messages24h ?? 0} msgs`);
+          marker.addTo(nodeRankLayer);
+          if (n.pub) nodeRankMarkers.set(n.pub, marker);
+        }
+      });
+
+      if (!onMobile && nodeRankMap && visible.length) {
+        const bounds = visible
+          .filter((n) => n.gps && Number.isFinite(n.gps.lat) && Number.isFinite(n.gps.lon))
+          .map((n) => [n.gps.lat, n.gps.lon]);
+        if (bounds.length) nodeRankMap.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }
+
     function scrollRankItemToTop(pub) {
       if (!pub) return;
       const list = document.getElementById("rankList");
@@ -4074,6 +4246,7 @@
           const view = link.dataset.view;
           document.body.classList.toggle("view-channels", view === "channels");
           document.body.classList.toggle("view-rank", view === "rank");
+          document.body.classList.toggle("view-node-rank", view === "node-rank");
           document.body.classList.toggle("view-meshscore", view === "meshscore");
           document.body.classList.toggle("view-rf", view === "rf");
           document.body.classList.toggle("view-observer", view === "observer");
@@ -4091,6 +4264,21 @@
           } catch (err) {
             const list = document.getElementById("rankList");
             list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
+          }
+        }
+
+        if (view === "node-rank") {
+          if (!isMobile() && !nodeRankMap) initNodeRankMap();
+          try {
+            await refreshNodeRankSummary();
+            const data = await fetchNodeRank();
+            renderNodeRank(data);
+            if (nodeRankMap) {
+              setTimeout(() => nodeRankMap.invalidateSize(), 80);
+            }
+          } catch (err) {
+            const list = document.getElementById("nodeRankList");
+            list.innerHTML = "<div class='rank-item'>No nodes yet.</div>";
           }
         }
 
@@ -4145,6 +4333,11 @@
       if (!appData.observerRank) return;
       renderObserverRank(appData.observerRank);
       renderObserverRankMap(appData.observerRank);
+    });
+
+    document.getElementById("nodeRankSearch")?.addEventListener("input", () => {
+      if (!appData.nodeRank) return;
+      renderNodeRank(appData.nodeRank);
     });
 
     function buildObserverEnvSnippet() {
