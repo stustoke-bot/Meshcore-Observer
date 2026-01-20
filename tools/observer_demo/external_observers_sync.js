@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const API_BASE = "https://api.letsmesh.net/api";
 const PACKETS_URL = `${API_BASE}/packets/filtered?limit=500`;
