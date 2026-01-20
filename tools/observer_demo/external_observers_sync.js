@@ -12,37 +12,6 @@ const OBSERVERS_URL = `${API_BASE}/observers`;
 const projectRoot = path.resolve(__dirname, "..", "..");
 const dataDir = path.join(projectRoot, "data");
 const outputPath = path.join(dataDir, "external_observers.json");
-const messageStatsPath = path.join(dataDir, "external_message_stats.json");
-const externalPacketsPath = path.join(dataDir, "external_packets.ndjson");
-const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
-
-let MeshCoreDecoder;
-let Utils;
-try {
-  ({ MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder"));
-} catch {}
-
-function loadKeys() {
-  try {
-    if (!fs.existsSync(keysPath)) return { channels: [] };
-    const obj = JSON.parse(fs.readFileSync(keysPath, "utf8"));
-    if (!obj || typeof obj !== "object") return { channels: [] };
-    if (!Array.isArray(obj.channels)) obj.channels = [];
-    return obj;
-  } catch {
-    return { channels: [] };
-  }
-}
-
-function buildKeyStore(keys) {
-  if (!keys || !Array.isArray(keys.channels)) return null;
-  const store = {};
-  keys.channels.forEach((ch) => {
-    if (!ch?.hashByte || !ch?.secretHex) return;
-    store[String(ch.hashByte).toUpperCase()] = String(ch.secretHex);
-  });
-  return Object.keys(store).length ? store : null;
-}
 
 const adjectives = [
   "Brisk", "Quiet", "Calm", "Swift", "Bold", "Bright", "Mellow", "Cool",
@@ -106,10 +75,8 @@ function upsert(map, id, patch) {
 
 async function main() {
   const byId = {};
-  const byHash = {};
   let packets = [];
   let observers = [];
-  const keyStore = buildKeyStore(loadKeys());
 
   try { packets = await fetchJson(PACKETS_URL); } catch (err) { console.error("packets fetch failed:", err.message); }
   try { observers = await fetchJson(OBSERVERS_URL); } catch (err) { console.error("observers fetch failed:", err.message); }
@@ -146,11 +113,9 @@ async function main() {
   }
 
   if (Array.isArray(packets)) {
-    const externalLines = [];
     for (const pkt of packets) {
       const id = coerceId(pkt);
       if (!id) continue;
-      const hash = pkt?.hash ? String(pkt.hash).toUpperCase() : null;
       const heardAt = parseIso(pkt?.heard_at || pkt?.heardAt || pkt?.created_at || pkt?.createdAt);
       const name = anonymizeName(id);
       const prev = byId[id]?.lastSeen ? new Date(byId[id].lastSeen).getTime() : 0;
@@ -162,72 +127,13 @@ async function main() {
         source: "external"
       });
       byId[id].count = Number(byId[id].count || 0) + 1;
-
-      if (hash) {
-        let msgHash = hash;
-        if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
-          try {
-            const decoded = MeshCoreDecoder.decode(String(pkt.raw_data).toUpperCase(), keyStore ? { keyStore } : undefined);
-            if (decoded?.messageHash) msgHash = String(decoded.messageHash).toUpperCase();
-          } catch {}
-        }
-        if (!byHash[hash]) byHash[hash] = { observers: {}, maxHops: 0, lastSeen: null };
-        byHash[hash].observers[id] = true;
-        const hops = Array.isArray(pkt?.path) ? pkt.path.length : 0;
-        if (hops > byHash[hash].maxHops) byHash[hash].maxHops = hops;
-        if (heardAt) {
-          const prev = byHash[hash].lastSeen ? new Date(byHash[hash].lastSeen).getTime() : 0;
-          const next = new Date(heardAt).getTime();
-          if (next > prev) byHash[hash].lastSeen = heardAt;
-        }
-
-        if (msgHash && msgHash !== hash) {
-          if (!byHash[msgHash]) byHash[msgHash] = { observers: {}, maxHops: 0, lastSeen: null };
-          byHash[msgHash].observers[id] = true;
-          if (hops > byHash[msgHash].maxHops) byHash[msgHash].maxHops = hops;
-          if (heardAt) {
-            const prev = byHash[msgHash].lastSeen ? new Date(byHash[msgHash].lastSeen).getTime() : 0;
-            const next = new Date(heardAt).getTime();
-            if (next > prev) byHash[msgHash].lastSeen = heardAt;
-          }
-        }
-      }
-
-      if (typeof pkt?.raw_data === "string") {
-        externalLines.push(JSON.stringify({
-          archivedAt: heardAt || null,
-          payloadHex: String(pkt.raw_data).toUpperCase(),
-          hash: hash || null,
-          observerId: id,
-          observerName: name,
-          source: "external"
-        }));
-      }
-    }
-    if (externalLines.length) {
-      fs.writeFileSync(externalPacketsPath, externalLines.join("\n") + "\n");
     }
   }
 
   const payload = { byId, updatedAt: new Date().toISOString() };
-  const messagePayload = {
-    byHash: Object.fromEntries(
-      Object.entries(byHash).map(([hash, entry]) => [
-        hash,
-        {
-          observers: Object.keys(entry.observers),
-          maxHops: entry.maxHops,
-          lastSeen: entry.lastSeen || null
-        }
-      ])
-    ),
-    updatedAt: new Date().toISOString()
-  };
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
-  fs.writeFileSync(messageStatsPath, JSON.stringify(messagePayload, null, 2));
   console.log(`Wrote ${Object.keys(byId).length} external observers to ${outputPath}`);
-  console.log(`Wrote ${Object.keys(messagePayload.byHash).length} external message stats to ${messageStatsPath}`);
 }
 
 main().catch((err) => {
