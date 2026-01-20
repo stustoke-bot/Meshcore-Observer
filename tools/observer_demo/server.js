@@ -24,11 +24,11 @@ const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 const dbPath = path.join(dataDir, "meshrank.db");
 
-const CHANNEL_TAIL_LINES = 10000;
+const CHANNEL_TAIL_LINES = 6000;
 const CHANNEL_HISTORY_LIMIT = 10;
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
-const MESSAGE_DEBUG_TAIL_LINES = 20000;
-const NODE_RANK_TAIL_LINES = 20000;
+const MESSAGE_DEBUG_TAIL_LINES = 6000;
+const NODE_RANK_TAIL_LINES = 6000;
 
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, lastReadAt: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
