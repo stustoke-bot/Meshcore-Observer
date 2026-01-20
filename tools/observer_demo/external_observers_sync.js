@@ -240,9 +240,7 @@ async function main() {
         let textKey = null;
         let decodedBody = null;
         let decodedSender = null;
-        let decodedChannel = pkt?.channel_hash
-          ? String(pkt.channel_hash).toUpperCase()
-          : (pkt?.decoded_payload?.channel_hash ? String(pkt.decoded_payload.channel_hash).toUpperCase() : null);
+        let decodedChannel = pkt?.channel_hash ? String(pkt.channel_hash).toUpperCase() : null;
         let decodedMsgHash = null;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
           try {
