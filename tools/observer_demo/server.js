@@ -13,6 +13,7 @@ const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
+const externalObserversPath = path.join(dataDir, "external_observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const indexPath = path.join(__dirname, "index.html");
@@ -335,6 +336,8 @@ async function tailLines(filePath, limit) {
 async function buildObserverRank() {
   const observers = readJsonSafe(observersPath, { byId: {} });
   const byId = observers.byId || {};
+  const externalObservers = readJsonSafe(externalObserversPath, { byId: {} });
+  const externalById = externalObservers.byId || {};
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
   const repeatersByPub = new Map();
@@ -361,6 +364,24 @@ async function buildObserverRank() {
       gps: manualGps || entry.gps || null,
       locSource: entry.locSource || (manualGps ? "manual" : null),
       bestRepeaterPub: entry.bestRepeaterPub || null,
+      isExternal: false,
+      packetsToday: 0,
+      repeaters: new Set()
+    });
+  }
+
+  for (const entry of Object.values(externalById)) {
+    if (!entry?.id || stats.has(entry.id)) continue;
+    const gps = entry.gps || entry.gpsApprox || null;
+    stats.set(entry.id, {
+      id: entry.id,
+      name: entry.name || entry.id,
+      firstSeen: entry.firstSeen || null,
+      lastSeen: entry.lastSeen || null,
+      gps,
+      locSource: entry.locSource || (gps ? "external" : null),
+      bestRepeaterPub: null,
+      isExternal: true,
       packetsToday: 0,
       repeaters: new Set()
     });
@@ -487,6 +508,7 @@ async function buildObserverRank() {
       firstSeen: s.firstSeen,
       ageHours,
       stale: isStale,
+      isExternal: s.isExternal || false,
       uptimeHours,
       packetsToday: s.packetsToday,
       coverageKm,

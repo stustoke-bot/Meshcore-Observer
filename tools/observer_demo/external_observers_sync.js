@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+
+const API_BASE = "https://api.letsmesh.net/api";
+const PACKETS_URL = `${API_BASE}/packets/filtered?limit=500`;
+const OBSERVERS_URL = `${API_BASE}/observers`;
+
+const projectRoot = path.resolve(__dirname, "..", "..");
+const dataDir = path.join(projectRoot, "data");
+const outputPath = path.join(dataDir, "external_observers.json");
+
+const adjectives = [
+  "Brisk", "Quiet", "Calm", "Swift", "Bold", "Bright", "Mellow", "Cool",
+  "Keen", "Sunny", "Misty", "Clear", "Nimble", "Solid", "Steady", "Sharp",
+  "Amber", "Ivory", "Crimson", "Azure", "Olive", "Slate", "Sable", "Cobalt"
+];
+const nouns = [
+  "Falcon", "Otter", "Hawk", "Pine", "Ridge", "Stone", "River", "Harbor",
+  "Cedar", "Wolf", "Oak", "Grove", "Heron", "Lynx", "Puma", "Fox",
+  "Wren", "Bison", "Cairn", "Peak", "Dune", "Vale", "Fjord", "Cove"
+];
+
+function anonymizeName(id) {
+  const hash = crypto.createHash("sha1").update(String(id)).digest();
+  const adj = adjectives[hash[0] % adjectives.length];
+  const noun = nouns[hash[1] % nouns.length];
+  const suffix = String((hash[2] % 90) + 10);
+  return `${adj} ${noun} ${suffix}`;
+}
+
+function parseIso(value) {
+  const d = new Date(value || "");
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { "accept": "application/json" } });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+  return await res.json();
+}
+
+function coerceId(obj) {
+  const raw = obj?.id || obj?.observer_id || obj?.observerId || obj?.origin_id || obj?.originId;
+  return raw ? String(raw).trim() : null;
+}
+
+function coerceName(obj) {
+  return obj?.name || obj?.observer_name || obj?.observerName || obj?.origin || null;
+}
+
+function coerceGps(obj) {
+  const lat = obj?.lat ?? obj?.latitude ?? obj?.gps?.lat;
+  const lon = obj?.lon ?? obj?.longitude ?? obj?.gps?.lon;
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return null;
+  return { lat: Number(lat), lon: Number(lon) };
+}
+
+function coerceTime(obj, keys) {
+  for (const k of keys) {
+    const value = obj?.[k];
+    const iso = parseIso(value);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+function upsert(map, id, patch) {
+  if (!map[id]) map[id] = { id, count: 0 };
+  Object.assign(map[id], patch);
+}
+
+async function main() {
+  const byId = {};
+  let packets = [];
+  let observers = [];
+
+  try { packets = await fetchJson(PACKETS_URL); } catch (err) { console.error("packets fetch failed:", err.message); }
+  try { observers = await fetchJson(OBSERVERS_URL); } catch (err) { console.error("observers fetch failed:", err.message); }
+
+  if (Array.isArray(observers)) {
+    for (const obj of observers) {
+      const id = coerceId(obj);
+      if (!id) continue;
+      const gps = coerceGps(obj);
+      const lastSeen = coerceTime(obj, ["last_seen", "lastSeen", "heard_at", "heardAt", "updated_at", "updatedAt"]);
+      const firstSeen = coerceTime(obj, ["first_seen", "firstSeen", "created_at", "createdAt"]);
+      const name = anonymizeName(id);
+      upsert(byId, id, {
+        name,
+        gps,
+        gpsApprox: gps || null,
+        locApprox: !!gps,
+        locSource: gps ? "external" : null,
+        lastSeen: lastSeen || byId[id]?.lastSeen || null,
+        firstSeen: firstSeen || byId[id]?.firstSeen || null,
+        source: "external"
+      });
+    }
+  }
+
+  if (Array.isArray(packets)) {
+    for (const pkt of packets) {
+      const id = coerceId(pkt);
+      if (!id) continue;
+      const heardAt = parseIso(pkt?.heard_at || pkt?.heardAt || pkt?.created_at || pkt?.createdAt);
+      const name = anonymizeName(id);
+      const prev = byId[id]?.lastSeen ? new Date(byId[id].lastSeen).getTime() : 0;
+      const next = heardAt ? new Date(heardAt).getTime() : 0;
+      upsert(byId, id, {
+        name,
+        lastSeen: next > prev ? heardAt : (byId[id]?.lastSeen || heardAt || null),
+        firstSeen: byId[id]?.firstSeen || heardAt || null,
+        source: "external"
+      });
+      byId[id].count = Number(byId[id].count || 0) + 1;
+    }
+  }
+
+  const payload = { byId, updatedAt: new Date().toISOString() };
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
+  console.log(`Wrote ${Object.keys(byId).length} external observers to ${outputPath}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
