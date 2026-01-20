@@ -78,15 +78,7 @@ function parseIso(value) {
 }
 
 async function fetchJson(url) {
-  const headers = {
-    "accept": "application/json",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "referer": "https://analyzer.letsmesh.net/"
-  };
-  if (process.env.LETSMESH_API_KEY) {
-    headers["authorization"] = `Bearer ${process.env.LETSMESH_API_KEY}`;
-  }
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { headers: { "accept": "application/json" } });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
   return await res.json();
 }
