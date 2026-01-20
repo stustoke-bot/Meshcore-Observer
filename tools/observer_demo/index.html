@@ -2738,7 +2738,9 @@
       appData.unreadByChannel = unread;
       renderChannels();
       renderMessages(!!forceFull);
-      if (forceFull && appData.messages.length) showRoute(appData.messages[0].id);
+      if (forceFull && appData.messages.length && !isMobile()) {
+        showRoute(appData.messages[0].id);
+      }
     }
 
     async function checkServerStatus() {
