@@ -1379,6 +1379,7 @@ const server = http.createServer(async (req, res) => {
       entry.locApprox = true;
       entry.locApproxAt = new Date().toISOString();
       entry.locSource = "manual";
+      entry.manualLocation = true;
       byId[id] = entry;
       data.byId = byId;
       data.updatedAt = new Date().toISOString();

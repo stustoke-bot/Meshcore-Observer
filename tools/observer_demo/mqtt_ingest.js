@@ -96,7 +96,10 @@ function updateObserverStatus(record) {
   }
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
-  updateEstimatedLocation(record, entry, byPub);
+  const manualLoc = entry.locSource === "manual" || entry.manualLocation;
+  if (!manualLoc) {
+    updateEstimatedLocation(record, entry, byPub);
+  }
   if (entry.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon)) {
     const repeaters = Object.values(byPub).filter((d) =>
       d && d.isRepeater && d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)
