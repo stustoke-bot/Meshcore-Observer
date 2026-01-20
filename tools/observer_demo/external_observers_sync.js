@@ -237,19 +237,10 @@ async function main() {
       const hops = Array.isArray(pkt?.path) ? pkt.path.length : 0;
       if (hash) {
         let msgHash = hash;
-        let textKey = null;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
           try {
             const decoded = MeshCoreDecoder.decode(String(pkt.raw_data).toUpperCase(), keyStore ? { keyStore } : undefined);
             if (decoded?.messageHash) msgHash = String(decoded.messageHash).toUpperCase();
-            const payloadType = Utils ? Utils.getPayloadTypeName(decoded.payloadType) : null;
-            const decrypted = decoded?.payload?.decoded?.decrypted || decoded?.payload?.decrypted || null;
-            const channelHash = decoded?.payload?.decoded?.channelHash || decrypted?.channelHash || null;
-            if (payloadType === "GroupText" && decrypted?.message) {
-              const sender = String(decrypted.sender || "unknown");
-              const body = String(decrypted.message || "");
-              textKey = `${channelHash || ""}|${sender}|${body}`;
-            }
           } catch {}
         }
         const rawHash = typeof pkt?.raw_data === "string" ? sha256Hex(pkt.raw_data) : null;
@@ -262,9 +253,6 @@ async function main() {
         if (rawHash) {
           addHashStat(rawHash, id, hops, heardAt);
           addHashStat(shortHash(rawHash), id, hops, heardAt);
-        }
-        if (textKey) {
-          addHashStat(textKey, id, hops, heardAt);
         }
       }
 

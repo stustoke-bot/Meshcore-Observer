@@ -940,8 +940,7 @@ async function buildChannelMessages() {
       const messageShort = messageHash ? messageHash.slice(0, 8) : null;
       const rawHash = sha256Hex(hex);
       const rawShort = rawHash ? rawHash.slice(0, 8) : null;
-      const textKey = `${chHash || ""}|${sender}|${body}`;
-      const externalKeys = [msgHash, msgShort, frameHash, frameShort, messageHash, messageShort, rawHash, rawShort, textKey];
+      const externalKeys = [msgHash, msgShort, frameHash, frameShort, messageHash, messageShort, rawHash, rawShort];
       externalKeys.forEach((key) => {
         if (!key) return;
         const entry = externalByHash[key];
