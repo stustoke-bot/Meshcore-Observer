@@ -33,6 +33,7 @@ const CHANNEL_CACHE_STALE_MS = 1500;
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
+  const keyStore = buildKeyStore(loadKeys());
   let stat = null;
   try {
     stat = fs.statSync(observerPath);
@@ -68,6 +69,15 @@ async function getObserverHitsMap() {
     if (hashKey) keys.push(hashKey);
     if (msgKey) keys.push(msgKey);
     if (payloadKey) keys.push(payloadKey);
+    if (!msgKey && rec.payloadHex && keyStore) {
+      try {
+        const decoded = MeshCoreDecoder.decode(String(rec.payloadHex).toUpperCase(), { keyStore });
+        const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+        if (payloadType === "GroupText" && decoded.messageHash) {
+          keys.push(String(decoded.messageHash).toUpperCase());
+        }
+      } catch {}
+    }
     if (!observerKey || !keys.length) continue;
     keys.forEach((key) => {
       if (!map.has(key)) map.set(key, new Set());
