@@ -16,15 +16,6 @@ const messageStatsPath = path.join(dataDir, "external_message_stats.json");
 const externalPacketsPath = path.join(dataDir, "external_packets.ndjson");
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 
-const UK_REGIONS = new Set([
-  "LHR", "LCY", "LON", "LTN", "OXF", "MAN", "UPV", "LPL", "BHX", "LBA", "MME", "CBG"
-]);
-
-function isUkRegion(regions) {
-  if (!Array.isArray(regions) || !regions.length) return false;
-  return regions.some((r) => UK_REGIONS.has(String(r).toUpperCase()));
-}
-
 let MeshCoreDecoder;
 let Utils;
 try {
@@ -125,7 +116,6 @@ async function main() {
 
   if (Array.isArray(observers)) {
     for (const obj of observers) {
-      if (!isUkRegion(obj?.region ? [obj.region] : obj?.regions)) continue;
       const id = coerceId(obj);
       if (!id) continue;
       const gps = coerceGps(obj);
@@ -158,7 +148,6 @@ async function main() {
   if (Array.isArray(packets)) {
     const externalLines = [];
     for (const pkt of packets) {
-      if (!isUkRegion(pkt?.regions)) continue;
       const id = coerceId(pkt);
       if (!id) continue;
       const hash = pkt?.hash ? String(pkt.hash).toUpperCase() : null;
