@@ -58,11 +58,20 @@ async function getObserverHitsMap() {
     }
     if (!observerKey) observerKey = rec.observerName || "";
     observerKey = String(observerKey).trim();
-    const msgKey = rec.frameHash || rec.hash || rec.messageHash;
-    if (!observerKey || !msgKey) continue;
-    const key = String(msgKey).toUpperCase();
-    if (!map.has(key)) map.set(key, new Set());
-    map.get(key).add(observerKey);
+    const keys = [];
+    const frameKey = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
+    const hashKey = rec.hash ? String(rec.hash).toUpperCase() : null;
+    const msgKey = rec.messageHash ? String(rec.messageHash).toUpperCase() : null;
+    const payloadKey = rec.payloadHex ? sha256Hex(String(rec.payloadHex).toUpperCase()) : null;
+    if (frameKey) keys.push(frameKey);
+    if (hashKey) keys.push(hashKey);
+    if (msgKey) keys.push(msgKey);
+    if (payloadKey) keys.push(payloadKey);
+    if (!observerKey || !keys.length) continue;
+    keys.forEach((key) => {
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(observerKey);
+    });
   }
   observerHitsCache = { mtimeMs: stat.mtimeMs, size: stat.size, map };
   return map;
@@ -824,6 +833,10 @@ async function buildChannelMessages() {
       if (frameHash && frameHash !== msgHash) {
         const frameHits = observerMap.get(frameHash);
         if (frameHits) frameHits.forEach((o) => observerSet.add(o));
+      }
+      if (messageHash && messageHash !== msgHash) {
+        const msgHits = observerMap.get(messageHash);
+        if (msgHits) msgHits.forEach((o) => observerSet.add(o));
       }
       const observerHits = Array.from(observerSet);
       const observerCount = observerHits.length;
