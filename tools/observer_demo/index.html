@@ -76,6 +76,10 @@
       min-height: 0;
     }
 
+    .sidebar-panel {
+      min-height: 0;
+    }
+
     .topbar {
       grid-column: 1 / -1;
       background: var(--panel);
@@ -265,6 +269,15 @@
 
     .sidebar {
       padding: 14px 12px;
+      gap: 10px;
+      overflow-y: auto;
+      min-height: 0;
+      flex: 1 1 auto;
+      max-height: 100%;
+    }
+
+    #channels {
+      display: grid;
       gap: 10px;
     }
 
@@ -512,13 +525,13 @@
       font-weight: 700;
     }
 
-    .analyze {
+    .msg-hops {
       color: var(--blue);
       text-decoration: none;
       font-weight: 600;
+      cursor: pointer;
     }
-
-    .analyze:hover { text-decoration: underline; }
+    .msg-hops:hover { text-decoration: underline; }
 
     .analysis {
       display: grid;
@@ -2323,9 +2336,8 @@
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
                 <span class="msg-observers">Observers: ${observerCount}</span>
-                <span class="msg-hops">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
+                <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</a>
                 <span class="msg-confidence">MeshRank Confidence: ${conf}%</span>
-                <a class="analyze" href="#" data-id="${keyId}">Analyze</a>
               </div>
           </div>
         `;
@@ -2555,7 +2567,7 @@
     }
 
     document.addEventListener("click", (e) => {
-      const link = e.target.closest(".analyze");
+      const link = e.target.closest(".msg-hops");
       if (!link) return;
       e.preventDefault();
       showRoute(link.dataset.id);
