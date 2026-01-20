@@ -2323,12 +2323,28 @@
           ? `Logged in as ${user.username}${user.isAdmin ? " (admin)" : ""}`
           : "Not logged in.";
       }
+      updateNodeRankVisibility();
     }
 
     function setBootstrapVisibility(hasAdmin) {
       const btn = document.getElementById("authBootstrap");
       if (!btn) return;
       btn.style.display = hasAdmin ? "none" : "inline-flex";
+    }
+
+    function updateNodeRankVisibility() {
+      const isAuthed = !!appData.authUser;
+      document.querySelectorAll('[data-view="node-rank"]').forEach((el) => {
+        el.style.display = isAuthed ? "" : "none";
+      });
+      if (!isAuthed && document.body.classList.contains("view-node-rank")) {
+        document.body.classList.remove("view-node-rank");
+        document.body.classList.add("view-channels");
+        navLinks.forEach((l) => l.classList.remove("active"));
+        navLinks.forEach((l) => {
+          if (l.dataset.view === "channels") l.classList.add("active");
+        });
+      }
     }
 
     async function fetchAuthMe() {
@@ -3230,6 +3246,7 @@
         const data = await res.json();
         setBootstrapVisibility(!!data.hasAdmin);
       } catch {}
+      updateNodeRankVisibility();
       await checkServerStatus();
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
@@ -4346,6 +4363,15 @@
         }
 
         if (view === "node-rank") {
+          if (!appData.authUser) {
+            document.body.classList.remove("view-node-rank");
+            document.body.classList.add("view-channels");
+            navLinks.forEach((l) => l.classList.remove("active"));
+            navLinks.forEach((l) => {
+              if (l.dataset.view === "channels") l.classList.add("active");
+            });
+            return;
+          }
           if (!isMobile() && !nodeRankMap) initNodeRankMap();
           try {
             await refreshNodeRankSummary();
