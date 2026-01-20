@@ -238,26 +238,17 @@ async function main() {
       if (hash) {
         let msgHash = hash;
         let textKey = null;
-        let decodedBody = null;
-        let decodedSender = null;
-        let decodedChannel = null;
-        let decodedMsgHash = null;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
           try {
             const decoded = MeshCoreDecoder.decode(String(pkt.raw_data).toUpperCase(), keyStore ? { keyStore } : undefined);
-            if (decoded?.messageHash) {
-              decodedMsgHash = String(decoded.messageHash).toUpperCase();
-              msgHash = decodedMsgHash;
-            }
+            if (decoded?.messageHash) msgHash = String(decoded.messageHash).toUpperCase();
             const payloadType = Utils ? Utils.getPayloadTypeName(decoded.payloadType) : null;
-            const decodedPayload = decoded?.payload?.decoded || {};
-            const decrypted = decodedPayload?.decrypted || decoded?.payload?.decrypted || null;
-            const channelHash = decodedPayload?.channelHash || decrypted?.channelHash || null;
+            const decrypted = decoded?.payload?.decoded?.decrypted || decoded?.payload?.decrypted || null;
+            const channelHash = decoded?.payload?.decoded?.channelHash || decrypted?.channelHash || null;
             if (payloadType === "GroupText" && decrypted?.message) {
-              decodedSender = String(decrypted.sender || "unknown");
-              decodedBody = String(decrypted.message || "");
-              decodedChannel = channelHash ? String(channelHash).toUpperCase() : null;
-              textKey = `${decodedChannel || ""}|${decodedSender}|${decodedBody}`;
+              const sender = String(decrypted.sender || "unknown");
+              const body = String(decrypted.message || "");
+              textKey = `${channelHash || ""}|${sender}|${body}`;
             }
           } catch {}
         }
@@ -282,10 +273,6 @@ async function main() {
           archivedAt: heardAt || null,
           payloadHex: String(pkt.raw_data).toUpperCase(),
           hash: hash || null,
-          messageHash: decodedMsgHash || null,
-          decodedBody,
-          decodedSender,
-          decodedChannel,
           observerId: id,
           observerName: name,
           source: "external"
