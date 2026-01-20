@@ -224,12 +224,6 @@ async function main() {
       const hash = pkt?.hash ? String(pkt.hash).toUpperCase() : null;
       const heardAt = parseIso(pkt?.heard_at || pkt?.heardAt || pkt?.created_at || pkt?.createdAt);
       const name = anonymizeName(id);
-      let decodedBody = null;
-      let decodedSender = null;
-      let decodedChannel = pkt?.channel_hash
-        ? String(pkt.channel_hash).toUpperCase()
-        : (pkt?.decoded_payload?.channel_hash ? String(pkt.decoded_payload.channel_hash).toUpperCase() : null);
-      let decodedMsgHash = null;
       const prev = byId[id]?.lastSeen ? new Date(byId[id].lastSeen).getTime() : 0;
       const next = heardAt ? new Date(heardAt).getTime() : 0;
       upsert(byId, id, {
@@ -244,6 +238,12 @@ async function main() {
       if (hash) {
         let msgHash = hash;
         let textKey = null;
+        let decodedBody = null;
+        let decodedSender = null;
+        let decodedChannel = pkt?.channel_hash
+          ? String(pkt.channel_hash).toUpperCase()
+          : (pkt?.decoded_payload?.channel_hash ? String(pkt.decoded_payload.channel_hash).toUpperCase() : null);
+        let decodedMsgHash = null;
         if (MeshCoreDecoder && typeof pkt?.raw_data === "string") {
           try {
             const decoded = MeshCoreDecoder.decode(String(pkt.raw_data).toUpperCase(), keyStore ? { keyStore } : undefined);
