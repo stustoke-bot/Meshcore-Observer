@@ -772,9 +772,15 @@ async function buildChannelMessages() {
         hex.slice(0, 16) ||
         "unknown"
       ).toUpperCase();
-      const frameHash = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
-      const hits = observerMap.get(msgHash) || (frameHash ? observerMap.get(frameHash) : null);
-      const observerHits = hits ? Array.from(hits) : [];
+      const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
+      const observerSet = new Set();
+      const hits = observerMap.get(msgHash);
+      if (hits) hits.forEach((o) => observerSet.add(o));
+      if (frameHash && frameHash !== msgHash) {
+        const frameHits = observerMap.get(frameHash);
+        if (frameHits) frameHits.forEach((o) => observerSet.add(o));
+      }
+      const observerHits = Array.from(observerSet);
       const observerCount = observerHits.length;
       const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");
