@@ -14,6 +14,8 @@ const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
 const externalObserversPath = path.join(dataDir, "external_observers.json");
+const externalMessageStatsPath = path.join(dataDir, "external_message_stats.json");
+const externalPacketsPath = path.join(dataDir, "external_packets.ndjson");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const indexPath = path.join(__dirname, "index.html");
@@ -104,6 +106,15 @@ async function getObserverHitsMap() {
     offset: stat.size,
     lastReadAt: now
   };
+  const externalStats = readJsonSafe(externalMessageStatsPath, { byHash: {} });
+  const externalByHash = externalStats.byHash || {};
+  Object.entries(externalByHash).forEach(([hash, entry]) => {
+    if (!hash || !entry?.observers) return;
+    const key = String(hash).toUpperCase();
+    if (!map.has(key)) map.set(key, new Set());
+    const set = map.get(key);
+    entry.observers.forEach((obs) => set.add(String(obs)));
+  });
   return map;
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
@@ -854,12 +865,16 @@ async function buildChannelMessages() {
 
   const keyStore = buildKeyStore(keyCfg);
   const tail = await tailLines(sourcePath, CHANNEL_TAIL_LINES);
-  if (!tail.length) {
+  const externalTail = await tailLines(externalPacketsPath, CHANNEL_TAIL_LINES);
+  const combinedTail = tail.concat(externalTail);
+  if (!combinedTail.length) {
     const payload = { channels: Array.from(channelMap.values()), messages: [] };
     channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, payload, builtAt: Date.now() };
     return payload;
   }
   const cachedObserverMap = await getObserverHitsMap();
+  const externalMessageStats = readJsonSafe(externalMessageStatsPath, { byHash: {} });
+  const externalByHash = externalMessageStats.byHash || {};
   cachedObserverMap.forEach((set, key) => {
     observerMap.set(key, set);
   });
@@ -869,7 +884,7 @@ async function buildChannelMessages() {
     if (Number.isFinite(stat.mtimeMs)) baseNow = stat.mtimeMs;
   } catch {}
   let maxNumericTs = null;
-  for (const line of tail) {
+  for (const line of combinedTail) {
     try {
       const rec = JSON.parse(line);
       if (Number.isFinite(rec.ts)) {
@@ -922,6 +937,11 @@ async function buildChannelMessages() {
       }
       const observerHits = Array.from(observerSet);
       const observerCount = observerHits.length;
+      const externalHopCount = Math.max(
+        Number(externalByHash[msgHash]?.maxHops || 0),
+        Number(externalByHash[frameHash]?.maxHops || 0),
+        Number(messageHash ? externalByHash[messageHash]?.maxHops || 0 : 0)
+      );
       const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");
     const sender = String(payload.decrypted.sender || "unknown");
@@ -958,6 +978,7 @@ async function buildChannelMessages() {
           body,
           ts,
           repeats: hopCount,
+          uniqueHopCount: Math.max(hopCount, externalHopCount),
           path,
           pathNames,
           pathPoints,
@@ -967,6 +988,8 @@ async function buildChannelMessages() {
       } else {
         const m = messagesMap.get(msgKey);
         m.repeats += hopCount;
+        if (externalHopCount > (m.uniqueHopCount || 0)) m.uniqueHopCount = externalHopCount;
+        if (hopCount > (m.uniqueHopCount || 0)) m.uniqueHopCount = hopCount;
         if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
         if (path.length > (m.path?.length || 0)) {
           m.path = path;
@@ -1382,6 +1405,14 @@ const server = http.createServer(async (req, res) => {
 
   if (u.pathname === "/api/observers") {
     const payload = readJsonSafe(observersPath, { byId: {}, updatedAt: null });
+    const external = readJsonSafe(externalObserversPath, { byId: {} });
+    const externalById = external.byId || {};
+    const byId = payload.byId || {};
+    Object.entries(externalById).forEach(([id, entry]) => {
+      if (byId[id]) return;
+      byId[id] = { ...entry, isExternal: true };
+    });
+    payload.byId = byId;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
