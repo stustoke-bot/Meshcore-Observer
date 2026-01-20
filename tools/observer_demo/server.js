@@ -27,8 +27,8 @@ const OBSERVER_DEBUG_TAIL_LINES = 5000;
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map() };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
-const CHANNEL_CACHE_MIN_MS = 2000;
-const CHANNEL_CACHE_STALE_MS = 5000;
+const CHANNEL_CACHE_MIN_MS = 500;
+const CHANNEL_CACHE_STALE_MS = 1500;
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
