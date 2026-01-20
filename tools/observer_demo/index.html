@@ -2166,6 +2166,7 @@
         lastMessagesSig: "",
         renderedIdsByChannel: {},
         meshScore: null,
+        rankSummary: null,
         rankData: null,
         rankFilter: "",
         unreadByChannel: {},
@@ -2175,6 +2176,7 @@
         rfSelected: null,
         rfLastSig: "",
         observerRank: null,
+        observerRankSummary: null,
         observersById: {},
         observersByName: {},
         observersUpdatedAt: 0,
@@ -3118,6 +3120,18 @@
       initMap();
       initObserverMap();
       setInterval(async () => {
+        const activeRank = document.body.classList.contains("view-rank");
+        if (!activeRank) return;
+        await refreshRankSummary();
+      }, 60 * 1000);
+
+      setInterval(async () => {
+        const activeObserverRank = document.body.classList.contains("view-observer-rank");
+        if (!activeObserverRank) return;
+        await refreshObserverRankSummary();
+      }, 60 * 1000);
+
+      setInterval(async () => {
         const ok = await checkServerStatus();
         if (!ok) return;
         try {
@@ -3131,6 +3145,7 @@
         try {
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);
+          await refreshRankSummary();
           const data = await fetchRank();
           renderRank(data);
         } catch {}
@@ -3172,6 +3187,7 @@
         const activeObserverRank = document.body.classList.contains("view-observer-rank");
         if (!activeObserverRank) return;
         try {
+          await refreshObserverRankSummary();
           const data = await fetchObserverRank();
           appData.observerRank = data;
           renderObserverRank(data);
@@ -3234,6 +3250,20 @@
       const res = await fetch(`/api/observer-rank?_ts=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
+    }
+
+    async function fetchObserverRankSummary() {
+      const res = await fetch(`/api/observer-rank-summary?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function refreshObserverRankSummary() {
+      try {
+        const summary = await fetchObserverRankSummary();
+        appData.observerRankSummary = summary;
+        renderObserverRankSummary(summary);
+      } catch {}
     }
 
     function updateObserversData(data) {
@@ -3364,6 +3394,16 @@
       document.getElementById("observerRankTotal").textContent = data.items.length;
       document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 1).length;
       document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + o.packetsToday, 0);
+    }
+
+    function renderObserverRankSummary(summary) {
+      if (!summary) return;
+      document.getElementById("observerRankUpdated").textContent = summary.updatedAt
+        ? new Date(summary.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "--";
+      document.getElementById("observerRankTotal").textContent = summary.count ?? 0;
+      document.getElementById("observerRankActive").textContent = summary.totals?.active ?? 0;
+      document.getElementById("observerRankPackets").textContent = summary.totals?.packetsToday ?? 0;
     }
 
     function renderObserverRankMap(data) {
@@ -3540,6 +3580,20 @@
       const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
+    }
+
+    async function fetchRankSummary() {
+      const res = await fetch(`/api/repeater-rank-summary?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function refreshRankSummary() {
+      try {
+        const summary = await fetchRankSummary();
+        appData.rankSummary = summary;
+        renderRankSummary(summary);
+      } catch {}
     }
 
     async function fetchMeshScore() {
@@ -3823,6 +3877,15 @@
       renderRankWithOptions(data, { preserveView: true });
     }
 
+    function renderRankSummary(summary) {
+      if (!summary) return;
+      document.getElementById("rankUpdated").textContent = summary.updatedAt
+        ? formatDateTime(summary.updatedAt)
+        : "--";
+      document.getElementById("rankTotal").textContent = summary.count ?? 0;
+      document.getElementById("rankActive").textContent = summary.totals?.active ?? 0;
+    }
+
     function scrollRankItemToTop(pub) {
       if (!pub) return;
       const list = document.getElementById("rankList");
@@ -4020,6 +4083,7 @@
         if (view === "rank") {
           if (!rankMap) initRankMap();
           try {
+            await refreshRankSummary();
             const mesh = await fetchMeshScore();
             renderMeshScore(mesh, meshRangeDays);
             const data = await fetchRank();
@@ -4064,6 +4128,7 @@
             setTimeout(() => observerRankMap.invalidateSize(), 80);
           }
           try {
+            await refreshObserverRankSummary();
             const data = await fetchObserverRank();
             appData.observerRank = data;
             renderObserverRank(data);

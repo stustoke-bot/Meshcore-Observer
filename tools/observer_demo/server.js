@@ -1532,6 +1532,22 @@ const server = http.createServer(async (req, res) => {
       : rankCache;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
+  if (u.pathname === "/api/repeater-rank-summary") {
+    const now = Date.now();
+    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+    if (!last || now - last >= RANK_REFRESH_MS) {
+      await refreshRankCache(true);
+    }
+    const summary = {
+      updatedAt: rankCache.updatedAt,
+      count: rankCache.count,
+      totals: {
+        active: rankCache.items.filter((r) => !r.stale).length,
+        total24h: rankCache.items.reduce((sum, r) => sum + (r.total24h || 0), 0)
+      }
+    };
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
+  }
 
   if (u.pathname === "/api/repeater-hide" && req.method === "POST") {
     try {
@@ -1626,6 +1642,27 @@ const server = http.createServer(async (req, res) => {
       ? { ...observerRankCache, items: observerRankCache.items.slice(0, limit) }
       : observerRankCache;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+  if (u.pathname === "/api/observer-rank-summary") {
+    const now = Date.now();
+    const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+    if (!last || now - last >= 5 * 60 * 1000) {
+      if (!observerRankRefresh) {
+        observerRankRefresh = buildObserverRank()
+          .then((data) => { observerRankCache = data; })
+          .finally(() => { observerRankRefresh = null; });
+      }
+      await observerRankRefresh;
+    }
+    const summary = {
+      updatedAt: observerRankCache.updatedAt,
+      count: observerRankCache.items.length,
+      totals: {
+        active: observerRankCache.items.filter((o) => o.ageHours < 1).length,
+        packetsToday: observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0)
+      }
+    };
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
   }
 
   if (u.pathname === "/api/route-suggestions") {
