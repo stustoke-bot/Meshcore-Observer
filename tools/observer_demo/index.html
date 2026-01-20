@@ -2286,6 +2286,18 @@
       return Math.round(score);
     }
 
+    function mapObserverLabels(list) {
+      const byId = appData.observersById || {};
+      const byName = appData.observersByName || {};
+      const rawList = Array.isArray(list) ? list : [];
+      return rawList.map((raw) => {
+        const key = String(raw || "").trim();
+        if (!key) return "";
+        const entry = byId[key] || byName[key] || null;
+        return entry?.name || entry?.id || key;
+      }).filter(Boolean);
+    }
+
     function normalizeChannelId(value) {
       return String(value || "").trim().replace(/^#/, "").toLowerCase();
     }
@@ -2465,7 +2477,7 @@
             const observerEl = existing.querySelector(".msg-observers");
             if (observerEl) {
               observerEl.textContent = `Observers: ${observerCount}`;
-              observerEl.dataset.observers = observerHits.join("|");
+              observerEl.dataset.observers = mapObserverLabels(observerHits).join("|");
             }
             const hopsEl = existing.querySelector(".msg-hops");
             if (hopsEl) {
@@ -2486,7 +2498,7 @@
         const observerCount = Number.isFinite(msg.observerCount)
           ? msg.observerCount
           : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
-        const observerList = msg.observerHits ? msg.observerHits.join(", ") : "";
+        const observerList = mapObserverLabels(msg.observerHits || []).join(", ");
         row.innerHTML = `
           <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
           <div>
