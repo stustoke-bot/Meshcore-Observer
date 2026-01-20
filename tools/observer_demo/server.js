@@ -23,6 +23,7 @@ const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 
 const CHANNEL_TAIL_LINES = 1000;
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
+const MESSAGE_DEBUG_TAIL_LINES = 20000;
 
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map() };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
@@ -514,6 +515,36 @@ async function buildObserverDebug(observerId) {
   }
   const items = Array.from(seen.values()).sort((a, b) => b.count - a.count);
   return { ok: true, observerId: id, items };
+}
+
+async function buildMessageDebug(hash) {
+  const key = String(hash || "").trim().toUpperCase();
+  if (!key) return { ok: false, error: "hash required" };
+  const observerMap = await getObserverHitsMap();
+  const fromIndex = Array.from(observerMap.get(key) || []);
+  const fromLog = new Set();
+  if (fs.existsSync(observerPath)) {
+    const tail = await tailLines(observerPath, MESSAGE_DEBUG_TAIL_LINES);
+    for (const line of tail) {
+      let rec;
+      try { rec = JSON.parse(line); } catch { continue; }
+      const observerId = rec.observerId || rec.observerName || null;
+      if (!observerId) continue;
+      const frameKey = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
+      const hashKey = rec.hash ? String(rec.hash).toUpperCase() : null;
+      const msgKey = rec.messageHash ? String(rec.messageHash).toUpperCase() : null;
+      const payloadKey = rec.payloadHex ? sha256Hex(String(rec.payloadHex).toUpperCase()) : null;
+      if (frameKey === key || hashKey === key || msgKey === key || payloadKey === key) {
+        fromLog.add(observerId);
+      }
+    }
+  }
+  return {
+    ok: true,
+    hash: key,
+    fromIndex,
+    fromLog: Array.from(fromLog)
+  };
 }
 
 async function buildRepeaterRank() {
@@ -1306,6 +1337,12 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/observer-debug") {
     const id = u.searchParams.get("id");
     const payload = await buildObserverDebug(id);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/message-debug") {
+    const hash = u.searchParams.get("hash");
+    const payload = await buildMessageDebug(hash);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
