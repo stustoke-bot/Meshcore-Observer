@@ -2212,8 +2212,9 @@
       const rendered = appData.renderedIdsByChannel[key] || new Set();
 
       filtered.forEach((msg, idx) => {
-        if (rendered.has(msg.id)) {
-          const existing = el.querySelector(`.message[data-id="${msg.id}"]`);
+        const keyId = msg.frameHash || msg.id;
+        if (rendered.has(keyId)) {
+          const existing = el.querySelector(`.message[data-id="${keyId}"]`);
           if (existing) {
             const observerEl = existing.querySelector(".msg-observers");
             if (observerEl) observerEl.textContent = `Observers: ${observerCount}`;
@@ -2231,7 +2232,7 @@
         }
         const row = document.createElement("div");
         row.className = "message";
-        row.dataset.id = msg.id;
+        row.dataset.id = keyId;
         const conf = confidence(msg);
         const observerCount = Number.isFinite(msg.observerCount)
           ? msg.observerCount
@@ -2250,12 +2251,12 @@
                 <span class="msg-observers">Observers: ${observerCount}</span>
                 <span class="msg-hops">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</span>
                 <span class="msg-confidence">MeshRank Confidence: ${conf}%</span>
-                <a class="analyze" href="#" data-id="${msg.id}">Analyze</a>
+                <a class="analyze" href="#" data-id="${keyId}">Analyze</a>
               </div>
           </div>
         `;
         el.appendChild(row);
-        rendered.add(msg.id);
+        rendered.add(keyId);
       });
       appData.renderedIdsByChannel[key] = rendered;
       el.scrollTop = el.scrollHeight;
@@ -2274,7 +2275,7 @@
     }
 
     async function showRoute(msgId) {
-      const msg = appData.messages.find((m) => m.id === msgId);
+      const msg = appData.messages.find((m) => (m.frameHash || m.id) === msgId || m.id === msgId);
       if (!msg) return;
       appData.routeActiveId = msgId;
       appData.routeActiveMsg = msg;
