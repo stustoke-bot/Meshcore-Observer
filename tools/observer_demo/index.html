@@ -533,6 +533,14 @@
     }
     .msg-hops:hover { text-decoration: underline; }
 
+    .msg-observers {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .msg-observers:hover { text-decoration: underline; }
+
     .analysis {
       display: grid;
       grid-template-rows: 240px 1fr;
@@ -2134,6 +2142,17 @@
       </div>
     </div>
 
+    <div class="modal" id="observerHitsModal">
+      <div class="modal-card">
+        <strong>Observers</strong>
+        <div id="observerHitsSummary" style="font-size:12px;color:var(--muted);margin-top:6px;">No observers available.</div>
+        <div id="observerHitsList" style="display:grid;gap:8px;margin-top:12px;"></div>
+        <div class="modal-actions">
+          <button class="btn" id="observerHitsClose">Close</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script type="module" src="https://unpkg.com/esp-web-tools@9.1.0/dist/web/install-button.js"></script>
@@ -2306,7 +2325,10 @@
           const existing = el.querySelector(`.message[data-id="${keyId}"]`);
           if (existing) {
             const observerEl = existing.querySelector(".msg-observers");
-            if (observerEl) observerEl.textContent = `Observers: ${observerCount}`;
+            if (observerEl) {
+              observerEl.textContent = `Observers: ${observerCount}`;
+              observerEl.dataset.observers = observerHits.join("|");
+            }
             const hopsEl = existing.querySelector(".msg-hops");
             if (hopsEl) {
               const hops = Number.isFinite(msg.uniqueHopCount)
@@ -2337,7 +2359,7 @@
             </div>
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
-                <span class="msg-observers">Observers: ${observerCount}</span>
+                <a class="msg-observers" href="#" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
                 <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</a>
                 <span class="msg-confidence">MeshRank Confidence: ${conf}%</span>
               </div>
@@ -2569,10 +2591,21 @@
     }
 
     document.addEventListener("click", (e) => {
-      const link = e.target.closest(".msg-hops");
-      if (!link) return;
-      e.preventDefault();
-      showRoute(link.dataset.id);
+      const hops = e.target.closest(".msg-hops");
+      if (hops) {
+        e.preventDefault();
+        showRoute(hops.dataset.id);
+        return;
+      }
+      const observers = e.target.closest(".msg-observers");
+      if (observers) {
+        e.preventDefault();
+        const list = String(observers.dataset.observers || "")
+          .split("|")
+          .map((v) => v.trim())
+          .filter(Boolean);
+        openObserverHitsModal(list);
+      }
     });
 
     const routeClose = document.getElementById("routeClose");
@@ -2608,6 +2641,32 @@
     const routeOverrideStatus = document.getElementById("routeOverrideStatus");
     const routeOverrideClose = document.getElementById("routeOverrideClose");
     const routeOverrideSave = document.getElementById("routeOverrideSave");
+
+    const observerHitsModal = document.getElementById("observerHitsModal");
+    const observerHitsList = document.getElementById("observerHitsList");
+    const observerHitsSummary = document.getElementById("observerHitsSummary");
+    const observerHitsClose = document.getElementById("observerHitsClose");
+
+    function openObserverHitsModal(list) {
+      if (!observerHitsModal || !observerHitsList || !observerHitsSummary) return;
+      const items = Array.isArray(list) ? list.filter(Boolean) : [];
+      observerHitsSummary.textContent = items.length
+        ? `${items.length} observer${items.length === 1 ? "" : "s"}`
+        : "No observers available.";
+      observerHitsList.innerHTML = items.length
+        ? items.map((name) => `<div class="list-item">${name}</div>`).join("")
+        : "";
+      observerHitsModal.classList.add("open");
+    }
+
+    function closeObserverHitsModal() {
+      observerHitsModal?.classList.remove("open");
+    }
+
+    observerHitsClose?.addEventListener("click", closeObserverHitsModal);
+    observerHitsModal?.addEventListener("click", (e) => {
+      if (e.target === observerHitsModal) closeObserverHitsModal();
+    });
 
     function getRouteVoterId() {
       const key = "routeVoterId";
