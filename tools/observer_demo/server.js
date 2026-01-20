@@ -115,6 +115,12 @@ const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
+let rankSummaryCache = {
+  updatedAt: null,
+  totals: { total: 0, active: 0, total24h: 0 },
+  lastPersistAt: 0
+};
+const RANK_HISTORY_PERSIST_INTERVAL = 10 * 60 * 1000;
 
 let observerRankCache = { updatedAt: null, items: [] };
 let observerRankRefresh = null;
@@ -183,8 +189,45 @@ function getDb() {
       avg_repeats REAL NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS repeater_rank_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recorded_at TEXT NOT NULL,
+      total INTEGER NOT NULL,
+      active INTEGER NOT NULL,
+      total24h INTEGER NOT NULL,
+      cached_at TEXT NOT NULL
+    );
   `);
   return db;
+}
+
+function buildRankTotals(items) {
+  const total = items.length;
+  const active = items.filter((r) => !r.stale).length;
+  const total24h = items.reduce((sum, r) => sum + (Number.isFinite(r.total24h) ? r.total24h : 0), 0);
+  return { total, active, total24h };
+}
+
+function updateRankSummary(items, cachedAt) {
+  const totals = buildRankTotals(items);
+  rankSummaryCache = {
+    updatedAt: cachedAt || new Date().toISOString(),
+    totals: { ...totals },
+    lastPersistAt: rankSummaryCache.lastPersistAt
+  };
+  const now = Date.now();
+  if (!rankSummaryCache.lastPersistAt || (now - rankSummaryCache.lastPersistAt) >= RANK_HISTORY_PERSIST_INTERVAL) {
+    try {
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO repeater_rank_history (recorded_at, total, active, total24h, cached_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(new Date(rankSummaryCache.updatedAt).toISOString(), totals.total, totals.active, totals.total24h, rankSummaryCache.updatedAt);
+      rankSummaryCache.lastPersistAt = now;
+    } catch {
+      // ignore persistence errors (history is best-effort)
+    }
+  }
 }
 
 function getAuthToken(req) {
@@ -984,6 +1027,7 @@ async function refreshRankCache(force) {
   rankRefreshInFlight = (async () => {
     const data = await buildRepeaterRank();
     rankCache = { ...data, cachedAt: new Date().toISOString() };
+    updateRankSummary(data.items || [], rankCache.updatedAt);
     return rankCache;
   })();
   try {
@@ -1926,19 +1970,32 @@ const server = http.createServer(async (req, res) => {
   }
   if (u.pathname === "/api/repeater-rank-summary") {
     const now = Date.now();
-    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+    const last = rankSummaryCache.updatedAt ? new Date(rankSummaryCache.updatedAt).getTime() : 0;
     if (!last || now - last >= RANK_REFRESH_MS) {
       await refreshRankCache(true);
     }
     const summary = {
-      updatedAt: rankCache.updatedAt,
-      count: rankCache.count,
-      totals: {
-        active: rankCache.items.filter((r) => !r.stale).length,
-        total24h: rankCache.items.reduce((sum, r) => sum + (r.total24h || 0), 0)
-      }
+      updatedAt: rankSummaryCache.updatedAt,
+      count: rankSummaryCache.totals ? rankSummaryCache.totals.total : rankCache.count,
+      totals: rankSummaryCache.totals || { total: rankCache.count, active: 0, total24h: 0 }
     };
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
+  }
+
+  if (u.pathname === "/api/repeater-rank-history") {
+    try {
+      const limit = Number(u.searchParams.get("limit") || 100);
+      const db = getDb();
+      const rows = db.prepare(
+        `SELECT recorded_at, total, active, total24h, cached_at
+         FROM repeater_rank_history
+         ORDER BY recorded_at DESC
+         LIMIT ?`
+      ).all(limit);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, history: rows }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
   }
 
   if (u.pathname === "/api/repeater-hide" && req.method === "POST") {

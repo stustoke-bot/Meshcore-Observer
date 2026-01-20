@@ -595,16 +595,51 @@
       background: #fafafa;
     }
 
-    .summary-card {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 12px;
-      background: #ffffff;
-      display: grid;
-      gap: 4px;
-      font-size: 12px;
-      color: var(--muted);
-    }
+      .summary-card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #ffffff;
+        display: grid;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .rank-history {
+        display: grid;
+        gap: 4px;
+        padding-top: 6px;
+      }
+
+      .rank-history .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .rank-history .history-item {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 6px 10px;
+        font-size: 12px;
+        background: #f9fbff;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--muted);
+      }
+
+      .rank-history .history-item .history-time {
+        font-weight: 600;
+        color: var(--ink);
+        margin-right: 12px;
+      }
+
+      .rank-history .history-item .history-stats {
+        font-size: 11px;
+        color: var(--muted);
+      }
 
     .summary-card strong {
       font-size: 16px;
@@ -1160,18 +1195,26 @@
     body.theme-dark .rank-search::placeholder {
       color: var(--muted);
     }
-    body.theme-dark .summary-card,
-    body.theme-dark .observer-card,
-    body.theme-dark .why-card {
-      background: var(--panel) !important;
-      color: var(--ink);
-      border-color: var(--line);
-    }
-    body.theme-dark .summary-card strong,
-    body.theme-dark .observer-card strong,
-    body.theme-dark .why-card h3 {
-      color: var(--ink);
-    }
+      body.theme-dark .summary-card,
+      body.theme-dark .observer-card,
+      body.theme-dark .why-card {
+        background: var(--panel) !important;
+        color: var(--ink);
+        border-color: var(--line);
+      }
+      body.theme-dark .summary-card strong,
+      body.theme-dark .observer-card strong,
+      body.theme-dark .why-card h3 {
+        color: var(--ink);
+      }
+      body.theme-dark .rank-history .history-item {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--muted);
+      }
+      body.theme-dark .rank-history .history-item .history-time {
+        color: var(--ink);
+      }
     body.theme-dark .badge,
     body.theme-dark .chip,
     body.theme-dark .list-item {
@@ -1828,6 +1871,15 @@
           <div>MeshRank today</div>
           <strong id="rankMeshToday">0</strong>
           <div style="font-size:11px;color:var(--muted);">Yesterday: <span id="rankMeshYesterday">0</span></div>
+        </div>
+        <div class="rank-history">
+          <div class="history-title" style="font-size:12px;font-weight:600;">Recent totals</div>
+          <div class="history-list" id="rankHistoryList">
+            <div class="history-item">
+              <span class="history-time">Waiting…</span>
+              <span class="history-stats">Fetching summary</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="rank-body">
@@ -3789,6 +3841,7 @@
         const summary = await fetchRankSummary();
         appData.rankSummary = summary;
         renderRankSummary(summary);
+        await refreshRankHistory();
       } catch {}
     }
 
@@ -4096,6 +4149,38 @@
       document.getElementById("rankActive").textContent = summary.totals?.active ?? 0;
     }
 
+    async function fetchRankHistory() {
+      const res = await fetch(`/api/repeater-rank-history?_ts=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function refreshRankHistory() {
+      try {
+        const payload = await fetchRankHistory();
+        const entries = Array.isArray(payload.history) ? payload.history : [];
+        appData.rankHistory = entries;
+        renderRankHistory(entries);
+      } catch {}
+    }
+
+    function renderRankHistory(entries) {
+      const list = document.getElementById("rankHistoryList");
+      if (!list) return;
+      if (!entries.length) {
+        list.innerHTML = `<div class="history-item"><span class="history-time">--</span><span class="history-stats">No history yet</span></div>`;
+        return;
+      }
+      const html = entries.slice(0, 6).map((entry) => {
+        const time = entry.recorded_at ? formatDateTime(entry.recorded_at) : "--";
+        return `<div class="history-item">
+          <span class="history-time">${time}</span>
+          <span class="history-stats">${entry.total} total · ${entry.active} active · ${entry.total24h} msgs</span>
+        </div>`;
+      }).join("");
+      list.innerHTML = html;
+    }
+
     function renderNodeRankSummary(summary) {
       if (!summary) return;
       document.getElementById("nodeRankUpdated").textContent = summary.updatedAt
@@ -4184,10 +4269,6 @@
       rankLayer.clearLayers();
       rankMarkers = new Map();
 
-      document.getElementById("rankUpdated").textContent = formatDateTime(data.updatedAt);
-      document.getElementById("rankTotal").textContent = data.items.length;
-      const activeCount = data.items.filter((r) => !r.stale).length;
-      document.getElementById("rankActive").textContent = activeCount;
       if (appData.meshScore) {
         document.getElementById("rankMeshToday").textContent = appData.meshScore.scores?.today ?? 0;
         document.getElementById("rankMeshYesterday").textContent = appData.meshScore.scores?.yesterday ?? 0;
