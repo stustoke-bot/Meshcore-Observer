@@ -5,10 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const API_BASE = "https://api.letsmesh.net/api";
-const packetLimit = Number.isFinite(Number(process.env.LETSMESH_LIMIT))
-  ? Math.max(1, Math.min(500, Number(process.env.LETSMESH_LIMIT)))
-  : 20;
-const PACKETS_URL = `${API_BASE}/packets/filtered?limit=${packetLimit}`;
+const PACKETS_URL = `${API_BASE}/packets/filtered?limit=500`;
 const OBSERVERS_URL = `${API_BASE}/observers`;
 
 const projectRoot = path.resolve(__dirname, "..", "..");
