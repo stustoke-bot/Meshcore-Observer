@@ -5,6 +5,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
 const dataDir = path.join(projectRoot, "data");
@@ -20,6 +22,7 @@ const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
+const dbPath = path.join(dataDir, "meshrank.db");
 
 const CHANNEL_TAIL_LINES = 10000;
 const CHANNEL_HISTORY_LIMIT = 10;
@@ -118,6 +121,7 @@ let observerRankRefresh = null;
 
 let nodeRankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let nodeRankRefreshInFlight = null;
+let db = null;
 
 let ChannelCrypto;
 try {
@@ -131,6 +135,83 @@ const port = 5199;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+function getDb() {
+  if (db) return db;
+  db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      is_admin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_login TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS node_profiles (
+      pub TEXT PRIMARY KEY,
+      name TEXT,
+      bio TEXT,
+      photo_url TEXT,
+      owner_user_id INTEGER,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS node_claims (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pub TEXT NOT NULL,
+      nonce TEXT NOT NULL,
+      status TEXT NOT NULL,
+      user_id INTEGER,
+      created_at TEXT NOT NULL,
+      verified_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+  return db;
+}
+
+function getAuthToken(req) {
+  const auth = req.headers["authorization"] || "";
+  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  const cookie = req.headers["cookie"] || "";
+  const m = cookie.match(/(?:^|;\s*)mesh_session=([^;]+)/i);
+  return m ? m[1] : null;
+}
+
+function getSessionUser(req) {
+  const token = getAuthToken(req);
+  if (!token) return null;
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT u.id, u.username, u.is_admin, s.expires_at
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token = ?
+  `).get(token);
+  if (!row) return null;
+  const expiresAt = new Date(row.expires_at);
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+    db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    return null;
+  }
+  return { id: row.id, username: row.username, isAdmin: !!row.is_admin };
+}
+
+function createSession(db, userId) {
+  const token = crypto.randomBytes(24).toString("hex");
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expiresAt);
+  return { token, expiresAt };
 }
 
 function readJsonSafe(p, def) {
@@ -1528,6 +1609,115 @@ const server = http.createServer(async (req, res) => {
     if (absPath.startsWith(staticDir) && fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
       const body = fs.readFileSync(absPath);
       return send(res, 200, contentTypeFor(absPath), body);
+    }
+  }
+
+  if (u.pathname === "/api/auth/me") {
+    const user = getSessionUser(req);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, user }));
+  }
+
+  if (u.pathname === "/api/admin/bootstrap" && req.method === "POST") {
+    try {
+      const db = getDb();
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const username = String(body.username || "").trim();
+      const password = String(body.password || "");
+      if (!username || password.length < 8) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid credentials" }));
+      }
+      const existing = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
+      if (existing) {
+        return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin already exists" }));
+      }
+      const hash = bcrypt.hashSync(password, 10);
+      const now = new Date().toISOString();
+      const info = db.prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?)")
+        .run(username, hash, now);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, id: info.lastInsertRowid }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/auth/login" && req.method === "POST") {
+    try {
+      const db = getDb();
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const username = String(body.username || "").trim();
+      const password = String(body.password || "");
+      const user = db.prepare("SELECT id, username, password_hash, is_admin FROM users WHERE username = ?").get(username);
+      if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+        return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid credentials" }));
+      }
+      const session = createSession(db, user.id);
+      db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(new Date().toISOString(), user.id);
+      res.setHeader("Set-Cookie", `mesh_session=${session.token}; Path=/; Max-Age=2592000; SameSite=Lax`);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+        ok: true,
+        token: session.token,
+        user: { id: user.id, username: user.username, isAdmin: !!user.is_admin }
+      }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/auth/logout" && req.method === "POST") {
+    const token = getAuthToken(req);
+    if (token) {
+      try {
+        const db = getDb();
+        db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+      } catch {}
+    }
+    res.setHeader("Set-Cookie", "mesh_session=; Path=/; Max-Age=0; SameSite=Lax");
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+  }
+
+  if (u.pathname === "/api/node-profile") {
+    const db = getDb();
+    if (req.method === "GET") {
+      const pub = String(u.searchParams.get("pub") || "").trim().toUpperCase();
+      if (!pub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub required" }));
+      }
+      const row = db.prepare("SELECT pub, name, bio, photo_url, owner_user_id, updated_at FROM node_profiles WHERE pub = ?").get(pub);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, profile: row || null }));
+    }
+    if (req.method === "POST") {
+      const user = getSessionUser(req);
+      if (!user) {
+        return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+      }
+      try {
+        const raw = await readBody(req);
+        const body = JSON.parse(raw || "{}");
+        const pub = String(body.pub || "").trim().toUpperCase();
+        const name = String(body.name || "").trim();
+        const bio = String(body.bio || "").trim();
+        const photoUrl = String(body.photoUrl || "").trim();
+        if (!pub) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub required" }));
+        }
+        const existing = db.prepare("SELECT owner_user_id FROM node_profiles WHERE pub = ?").get(pub);
+        if (existing && existing.owner_user_id && existing.owner_user_id !== user.id && !user.isAdmin) {
+          return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+        }
+        const updatedAt = new Date().toISOString();
+        const ownerId = existing?.owner_user_id || user.id;
+        db.prepare(`
+          INSERT INTO node_profiles (pub, name, bio, photo_url, owner_user_id, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(pub) DO UPDATE SET name=excluded.name, bio=excluded.bio, photo_url=excluded.photo_url,
+          owner_user_id=excluded.owner_user_id, updated_at=excluded.updated_at
+        `).run(pub, name, bio, photoUrl, ownerId, updatedAt);
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+      } catch (err) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      }
     }
   }
 

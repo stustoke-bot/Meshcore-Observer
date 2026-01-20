@@ -1747,6 +1747,7 @@
         <a href="#" data-view="observer">Become an Observer</a>
       </nav>
       <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Dark mode</button>
+      <button class="btn" id="loginBtn" type="button">Login</button>
       <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">
         <span class="burger" aria-hidden="true">
           <span></span>
@@ -2205,6 +2206,23 @@
       </div>
     </div>
 
+    <div class="modal" id="authModal">
+      <div class="modal-card">
+        <strong>Account</strong>
+        <div style="display:grid;gap:10px;margin-top:12px;">
+          <input id="authUsername" class="rf-input" type="text" placeholder="Username"/>
+          <input id="authPassword" class="rf-input" type="password" placeholder="Password"/>
+          <div id="authStatus" style="font-size:12px;color:var(--muted);"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="authLogin">Login</button>
+          <button class="btn" id="authBootstrap">Setup admin</button>
+          <button class="btn" id="authLogout">Logout</button>
+          <button class="btn" id="authClose">Close</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script type="module" src="https://unpkg.com/esp-web-tools@9.1.0/dist/web/install-button.js"></script>
@@ -2238,7 +2256,9 @@
         repeatersByCode: null,
         routeActivePathCodes: [],
         routeActivePathPoints: [],
-        routeActiveMsg: null
+        routeActiveMsg: null,
+        authUser: null,
+        authToken: null
       };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
@@ -2268,6 +2288,48 @@
 
     function normalizeChannelId(value) {
       return String(value || "").trim().replace(/^#/, "").toLowerCase();
+    }
+
+    function loadAuthToken() {
+      try {
+        return localStorage.getItem("mesh_session_token");
+      } catch {
+        return null;
+      }
+    }
+
+    function saveAuthToken(token) {
+      try {
+        if (token) localStorage.setItem("mesh_session_token", token);
+        else localStorage.removeItem("mesh_session_token");
+      } catch {}
+    }
+
+    function authHeaders() {
+      const token = appData.authToken || loadAuthToken();
+      if (!token) return {};
+      return { Authorization: `Bearer ${token}` };
+    }
+
+    function setAuthUser(user) {
+      appData.authUser = user || null;
+      const btn = document.getElementById("loginBtn");
+      if (btn) {
+        btn.textContent = user ? user.username : "Login";
+      }
+      const status = document.getElementById("authStatus");
+      if (status) {
+        status.textContent = user
+          ? `Logged in as ${user.username}${user.isAdmin ? " (admin)" : ""}`
+          : "Not logged in.";
+      }
+    }
+
+    async function fetchAuthMe() {
+      const res = await fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.user || null;
     }
 
     function getChannelNameById(id) {
@@ -3152,6 +3214,11 @@
       if (channelParam) {
         activeChannelId = normalizeChannelId(channelParam);
       }
+      appData.authToken = loadAuthToken();
+      try {
+        const user = await fetchAuthMe();
+        setAuthUser(user);
+      } catch {}
       await checkServerStatus();
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
@@ -4327,6 +4394,68 @@
           // static content
         }
       });
+    });
+
+    const authModal = document.getElementById("authModal");
+    const loginBtn = document.getElementById("loginBtn");
+    const authClose = document.getElementById("authClose");
+    const authLogin = document.getElementById("authLogin");
+    const authBootstrap = document.getElementById("authBootstrap");
+    const authLogout = document.getElementById("authLogout");
+    const authUserInput = document.getElementById("authUsername");
+    const authPassInput = document.getElementById("authPassword");
+
+    loginBtn?.addEventListener("click", () => {
+      authModal?.classList.add("open");
+      setAuthUser(appData.authUser);
+    });
+    authClose?.addEventListener("click", () => authModal?.classList.remove("open"));
+    authModal?.addEventListener("click", (e) => {
+      if (e.target === authModal) authModal.classList.remove("open");
+    });
+
+    authLogin?.addEventListener("click", async () => {
+      const username = authUserInput?.value?.trim() || "";
+      const password = authPassInput?.value || "";
+      if (!username || !password) return;
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        document.getElementById("authStatus").textContent = data.error || "Login failed.";
+        return;
+      }
+      appData.authToken = data.token || null;
+      saveAuthToken(appData.authToken);
+      setAuthUser(data.user || null);
+    });
+
+    authBootstrap?.addEventListener("click", async () => {
+      const username = authUserInput?.value?.trim() || "";
+      const password = authPassInput?.value || "";
+      if (!username || password.length < 8) {
+        document.getElementById("authStatus").textContent = "Use a strong password (min 8 chars).";
+        return;
+      }
+      const res = await fetch("/api/admin/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      document.getElementById("authStatus").textContent = data.ok
+        ? "Admin created. You can now log in."
+        : (data.error || "Admin setup failed.");
+    });
+
+    authLogout?.addEventListener("click", async () => {
+      await fetch("/api/auth/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
+      appData.authToken = null;
+      saveAuthToken(null);
+      setAuthUser(null);
     });
 
     document.getElementById("observerRankSearch")?.addEventListener("input", () => {
