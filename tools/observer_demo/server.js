@@ -935,29 +935,18 @@ async function buildChannelMessages() {
         const msgHits = observerMap.get(messageHash);
         if (msgHits) msgHits.forEach((o) => observerSet.add(o));
       }
+      const observerHits = Array.from(observerSet);
+      const observerCount = observerHits.length;
       const msgShort = msgHash ? msgHash.slice(0, 8) : null;
       const frameShort = frameHash ? frameHash.slice(0, 8) : null;
       const messageShort = messageHash ? messageHash.slice(0, 8) : null;
-      const rawHash = sha256Hex(hex);
-      const rawShort = rawHash ? rawHash.slice(0, 8) : null;
-      const externalKeys = [msgHash, msgShort, frameHash, frameShort, messageHash, messageShort, rawHash, rawShort];
-      externalKeys.forEach((key) => {
-        if (!key) return;
-        const entry = externalByHash[key];
-        if (!entry?.observers) return;
-        entry.observers.forEach((obs) => observerSet.add(String(obs)));
-      });
-      const observerHits = Array.from(observerSet);
-      const observerCount = observerHits.length;
       const externalHopCount = Math.max(
         Number(externalByHash[msgHash]?.maxHops || 0),
         Number(externalByHash[msgShort]?.maxHops || 0),
         Number(externalByHash[frameHash]?.maxHops || 0),
         Number(externalByHash[frameShort]?.maxHops || 0),
         Number(messageHash ? externalByHash[messageHash]?.maxHops || 0 : 0),
-        Number(messageShort ? externalByHash[messageShort]?.maxHops || 0 : 0),
-        Number(rawHash ? externalByHash[rawHash]?.maxHops || 0 : 0),
-        Number(rawShort ? externalByHash[rawShort]?.maxHops || 0 : 0)
+        Number(messageShort ? externalByHash[messageShort]?.maxHops || 0 : 0)
       );
       const msgKey = chName + "|" + msgHash;
     const body = String(payload.decrypted.message || "");
