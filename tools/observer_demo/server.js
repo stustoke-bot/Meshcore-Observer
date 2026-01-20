@@ -21,7 +21,45 @@ const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 
-const CHANNEL_TAIL_LINES = 5000;
+const CHANNEL_TAIL_LINES = 1000;
+
+let observerHitsCache = { mtimeMs: null, size: null, map: new Map() };
+let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
+let channelMessagesInFlight = null;
+const CHANNEL_CACHE_MIN_MS = 2000;
+const CHANNEL_CACHE_STALE_MS = 5000;
+
+async function getObserverHitsMap() {
+  if (!fs.existsSync(observerPath)) return new Map();
+  let stat = null;
+  try {
+    stat = fs.statSync(observerPath);
+  } catch {
+    return new Map();
+  }
+  if (observerHitsCache.mtimeMs === stat.mtimeMs && observerHitsCache.size === stat.size) {
+    return observerHitsCache.map;
+  }
+  const map = new Map();
+  const rl = readline.createInterface({
+    input: fs.createReadStream(observerPath, { encoding: "utf8" }),
+    crlfDelay: Infinity
+  });
+  for await (const line of rl) {
+    const t = line.trim();
+    if (!t) continue;
+    let rec;
+    try { rec = JSON.parse(t); } catch { continue; }
+    const observerName = rec.observerName || rec.observerId;
+    const msgKey = rec.frameHash || rec.hash || rec.messageHash;
+    if (!observerName || !msgKey) continue;
+    const key = String(msgKey).toUpperCase();
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(observerName);
+  }
+  observerHitsCache = { mtimeMs: stat.mtimeMs, size: stat.size, map };
+  return map;
+}
 const RANK_REFRESH_MS = 15 * 60 * 1000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
@@ -634,6 +672,27 @@ async function refreshRankCache(force) {
 }
 
 async function buildChannelMessages() {
+  const sourcePath = getRfSourcePath();
+  let stat = null;
+  try {
+    stat = fs.statSync(sourcePath);
+  } catch {
+    return { channels: [], messages: [] };
+  }
+  const now = Date.now();
+  if (channelMessagesCache.payload && (now - channelMessagesCache.builtAt) < CHANNEL_CACHE_MIN_MS) {
+    return channelMessagesCache.payload;
+  }
+  if (channelMessagesCache.payload && channelMessagesCache.mtimeMs === stat.mtimeMs && channelMessagesCache.size === stat.size) {
+    return channelMessagesCache.payload;
+  }
+  if (channelMessagesInFlight) {
+    if (channelMessagesCache.payload && (now - channelMessagesCache.builtAt) < CHANNEL_CACHE_STALE_MS) {
+      return channelMessagesCache.payload;
+    }
+    return channelMessagesInFlight;
+  }
+  channelMessagesInFlight = (async () => {
   const channelMap = new Map(); // name -> {name, lastTs, snippet}
   const messagesMap = new Map(); // key -> msg
   const keyCfg = loadKeys();
@@ -653,29 +712,16 @@ async function buildChannelMessages() {
   }
 
   const keyStore = buildKeyStore(keyCfg);
-  const sourcePath = getRfSourcePath();
   const tail = await tailLines(sourcePath, CHANNEL_TAIL_LINES);
   if (!tail.length) {
-    return { channels: Array.from(channelMap.values()), messages: [] };
+    const payload = { channels: Array.from(channelMap.values()), messages: [] };
+    channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, payload, builtAt: Date.now() };
+    return payload;
   }
-  if (fs.existsSync(observerPath)) {
-    const rl = readline.createInterface({
-      input: fs.createReadStream(observerPath, { encoding: "utf8" }),
-      crlfDelay: Infinity
-    });
-    for await (const line of rl) {
-      const t = line.trim();
-      if (!t) continue;
-      let rec;
-      try { rec = JSON.parse(t); } catch { continue; }
-      const observerName = rec.observerName || rec.observerId;
-      const msgKey = rec.frameHash || rec.hash || rec.messageHash;
-      if (!observerName || !msgKey) continue;
-      const key = String(msgKey).toUpperCase();
-      if (!observerMap.has(key)) observerMap.set(key, new Set());
-      observerMap.get(key).add(observerName);
-    }
-  }
+  const cachedObserverMap = await getObserverHitsMap();
+  cachedObserverMap.forEach((set, key) => {
+    observerMap.set(key, set);
+  });
   let baseNow = Date.now();
   try {
     const stat = fs.statSync(sourcePath);
@@ -799,7 +845,18 @@ async function buildChannelMessages() {
   const messages = Array.from(messagesMap.values())
     .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
 
-  return { channels, messages };
+  const payload = { channels, messages };
+  channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, payload, builtAt: Date.now() };
+  return payload;
+  })();
+  try {
+    if (channelMessagesCache.payload && (now - channelMessagesCache.builtAt) < CHANNEL_CACHE_STALE_MS) {
+      return channelMessagesCache.payload;
+    }
+    return await channelMessagesInFlight;
+  } finally {
+    channelMessagesInFlight = null;
+  }
 }
 
 async function buildMeshScore() {
@@ -1124,7 +1181,7 @@ const server = http.createServer(async (req, res) => {
     const payload = await buildChannelMessages();
     const channel = u.searchParams.get("channel");
     const list = channel ? payload.messages.filter((m) => m.channelName === channel) : payload.messages;
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ messages: list }));
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels, messages: list }));
   }
 
   if (u.pathname === "/api/repeater-rank") {

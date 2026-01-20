@@ -71,9 +71,16 @@ function readJsonSafe(p, def) {
 }
 
 function writeJsonSafe(p, obj) {
-  const tmp = p + ".tmp";
+  const dir = path.dirname(p);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
-  fs.renameSync(tmp, p);
+  try {
+    fs.renameSync(tmp, p);
+  } catch {
+    fs.writeFileSync(p, JSON.stringify(obj, null, 2));
+    try { fs.unlinkSync(tmp); } catch {}
+  }
 }
 
 function updateObserverStatus(record) {

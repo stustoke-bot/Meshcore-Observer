@@ -1203,17 +1203,6 @@
     body.view-observer-rank .repeater-panel { display: none; }
     body.view-observer-rank .observer-rank-panel { display: flex; }
 
-    body.view-repeater .sidebar-panel,
-    body.view-repeater .content,
-    body.view-repeater .analysis-panel,
-    body.view-repeater .rank-panel,
-    body.view-repeater .meshscore-panel,
-    body.view-repeater .rf-panel,
-    body.view-repeater .observer-panel,
-    body.view-repeater .observer-rank-panel,
-    body.view-repeater .why-panel { display: none; }
-    body.view-repeater .repeater-panel { display: flex; }
-
     .row {
       display: flex;
       justify-content: space-between;
@@ -1282,13 +1271,6 @@
       overflow: auto;
     }
 
-    .repeater-panel {
-      grid-column: 1 / -1;
-      display: none;
-      min-height: 0;
-      overflow: auto;
-    }
-
     .observer-rank-panel {
       grid-column: 1 / -1;
       display: none;
@@ -1299,16 +1281,6 @@
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
-      overflow: auto;
-    }
-
-    .repeater-body {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 16px;
-      padding: 16px;
-      min-height: 0;
-      height: 100%;
       overflow: auto;
     }
 
@@ -1631,7 +1603,6 @@
       .observer-rank-map { height: 220px; min-height: 220px; }
       #observerRankMap { height: 100%; min-height: 0; }
       .why-body { grid-template-columns: 1fr; }
-      .repeater-body { grid-template-columns: 1fr; }
       .meshscore-panel { min-height: 0; overflow: hidden; }
       .meshscore-body { min-height: 0; height: 100%; overflow: auto; }
       body.view-rank .rank-panel,
@@ -1658,7 +1629,6 @@
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
         <a href="#" data-view="why">Why MeshRank?</a>
-        <a href="#" data-view="repeater">Become a Repeater</a>
         <a href="#" data-view="observer">Become an Observer</a>
       </nav>
       <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Dark mode</button>
@@ -1678,7 +1648,6 @@
       <a href="#" data-view="observer-rank">Observer Rank</a>
       <a href="#" data-view="rf">MeshFlow</a>
       <a href="#" data-view="why">Why MeshRank?</a>
-      <a href="#" data-view="repeater">Become a Repeater</a>
       <a href="#" data-view="observer">Become an Observer</a>
     </div>
 
@@ -1941,28 +1910,6 @@
       </div>
     </section>
 
-    <section class="panel repeater-panel">
-      <div class="title">Become a Repeater</div>
-      <div class="repeater-body">
-        <div class="why-card">
-          <h3>Why add a repeater?</h3>
-          <p>Repeaters increase coverage and reliability. A well-placed repeater fills gaps, improves delivery confidence, and keeps the network resilient when conditions change.</p>
-          <p>MeshRank highlights active repeaters so operators can see the impact of good placement, uptime, and tuning over time.</p>
-          <p>Start simple: stable power, good antenna height, and clear placement matter more than perfect settings.</p>
-        </div>
-        <div class="why-card">
-          <h3>Repeater checklist</h3>
-          <div class="list">
-            <div class="list-item">Mount the antenna as high and clear as practical.</div>
-            <div class="list-item">Use reliable power (mains or a stable battery pack).</div>
-            <div class="list-item">Confirm your region settings and frequency plan.</div>
-            <div class="list-item">Name the node clearly so it is easy to identify.</div>
-            <div class="list-item">Leave it running and check Repeater Rank after 24 hours.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section class="panel observer-rank-panel">
       <div class="title">Observer Rank <span class="chip" id="observerRankUpdated">--</span></div>
       <div class="rank-summary">
@@ -2143,6 +2090,22 @@
     }
 
     let activeChannelId = "public";
+    function applyChannels(channels) {
+      appData.channels = (channels || []).map((c) => ({
+        ...c,
+        id: normalizeChannelId(c.id || c.name)
+      }));
+      if (appData.channels.length) {
+        const exists = appData.channels.some((c) => c.id === activeChannelId);
+        if (!exists) activeChannelId = appData.channels[0].id;
+        const active = appData.channels.find((c) => c.id === activeChannelId);
+        if (active) document.getElementById("activeChannel").textContent = active.name;
+      } else {
+        activeChannelId = "public";
+        document.getElementById("activeChannel").textContent = "#public";
+      }
+      renderChannels();
+    }
     function updateChannelParam(channelId) {
       const url = new URL(window.location.href);
       if (channelId) {
@@ -2626,21 +2589,7 @@
       const res = await fetch("/api/channels", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      const channels = data.channels || [];
-      appData.channels = channels.map((c) => ({
-        ...c,
-        id: normalizeChannelId(c.id || c.name)
-      }));
-      if (appData.channels.length) {
-        const exists = appData.channels.some((c) => c.id === activeChannelId);
-        if (!exists) activeChannelId = appData.channels[0].id;
-        const active = appData.channels.find((c) => c.id === activeChannelId);
-        if (active) document.getElementById("activeChannel").textContent = active.name;
-      } else {
-        activeChannelId = "public";
-        document.getElementById("activeChannel").textContent = "#public";
-      }
-      renderChannels();
+      applyChannels(data.channels || []);
     }
 
     function mergeMessages(raw) {
@@ -2740,7 +2689,11 @@
         saveReadState();
       }
       appData.unreadByChannel = unread;
-      renderChannels();
+      if (Array.isArray(data.channels)) {
+        applyChannels(data.channels);
+      } else {
+        renderChannels();
+      }
       renderMessages(!!forceFull);
       if (forceFull && appData.messages.length && !isMobile()) {
         showRoute(appData.messages[0].id);
@@ -2801,10 +2754,9 @@
         const ok = await checkServerStatus();
         if (!ok) return;
         try {
-          await loadChannels();
           await loadMessages();
         } catch {}
-      }, 5000);
+      }, 3000);
 
       setInterval(async () => {
         const activeRank = document.body.classList.contains("view-rank");
@@ -2815,7 +2767,7 @@
           const data = await fetchRank();
           renderRank(data);
         } catch {}
-      }, 15000);
+      }, 15 * 60 * 1000);
 
       setInterval(async () => {
         const activeRf = document.body.classList.contains("view-rf");
@@ -2857,7 +2809,7 @@
           renderObserverRank(data);
           renderObserverRankMap(data);
         } catch {}
-      }, 15000);
+      }, 15 * 60 * 1000);
     }
 
     boot();
@@ -3594,7 +3546,6 @@
           document.body.classList.toggle("view-observer", view === "observer");
           document.body.classList.toggle("view-observer-rank", view === "observer-rank");
           document.body.classList.toggle("view-why", view === "why");
-          document.body.classList.toggle("view-repeater", view === "repeater");
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
