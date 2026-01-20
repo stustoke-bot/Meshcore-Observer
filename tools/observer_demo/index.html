@@ -2159,6 +2159,8 @@
         observersById: {},
         observersByName: {},
         observersUpdatedAt: 0,
+        rankLimitMobile: 50,
+        observerRankLimitMobile: 50,
         routeSuggestions: null,
         repeatersByCode: null,
         routeActivePathCodes: [],
@@ -3278,8 +3280,11 @@
       if (!list || !data?.items) return;
       const query = (document.getElementById("observerRankSearch")?.value || "").trim().toLowerCase();
       const items = data.items.filter((o) => !query || String(o.name || o.id).toLowerCase().includes(query));
-        list.innerHTML = items.length
-          ? items.map((o) => {
+      const onMobile = isMobile();
+      const limit = onMobile ? (appData.observerRankLimitMobile || 50) : items.length;
+      const visible = onMobile ? items.slice(0, limit) : items;
+        list.innerHTML = visible.length
+          ? visible.map((o) => {
               const scoreBadge = String(Math.round(o.score || 0)).padStart(2, "0");
               return `
                 <div class="rank-item${o.stale ? " hidden" : ""}">
@@ -3297,6 +3302,18 @@
               `;
             }).join("")
           : "<div class='rank-item'>No observers yet.</div>";
+
+      if (onMobile && items.length > visible.length) {
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.style.margin = "8px auto 16px";
+        btn.textContent = `Load more (${items.length - visible.length})`;
+        btn.addEventListener("click", () => {
+          appData.observerRankLimitMobile += 50;
+          renderObserverRank(data);
+        });
+        list.appendChild(btn);
+      }
 
       document.getElementById("observerRankUpdated").textContent = data.updatedAt
         ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -3799,8 +3816,11 @@
           const code = String(r.hashByte || "").toLowerCase();
           return name.includes(needle) || pub.includes(needle) || code.includes(needle);
         });
-        const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
-        sorted.forEach((r) => {
+      const onMobile = isMobile();
+      const limit = onMobile ? (appData.rankLimitMobile || 50) : sorted.length;
+      const visible = onMobile ? sorted.slice(0, limit) : sorted;
+      const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
+      visible.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
           const hiddenLabel = r.stale ? "Stale repeater" : "GPS unreliable";
@@ -3841,6 +3861,18 @@
           if (r.pub) rankMarkers.set(r.pub, marker);
         }
       });
+
+      if (onMobile && sorted.length > visible.length) {
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.style.margin = "8px auto 16px";
+        btn.textContent = `Load more (${sorted.length - visible.length})`;
+        btn.addEventListener("click", () => {
+          appData.rankLimitMobile += 50;
+          renderRankWithOptions(data, options);
+        });
+        list.appendChild(btn);
+      }
 
       if (!opts.preserveView && sorted.length) {
         const bounds = sorted
