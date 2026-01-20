@@ -3141,7 +3141,11 @@
     function renderObserverList(data) {
       const list = document.getElementById("observerList");
       if (!list || !data) return;
-      const entries = Object.values(data.byId || {}).filter((entry) => !entry.locValidated);
+      const entries = Object.values(data.byId || {}).filter((entry) => {
+        if (entry.locValidated) return false;
+        if (entry.manualLocation || entry.locSource === "manual" || entry.gpsApprox) return false;
+        return true;
+      });
       if (!entries.length) {
         list.innerHTML = "<div class='rf-row'>No pending observers.</div>";
         return;
