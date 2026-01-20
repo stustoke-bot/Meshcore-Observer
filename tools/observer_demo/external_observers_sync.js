@@ -8,16 +8,7 @@ const API_BASE = "https://api.letsmesh.net/api";
 const packetLimit = Number.isFinite(Number(process.env.LETSMESH_LIMIT))
   ? Math.max(1, Math.min(500, Number(process.env.LETSMESH_LIMIT)))
   : 20;
-const regionOverride = (process.env.LETSMESH_REGIONS || "")
-  .split(",")
-  .map((r) => r.trim())
-  .filter(Boolean);
-const UK_REGIONS = new Set(regionOverride.length ? regionOverride : [
-  "LHR", "LCY", "LON", "LTN", "OXF", "MAN", "UPV", "LPL", "BHX", "LBA", "MME", "CBG"
-]);
-const PACKETS_URL = process.env.LETSMESH_PACKETS_URL
-  ? String(process.env.LETSMESH_PACKETS_URL)
-  : `${API_BASE}/packets/filtered?limit=${packetLimit}`;
+const PACKETS_URL = `${API_BASE}/packets/filtered?limit=${packetLimit}`;
 const OBSERVERS_URL = `${API_BASE}/observers`;
 
 const projectRoot = path.resolve(__dirname, "..", "..");
@@ -29,6 +20,10 @@ const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const localPacketsPath = path.join(dataDir, "letsmesh_packets.json");
 const localObserversPath = path.join(dataDir, "letsmesh_observers.json");
 const crypto = require("crypto");
+
+const UK_REGIONS = new Set([
+  "LHR", "LCY", "LON", "LTN", "OXF", "MAN", "UPV", "LPL", "BHX", "LBA", "MME", "CBG"
+]);
 
 function isUkRegion(regions) {
   if (!Array.isArray(regions) || !regions.length) return false;
