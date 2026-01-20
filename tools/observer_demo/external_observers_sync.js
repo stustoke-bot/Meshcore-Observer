@@ -15,6 +15,8 @@ const outputPath = path.join(dataDir, "external_observers.json");
 const messageStatsPath = path.join(dataDir, "external_message_stats.json");
 const externalPacketsPath = path.join(dataDir, "external_packets.ndjson");
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
+const localPacketsPath = path.join(dataDir, "letsmesh_packets.json");
+const localObserversPath = path.join(dataDir, "letsmesh_observers.json");
 
 const UK_REGIONS = new Set([
   "LHR", "LCY", "LON", "LTN", "OXF", "MAN", "UPV", "LPL", "BHX", "LBA", "MME", "CBG"
@@ -132,8 +134,16 @@ async function main() {
   let observers = [];
   const keyStore = buildKeyStore(loadKeys());
 
-  try { packets = await fetchJson(PACKETS_URL); } catch (err) { console.error("packets fetch failed:", err.message); }
-  try { observers = await fetchJson(OBSERVERS_URL); } catch (err) { console.error("observers fetch failed:", err.message); }
+  if (fs.existsSync(localPacketsPath)) {
+    packets = JSON.parse(fs.readFileSync(localPacketsPath, "utf8"));
+  } else {
+    try { packets = await fetchJson(PACKETS_URL); } catch (err) { console.error("packets fetch failed:", err.message); }
+  }
+  if (fs.existsSync(localObserversPath)) {
+    observers = JSON.parse(fs.readFileSync(localObserversPath, "utf8"));
+  } else {
+    try { observers = await fetchJson(OBSERVERS_URL); } catch (err) { console.error("observers fetch failed:", err.message); }
+  }
 
   if (Array.isArray(observers)) {
     for (const obj of observers) {
