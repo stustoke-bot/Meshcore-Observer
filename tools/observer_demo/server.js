@@ -176,6 +176,13 @@ function getDb() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS meshscore_daily (
+      day TEXT PRIMARY KEY,
+      score INTEGER NOT NULL,
+      messages INTEGER NOT NULL,
+      avg_repeats REAL NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -1425,10 +1432,36 @@ async function buildMeshScore() {
     return { date, score, messages: b.messages, avgRepeats: Number(avgRepeats.toFixed(2)) };
   }).sort((a, b) => a.date.localeCompare(b.date));
 
-  const latestKey = series.length ? series[series.length - 1].date : new Date().toISOString().slice(0, 10);
-  const latestIndex = series.findIndex((s) => s.date === latestKey);
-  const today = series.find((s) => s.date === latestKey) || { score: 0, messages: 0, avgRepeats: 0 };
-  const yesterday = latestIndex > 0 ? series[latestIndex - 1] : { score: 0, messages: 0, avgRepeats: 0 };
+  let mergedSeries = series;
+  try {
+    const db = getDb();
+    const upsert = db.prepare(`
+      INSERT INTO meshscore_daily (day, score, messages, avg_repeats, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(day) DO UPDATE SET score=excluded.score, messages=excluded.messages,
+        avg_repeats=excluded.avg_repeats, updated_at=excluded.updated_at
+    `);
+    const nowIso = new Date().toISOString();
+    db.transaction(() => {
+      for (const row of series) {
+        upsert.run(row.date, row.score, row.messages, row.avgRepeats, nowIso);
+      }
+    })();
+    const rows = db.prepare("SELECT day, score, messages, avg_repeats FROM meshscore_daily ORDER BY day ASC").all();
+    if (rows.length) {
+      mergedSeries = rows.map((r) => ({
+        date: r.day,
+        score: r.score,
+        messages: r.messages,
+        avgRepeats: Number(Number(r.avg_repeats || 0).toFixed(2))
+      }));
+    }
+  } catch {}
+
+  const latestKey = mergedSeries.length ? mergedSeries[mergedSeries.length - 1].date : new Date().toISOString().slice(0, 10);
+  const latestIndex = mergedSeries.findIndex((s) => s.date === latestKey);
+  const today = mergedSeries.find((s) => s.date === latestKey) || { score: 0, messages: 0, avgRepeats: 0 };
+  const yesterday = latestIndex > 0 ? mergedSeries[latestIndex - 1] : { score: 0, messages: 0, avgRepeats: 0 };
 
   return {
     updatedAt: new Date().toISOString(),
@@ -1450,7 +1483,7 @@ async function buildMeshScore() {
       yesterday: yesterday.score,
       delta: Math.round(today.score - yesterday.score)
     },
-    series
+    series: mergedSeries
   };
 }
 
