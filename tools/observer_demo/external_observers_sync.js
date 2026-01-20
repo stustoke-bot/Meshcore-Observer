@@ -81,14 +81,10 @@ async function fetchJson(url) {
   const headers = {
     "accept": "application/json",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "referer": "https://analyzer.letsmesh.net/",
-    "origin": "https://analyzer.letsmesh.net"
+    "referer": "https://analyzer.letsmesh.net/"
   };
   if (process.env.LETSMESH_API_KEY) {
     headers["authorization"] = `Bearer ${process.env.LETSMESH_API_KEY}`;
-  }
-  if (process.env.LETSMESH_COOKIE) {
-    headers["cookie"] = process.env.LETSMESH_COOKIE;
   }
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
