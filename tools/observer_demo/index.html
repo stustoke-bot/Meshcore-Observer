@@ -3174,7 +3174,9 @@
     }
 
     async function fetchObserverRank() {
-      const res = await fetch("/api/observer-rank?_ts=" + Date.now(), { cache: "no-store" });
+      const limit = isMobile() ? 50 : 0;
+      const qs = limit ? `&_limit=${limit}` : "";
+      const res = await fetch(`/api/observer-rank?_ts=${Date.now()}${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
@@ -3493,7 +3495,9 @@
     }
 
     async function fetchRank() {
-      const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}`, { cache: "no-store" });
+      const limit = isMobile() ? 50 : 0;
+      const qs = limit ? `&_limit=${limit}` : "";
+      const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }

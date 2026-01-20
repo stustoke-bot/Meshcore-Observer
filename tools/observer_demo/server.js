@@ -1520,12 +1520,17 @@ const server = http.createServer(async (req, res) => {
     const now = Date.now();
     const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
     const force = u.searchParams.get("refresh") === "1";
+    const limitRaw = u.searchParams.get("_limit");
+    const limit = limitRaw ? Number(limitRaw) : 0;
     if (force || !last) {
       await refreshRankCache(true);
     } else if (now - last >= RANK_REFRESH_MS) {
       refreshRankCache(false).catch(() => {});
     }
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(rankCache));
+    const payload = limit > 0
+      ? { ...rankCache, items: rankCache.items.slice(0, limit) }
+      : rankCache;
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
   if (u.pathname === "/api/repeater-hide" && req.method === "POST") {
@@ -1607,6 +1612,8 @@ const server = http.createServer(async (req, res) => {
     const now = Date.now();
     const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
     const force = u.searchParams.get("refresh") === "1";
+    const limitRaw = u.searchParams.get("_limit");
+    const limit = limitRaw ? Number(limitRaw) : 0;
     if (force || !last || now - last >= 5 * 60 * 1000) {
       if (!observerRankRefresh) {
         observerRankRefresh = buildObserverRank()
@@ -1615,7 +1622,10 @@ const server = http.createServer(async (req, res) => {
       }
       await observerRankRefresh;
     }
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(observerRankCache));
+    const payload = limit > 0
+      ? { ...observerRankCache, items: observerRankCache.items.slice(0, limit) }
+      : observerRankCache;
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
   if (u.pathname === "/api/route-suggestions") {
