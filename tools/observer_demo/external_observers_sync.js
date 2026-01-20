@@ -44,7 +44,7 @@ async function fetchJson(url) {
 }
 
 function coerceId(obj) {
-  const raw = obj?.public_key || obj?.id || obj?.observer_id || obj?.observerId || obj?.origin_id || obj?.originId;
+  const raw = obj?.id || obj?.observer_id || obj?.observerId || obj?.origin_id || obj?.originId;
   return raw ? String(raw).trim() : null;
 }
 
@@ -86,21 +86,11 @@ async function main() {
       const id = coerceId(obj);
       if (!id) continue;
       const gps = coerceGps(obj);
-      const lastSeen = coerceTime(obj, [
-        "last_packet_ingested",
-        "last_status_at",
-        "last_seen",
-        "lastSeen",
-        "heard_at",
-        "heardAt",
-        "updated_at",
-        "updatedAt"
-      ]);
+      const lastSeen = coerceTime(obj, ["last_seen", "lastSeen", "heard_at", "heardAt", "updated_at", "updatedAt"]);
       const firstSeen = coerceTime(obj, ["first_seen", "firstSeen", "created_at", "createdAt"]);
       const name = anonymizeName(id);
       upsert(byId, id, {
         name,
-        sourceName: coerceName(obj),
         gps,
         gpsApprox: gps || null,
         locApprox: !!gps,
