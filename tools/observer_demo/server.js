@@ -870,7 +870,17 @@ async function buildNodeRank() {
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
   const all = Object.values(byPub).filter(Boolean);
-  const companions = all.filter((d) => !d.isRepeater && d.role !== "room_server" && d.role !== "chat");
+  const companions = all.filter((d) => {
+    if (!d || d.isRepeater) return false;
+    const role = String(d.role || "").toLowerCase();
+    if (role === "room_server" || role === "chat" || role === "repeater") return false;
+    const roleName = String(d.appFlags?.roleName || "").toLowerCase();
+    if (roleName === "room_server" || roleName === "chat" || roleName === "repeater") return false;
+    if (role === "companion" || roleName === "companion") return true;
+    const roleCode = Number.isFinite(d.appFlags?.roleCode) ? d.appFlags.roleCode : null;
+    if (roleCode === 0) return true;
+    return false;
+  });
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
   const stats = new Map(); // pub -> {messages24h, msgCounts, lastMsgTs}
