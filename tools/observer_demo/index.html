@@ -3360,7 +3360,6 @@
         if (ageMinutes <= 2) badges.push({ label: "Live", tone: "green" });
         else badges.push({ label: "Offline", tone: "gray" });
       }
-      if (o.isExternal) badges.push({ label: "External", tone: "blue" });
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
       if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
       if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
