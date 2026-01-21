@@ -3866,7 +3866,7 @@
       const badges = [];
       if (Number.isFinite(o.ageHours)) {
         const ageMinutes = o.ageHours * 60;
-        if (ageMinutes <= 2) badges.push({ label: "Live", tone: "green" });
+        if (ageMinutes <= 15) badges.push({ label: "Live", tone: "green" });
         else badges.push({ label: "Offline", tone: "gray" });
       }
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
