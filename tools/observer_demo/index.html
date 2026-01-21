@@ -3774,6 +3774,16 @@
       if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
       if (Number(r.zeroHopNeighbors24h || 0) >= 3) badges.push({ label: "Great Mesh Neighbour", tone: "amber" });
       if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) badges.push({ label: "Great Throughput", tone: "amber" });
+      if (Number.isFinite(r.clockDriftMinutes) && Math.abs(r.clockDriftMinutes) >= 60) {
+        const drift = Math.abs(r.clockDriftMinutes);
+        const hours = Math.floor(drift / 60);
+        const minutes = drift % 60;
+        const parts = [];
+        if (hours) parts.push(`${hours}h`);
+        if (minutes) parts.push(`${minutes}m`);
+        const label = `Clock ${r.clockDriftMinutes > 0 ? "ahead" : "behind"} ${parts.join(" ") || `${drift}m`}`;
+        badges.push({ label, tone: "amber" });
+      }
       if (nearestObserverSet && r.pub && nearestObserverSet.has(String(r.pub).toUpperCase())) {
         badges.push({ label: "Close to Observer", tone: "green" });
       }

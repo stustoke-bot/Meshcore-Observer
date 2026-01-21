@@ -733,7 +733,7 @@ async function buildRepeaterRank() {
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
 
-  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors}
+  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, clockDriftMs}
 
   if (fs.existsSync(decodedPath)) {
     const rl = readline.createInterface({
@@ -757,8 +757,13 @@ async function buildRepeaterRank() {
         const ts = parseIso(rec.ts);
         if (!ts) continue;
         if (now - ts.getTime() > windowMs) continue;
+        const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
+        if (Number.isFinite(advTimestamp)) {
+          const advMs = advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp;
+          s.clockDriftMs = advMs - ts.getTime();
+        }
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set() });
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
       const s = stats.get(pub);
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -803,8 +808,13 @@ async function buildRepeaterRank() {
         const ts = parseIso(rec.archivedAt);
         if (!ts) continue;
         if (now - ts.getTime() > windowMs) continue;
+        const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
+        if (Number.isFinite(advTimestamp)) {
+          const advMs = advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp;
+          s.clockDriftMs = advMs - ts.getTime();
+        }
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set() });
+      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
       const s = stats.get(pub);
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -851,6 +861,7 @@ async function buildRepeaterRank() {
           : [];
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
+      const driftMinutes = Number.isFinite(s.clockDriftMs) ? Math.round(s.clockDriftMs / 60000) : null;
       const avgSnr = trimmedMean(s.snr, 0.1);
       const bestRssi = Number.isFinite(s.bestRssi) ? s.bestRssi : (Number.isFinite(d.stats?.bestRssi) ? d.stats.bestRssi : -120);
       const bestSnr = Number.isFinite(s.bestSnr) ? s.bestSnr : (Number.isFinite(d.stats?.bestSnr) ? d.stats.bestSnr : -20);
@@ -904,7 +915,8 @@ async function buildRepeaterRank() {
         score: Math.round(score),
         stale: isStale,
         color,
-        hiddenOnMap: !!d.hiddenOnMap
+        hiddenOnMap: !!d.hiddenOnMap,
+        clockDriftMinutes: driftMinutes
       };
       })
       .filter(Boolean)
