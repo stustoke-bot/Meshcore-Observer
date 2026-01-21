@@ -112,6 +112,7 @@ async function getObserverHitsMap() {
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
+const MESH_REFRESH_MS = 15 * 60 * 1000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
@@ -127,6 +128,8 @@ let observerRankRefresh = null;
 
 let nodeRankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let nodeRankRefreshInFlight = null;
+let meshScoreCache = { updatedAt: null, payload: null };
+let meshScoreRefresh = null;
 let db = null;
 
 let ChannelCrypto;
@@ -1059,8 +1062,28 @@ async function refreshRankCache(force) {
 async function scheduleAutoRefresh() {
   try {
     await refreshRankCache(true);
+    await refreshMeshScoreCache(true);
   } catch {}
   setTimeout(() => scheduleAutoRefresh().catch(() => {}), AUTO_REFRESH_MS);
+}
+
+async function refreshMeshScoreCache(force) {
+  const now = Date.now();
+  const last = meshScoreCache.updatedAt ? new Date(meshScoreCache.updatedAt).getTime() : 0;
+  if (!force && meshScoreCache.payload && last && (now - last) < MESH_REFRESH_MS) {
+    return meshScoreCache.payload;
+  }
+  if (meshScoreRefresh) return meshScoreRefresh;
+  meshScoreRefresh = (async () => {
+    const payload = await buildMeshScore();
+    meshScoreCache = { updatedAt: payload.updatedAt, payload };
+    return payload;
+  })();
+  try {
+    return await meshScoreRefresh;
+  } finally {
+    meshScoreRefresh = null;
+  }
 }
 
 async function buildChannelMessages() {
@@ -2064,8 +2087,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/meshscore") {
-    const payload = await buildMeshScore();
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+    const now = Date.now();
+    const last = meshScoreCache.updatedAt ? new Date(meshScoreCache.updatedAt).getTime() : 0;
+    if (!meshScoreCache.payload) {
+      const payload = await refreshMeshScoreCache(true);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+    }
+    if (!last || (now - last) >= MESH_REFRESH_MS) {
+      refreshMeshScoreCache(false).catch(() => {});
+    }
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(meshScoreCache.payload));
   }
 
   if (u.pathname === "/api/observers") {

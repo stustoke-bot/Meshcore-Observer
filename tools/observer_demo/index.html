@@ -3432,10 +3432,14 @@
         const activeRank = document.body.classList.contains("view-rank");
         if (!activeRank) return;
         try {
-          const mesh = await fetchMeshScore();
-          renderMeshScore(mesh, meshRangeDays);
           await refreshRankSummary();
           await loadRankDefault();
+          setTimeout(async () => {
+            try {
+              const mesh = await fetchMeshScore();
+              renderMeshScore(mesh, meshRangeDays);
+            } catch {}
+          }, 0);
         } catch {}
       }, 15 * 60 * 1000);
 
@@ -4591,9 +4595,13 @@
           if (!rankMap) initRankMap();
           try {
             await refreshRankSummary();
-            const mesh = await fetchMeshScore();
-            renderMeshScore(mesh, meshRangeDays);
             await loadRankDefault();
+            setTimeout(async () => {
+              try {
+                const mesh = await fetchMeshScore();
+                renderMeshScore(mesh, meshRangeDays);
+              } catch {}
+            }, 0);
           } catch (err) {
             const list = document.getElementById("rankList");
             list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
