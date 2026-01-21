@@ -280,7 +280,18 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
     } catch {}
   }
   const observerSet = new Set();
-  if (observerHitsMap) {
+  let hasAggHits = false;
+  if (observerAggMap) {
+    const agg = observerAggMap.get(String(row.message_hash || "").toUpperCase());
+    if (agg?.observerHits) {
+      agg.observerHits.forEach((o) => observerSet.add(o));
+      hasAggHits = agg.observerHits.size > 0;
+    }
+    if (agg?.hopCodes && agg.hopCodes.size) {
+      path = Array.from(agg.hopCodes);
+    }
+  }
+  if (!hasAggHits && observerHitsMap) {
     const keys = [];
     if (row.message_hash) keys.push(String(row.message_hash).toUpperCase());
     if (row.frame_hash) keys.push(String(row.frame_hash).toUpperCase());
@@ -288,13 +299,6 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
       const hits = observerHitsMap.get(key);
       if (hits) hits.forEach((o) => observerSet.add(o));
     });
-  }
-  if (observerAggMap) {
-    const agg = observerAggMap.get(String(row.message_hash || "").toUpperCase());
-    if (agg?.observerHits) agg.observerHits.forEach((o) => observerSet.add(o));
-    if (agg?.hopCodes && agg.hopCodes.size) {
-      path = Array.from(agg.hopCodes);
-    }
   }
   const observerHits = Array.from(observerSet);
   const observerCount = observerHits.length;
