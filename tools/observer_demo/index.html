@@ -387,9 +387,10 @@
 
     .channel .name {
       font-weight: 700;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow: visible;
+      text-overflow: unset;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     .channel .snippet {
@@ -398,6 +399,13 @@
       margin-top: 2px;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .channel .muted {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.2;
       white-space: nowrap;
     }
 
