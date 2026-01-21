@@ -95,7 +95,7 @@ async function getObserverHitsMap() {
   }
   const now = Date.now();
   if (observerHitsCache.lastReadAt && (now - observerHitsCache.lastReadAt) < OBSERVER_HITS_COOLDOWN_MS) {
-    return observerHitsCache.map;
+    if (observerHitsCache.map && observerHitsCache.map.size) return observerHitsCache.map;
   }
   let map = observerHitsCache.map || new Map();
   let offset = observerHitsCache.offset || 0;
@@ -142,7 +142,7 @@ function startObserverHitsTailer() {
   if (!fs.existsSync(observerPath)) return;
   const keyStore = buildKeyStore(loadKeys());
   let busy = false;
-  setInterval(async () => {
+  const tick = async () => {
     if (busy) return;
     busy = true;
     try {
@@ -187,7 +187,9 @@ function startObserverHitsTailer() {
     } finally {
       busy = false;
     }
-  }, OBSERVER_HITS_TAIL_INTERVAL_MS);
+  };
+  tick().catch(() => {});
+  setInterval(() => { tick().catch(() => {}); }, OBSERVER_HITS_TAIL_INTERVAL_MS);
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
