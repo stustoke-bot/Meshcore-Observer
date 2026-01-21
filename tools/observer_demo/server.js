@@ -1700,6 +1700,14 @@ async function buildChannelMessages() {
       const messageHash = decoded.messageHash ? String(decoded.messageHash).toUpperCase() : null;
       const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
       const observerSet = new Set();
+      let directObserver = rec.observerId || "";
+      if (!directObserver && rec.topic) {
+        const m = String(rec.topic).match(/observers\/([^/]+)\//i);
+        if (m) directObserver = m[1];
+      }
+      if (!directObserver) directObserver = rec.observerName || "";
+      directObserver = String(directObserver).trim();
+      if (directObserver) observerSet.add(directObserver);
       const hits = observerMap.get(msgHash);
       if (hits) hits.forEach((o) => observerSet.add(o));
       if (frameHash && frameHash !== msgHash) {
@@ -1764,10 +1772,9 @@ async function buildChannelMessages() {
           m.pathNames = pathNames;
           m.pathPoints = pathPoints;
         }
-        if (observerCount && !m.observerCount) {
-          m.observerCount = observerCount;
-          m.observerHits = observerHits;
-        }
+        const mergedHits = new Set([...(m.observerHits || []), ...observerHits]);
+        m.observerHits = Array.from(mergedHits);
+        m.observerCount = m.observerHits.length;
       }
 
     const ch = channelMap.get(chName) || { name: chName, lastTs: null, snippet: "" };
@@ -1919,6 +1926,8 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
     const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
 
     const observerSet = new Set();
+    const directObserver = String(rec.observerId || rec.observerName || "").trim();
+    if (directObserver) observerSet.add(directObserver);
     const hits = observerMap.get(msgHash);
     if (hits) hits.forEach((o) => observerSet.add(o));
     if (frameHash && frameHash !== msgHash) {
@@ -1973,10 +1982,9 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
         m.pathNames = pathNames;
         m.pathPoints = pathPoints;
       }
-      if (observerCount && !m.observerCount) {
-        m.observerCount = observerCount;
-        m.observerHits = observerHits;
-      }
+      const mergedHits = new Set([...(m.observerHits || []), ...observerHits]);
+      m.observerHits = Array.from(mergedHits);
+      m.observerCount = m.observerHits.length;
     }
   }
 
@@ -2243,11 +2251,52 @@ async function buildRfLatest(limit) {
     if (!existing) {
       const clone = { ...item };
       clone.observerHits = new Set();
+      clone.observerEntries = new Map();
+      clone.hopCodes = new Set(Array.isArray(item.path) ? item.path : []);
       if (observerLabel) clone.observerHits.add(observerLabel);
+      if (observerLabel) {
+        clone.observerEntries.set(observerLabel, {
+          observerId: item.observerId || null,
+          observerName: item.observerName || item.observerId || observerLabel,
+          ts: item.ts || null,
+          rssi: item.rssi ?? null,
+          snr: item.snr ?? null,
+          len: item.len ?? null,
+          path: Array.isArray(item.path) ? item.path : [],
+          pathNames: Array.isArray(item.pathNames) ? item.pathNames : [],
+          pathLength: item.pathLength ?? 0
+        });
+      }
       grouped.set(key, clone);
       continue;
     }
     if (observerLabel) existing.observerHits.add(observerLabel);
+    if (observerLabel) {
+      const entry = existing.observerEntries.get(observerLabel) || {
+        observerId: item.observerId || null,
+        observerName: item.observerName || item.observerId || observerLabel,
+        ts: item.ts || null,
+        rssi: item.rssi ?? null,
+        snr: item.snr ?? null,
+        len: item.len ?? null,
+        path: Array.isArray(item.path) ? item.path : [],
+        pathNames: Array.isArray(item.pathNames) ? item.pathNames : [],
+        pathLength: item.pathLength ?? 0
+      };
+      if (item.ts && (!entry.ts || new Date(item.ts) > new Date(entry.ts))) {
+        entry.ts = item.ts;
+        entry.rssi = item.rssi ?? entry.rssi;
+        entry.snr = item.snr ?? entry.snr;
+        entry.len = item.len ?? entry.len;
+        entry.path = Array.isArray(item.path) ? item.path : entry.path;
+        entry.pathNames = Array.isArray(item.pathNames) ? item.pathNames : entry.pathNames;
+        entry.pathLength = item.pathLength ?? entry.pathLength;
+      }
+      existing.observerEntries.set(observerLabel, entry);
+    }
+    if (Array.isArray(item.path)) {
+      item.path.forEach((code) => existing.hopCodes.add(code));
+    }
     if (item.ts && (!existing.ts || new Date(item.ts) > new Date(existing.ts))) {
       existing.ts = item.ts;
     }
@@ -2268,10 +2317,14 @@ async function buildRfLatest(limit) {
   }
   const merged = Array.from(grouped.values()).map((item) => {
     const hits = item.observerHits ? Array.from(item.observerHits) : [];
+    const entries = item.observerEntries ? Array.from(item.observerEntries.values()) : [];
+    const hopCount = item.hopCodes ? item.hopCodes.size : (item.pathLength ?? 0);
     return {
       ...item,
       observerHits: hits,
-      observerCount: hits.length
+      observerCount: hits.length,
+      observerEntries: entries,
+      hopCount
     };
   });
   merged.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));

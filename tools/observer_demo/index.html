@@ -848,6 +848,13 @@
       cursor: pointer;
       align-items: center;
     }
+    .rf-row.rf-child {
+      font-size: 11px;
+      opacity: 0.85;
+      padding-left: 28px;
+      cursor: default;
+    }
+    .rf-row.rf-child:hover { background: transparent; }
 
     .rf-row:hover {
       background: #f7f7f7;
@@ -4685,6 +4692,30 @@
           openRouteOverrideModal();
         });
         frag.appendChild(row);
+        const entries = Array.isArray(p.observerEntries) ? p.observerEntries : [];
+        entries.forEach((entry) => {
+          const child = document.createElement("div");
+          child.className = "rf-row rf-child";
+          const childTime = entry.ts
+            ? new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+            : "--";
+          const childPath = formatPathLabel(entry);
+          const childObserver = entry.observerName || entry.observerId || "--";
+          child.innerHTML = `
+            <div>${childTime}</div>
+            <div><span class="rf-type">Obs</span></div>
+            <div>via</div>
+            <div>--</div>
+            <div title="${childPath}">${childPath}</div>
+            <div>${childObserver}</div>
+            <div>1</div>
+            <div>${Number.isFinite(entry.rssi) ? entry.rssi : "--"}</div>
+            <div>${Number.isFinite(entry.snr) ? entry.snr : "--"}</div>
+            <div>${entry.len ?? "--"}</div>
+            <div>--</div>
+          `;
+          frag.appendChild(child);
+        });
       });
       list.appendChild(frag);
     }
