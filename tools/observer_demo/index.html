@@ -855,6 +855,21 @@
       cursor: default;
     }
     .rf-row.rf-child:hover { background: transparent; }
+    .rf-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .rf-row.rf-child.is-hidden { display: none; }
 
     .rf-row:hover {
       background: #f7f7f7;
@@ -4637,12 +4652,12 @@
       const frag = document.createDocumentFragment();
       const header = document.createElement("div");
       header.className = "rf-row rf-header";
-        header.innerHTML = `
+      header.innerHTML = `
           <div>Time</div>
           <div>Type</div>
           <div>Route</div>
           <div>Hash</div>
-          <div>Path</div>
+          <div>Hops</div>
           <div>Sender</div>
           <div>Observers</div>
           <div>RSSI</div>
@@ -4655,17 +4670,23 @@
       slice.forEach((p) => {
         const row = document.createElement("div");
         row.className = "rf-row";
+        row.dataset.key = String(p.hash || p.fp || "--");
         const time = p.ts ? new Date(p.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--";
         const hash = shortHex(p.hash || p.fp || "--", 10);
         const route = p.routeTypeName || "--";
         const pathLabel = formatPathLabel(p);
+        const hopCount = Number.isFinite(p.hopCount) ? p.hopCount : (p.pathLength ?? 0);
         const sender = p.senderName || (p.senderPublicKey ? shortHex(p.senderPublicKey, 12) : "--");
+        const entries = Array.isArray(p.observerEntries) ? p.observerEntries : [];
+        const toggle = entries.length
+          ? `<button class="rf-toggle" data-rf-toggle="${row.dataset.key}">+</button> ${hopCount}`
+          : `${hopCount}`;
         row.innerHTML = `
           <div>${time}</div>
           <div><span class="rf-type">${p.payloadType || "Unknown"}</span></div>
           <div>${route}</div>
           <div>${hash}</div>
-          <div title="${pathLabel}">${pathLabel}</div>
+          <div title="${pathLabel}">${toggle}</div>
           <div>${sender}</div>
           <div>${p.observerCount ?? 1}</div>
           <div>${Number.isFinite(p.rssi) ? p.rssi : "--"}</div>
@@ -4692,10 +4713,10 @@
           openRouteOverrideModal();
         });
         frag.appendChild(row);
-        const entries = Array.isArray(p.observerEntries) ? p.observerEntries : [];
         entries.forEach((entry) => {
           const child = document.createElement("div");
-          child.className = "rf-row rf-child";
+          child.className = "rf-row rf-child is-hidden";
+          child.dataset.parentKey = row.dataset.key;
           const childTime = entry.ts
             ? new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
             : "--";
@@ -5667,6 +5688,21 @@
     const rfTypeFilter = document.getElementById("rfTypeFilter");
     if (rfSearch) rfSearch.addEventListener("input", renderRfList);
     if (rfTypeFilter) rfTypeFilter.addEventListener("change", renderRfList);
+    if (document.getElementById("rfList")) {
+      document.getElementById("rfList").addEventListener("click", (event) => {
+        const toggle = event.target.closest("[data-rf-toggle]");
+        if (!toggle) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const key = toggle.getAttribute("data-rf-toggle");
+        if (!key) return;
+        const children = document.querySelectorAll(`.rf-row.rf-child[data-parent-key="${CSS.escape(key)}"]`);
+        if (!children.length) return;
+        const isHidden = children[0].classList.contains("is-hidden");
+        children.forEach((child) => child.classList.toggle("is-hidden", !isHidden));
+        toggle.textContent = isHidden ? "−" : "+";
+      });
+    }
 
     window.addEventListener("resize", () => {
       if (observerMap) observerMap.invalidateSize();
