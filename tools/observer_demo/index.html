@@ -650,6 +650,38 @@
       margin-bottom: 6px;
     }
 
+    .rank-loading {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #ffffff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .rank-loading.active {
+      display: flex;
+    }
+
+    .rank-loading .spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 0, 0, 0.15);
+      border-top-color: var(--blue);
+      animation: rankSpin 1s linear infinite;
+    }
+
+    @keyframes rankSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     .rank-scroll {
       overflow: auto;
       padding-right: 6px;
@@ -1904,6 +1936,10 @@
           <div id="rankMap"></div>
         </div>
         <div class="rank-list">
+          <div class="rank-loading" id="rankLoading">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Running repeater rank, please hold…</span>
+          </div>
           <input class="rank-search" id="rankSearch" type="text" placeholder="Search repeaters"/>
           <div class="rank-scroll" id="rankScroll">
             <div id="rankList"></div>
@@ -2146,6 +2182,10 @@
           <div id="observerRankMap"></div>
         </div>
         <div class="rank-list">
+          <div class="rank-loading" id="observerRankLoading">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Running observer rank, please hold…</span>
+          </div>
           <input class="rank-search" id="observerRankSearch" type="text" placeholder="Search observers"/>
           <div class="rank-scroll" id="observerRankScroll">
             <div id="observerRankList"></div>
@@ -2378,6 +2418,18 @@
       } catch {
         return null;
       }
+    }
+
+    function setRankLoading(show) {
+      const el = document.getElementById("rankLoading");
+      if (!el) return;
+      el.classList.toggle("active", !!show);
+    }
+
+    function setObserverRankLoading(show) {
+      const el = document.getElementById("observerRankLoading");
+      if (!el) return;
+      el.classList.toggle("active", !!show);
     }
 
     function saveAuthToken(token) {
@@ -3433,12 +3485,16 @@
         const activeObserverRank = document.body.classList.contains("view-observer-rank");
         if (!activeObserverRank) return;
         try {
+          setObserverRankLoading(true);
           await refreshObserverRankSummary();
           const data = await fetchObserverRank();
           appData.observerRank = data;
           renderObserverRank(data);
           renderObserverRankMap(data);
         } catch {}
+        finally {
+          setObserverRankLoading(false);
+        }
       }, 15 * 60 * 1000);
     }
 
@@ -3922,16 +3978,23 @@
 
     async function loadRankForMobile() {
       appData.rankData = [];
+      setRankLoading(true);
       await loadRankChunk(MOBILE_RANK_PAGE_SIZE, 0, true);
+      setRankLoading(false);
       loadMoreRankChunks();
     }
 
     async function loadRankDefault() {
-      if (isMobile()) {
-        await loadRankForMobile();
-      } else {
-        const data = await fetchRank();
-        renderRank(data);
+      setRankLoading(true);
+      try {
+        if (isMobile()) {
+          await loadRankForMobile();
+        } else {
+          const data = await fetchRank();
+          renderRank(data);
+        }
+      } finally {
+        setRankLoading(false);
       }
     }
 
@@ -4595,12 +4658,16 @@
             setTimeout(() => observerRankMap.invalidateSize(), 80);
           }
           try {
+            setObserverRankLoading(true);
             await refreshObserverRankSummary();
             const data = await fetchObserverRank();
             appData.observerRank = data;
             renderObserverRank(data);
             renderObserverRankMap(data);
           } catch {}
+          finally {
+            setObserverRankLoading(false);
+          }
         }
         if (view === "why") {
           // static content
