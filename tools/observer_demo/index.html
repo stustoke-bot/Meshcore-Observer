@@ -2725,10 +2725,7 @@
             }
             const hopsEl = existing.querySelector(".msg-hops");
             if (hopsEl) {
-              const hops = Number.isFinite(msg.uniqueHopCount)
-                ? msg.uniqueHopCount
-                : (msg.pathLength ?? msg.repeats ?? 0);
-              hopsEl.textContent = `Total hops: ${hops}`;
+              hopsEl.textContent = `Total hops: ${getHopCount(msg)}`;
             }
             const confEl = existing.querySelector(".msg-confidence");
             if (confEl) {
@@ -2746,6 +2743,7 @@
           ? msg.observerCount
           : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
         const observerList = mapObserverLabels(msg.observerHits || []).join(", ");
+        const hopCount = getHopCount(msg);
         row.innerHTML = `
           <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
           <div>
@@ -2757,7 +2755,7 @@
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
                 <a class="msg-observers" href="#" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
-                <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</a>
+                <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${hopCount}</a>
                 <a class="msg-confidence" href="#" data-id="${keyId}">MeshRank Confidence: ${conf}%</a>
               </div>
           </div>
@@ -4311,6 +4309,14 @@
       const s = String(value);
       if (s.length <= len) return s;
       return s.slice(0, len);
+    }
+
+    function getHopCount(msg) {
+      const pathLen = Array.isArray(msg.path) ? msg.path.length : 0;
+      const pathLength = Number.isFinite(msg.pathLength) ? msg.pathLength : 0;
+      const uniqueHop = Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : 0;
+      const repeats = Number.isFinite(msg.repeats) ? msg.repeats : 0;
+      return Math.max(pathLen, pathLength, uniqueHop, repeats);
     }
 
     function buildRepeatersByCode(data) {
