@@ -4842,6 +4842,9 @@
           document.body.classList.toggle("view-observer", view === "observer");
           document.body.classList.toggle("view-observer-rank", view === "observer-rank");
           document.body.classList.toggle("view-why", view === "why");
+          if (view !== "channels") {
+            updateChannelParam(null);
+          }
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
