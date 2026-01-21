@@ -3630,7 +3630,7 @@
       if (forceFull && appData.messages.length && !isMobile()) {
         showRoute(appData.messages[0].id);
       }
-      if (!opts.liveEnrich && document.body.classList.contains("view-channels")) {
+      if (document.body.classList.contains("view-channels")) {
         const prev = previousLatest[activeChannelId] || 0;
         const next = latestByChannel[activeChannelId] || 0;
         if (next && next > prev) {
