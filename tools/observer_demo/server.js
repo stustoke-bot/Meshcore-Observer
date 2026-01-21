@@ -732,11 +732,13 @@ async function buildObserverRank() {
     const scoreColor = colorForAge(ageHours);
     const isStale = ageHours > 24;
     const offline = ageHours > 1;
+    const lastSeenAgoMinutes = Number.isFinite(ageHours) ? Math.round(ageHours * 60) : null;
     items.push({
       id: s.id,
       name: s.name || s.id,
       gps,
       lastSeen: s.lastSeen,
+      lastSeenAgoMinutes,
       firstSeen: s.firstSeen,
       ageHours,
       stale: isStale,

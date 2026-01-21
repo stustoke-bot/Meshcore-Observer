@@ -2432,6 +2432,15 @@
       el.classList.toggle("active", !!show);
     }
 
+    function formatRelativeMinutes(totalMinutes) {
+      if (!Number.isFinite(totalMinutes)) return "--";
+      if (totalMinutes < 60) return `${Math.round(totalMinutes)}m ago`;
+      const hours = Math.round(totalMinutes / 60);
+      if (hours < 48) return `${hours}h ago`;
+      const days = Math.round(totalMinutes / (60 * 24));
+      return `${days}d ago`;
+    }
+
     function saveAuthToken(token) {
       try {
         if (token) localStorage.setItem("mesh_session_token", token);
@@ -3695,7 +3704,7 @@
                     <span class="rank-dot" style="background:${o.scoreColor}">${scoreBadge}</span>
                     <div class="rank-main">
                       <strong>${o.name || o.id}</strong>
-                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}</div>
+                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}</div>
                       <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
                       <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
                       ${badgeHtml(buildObserverBadges(o))}
