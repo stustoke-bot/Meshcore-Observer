@@ -4291,7 +4291,7 @@
     }
 
     async function fetchRfLatest() {
-      const res = await fetch("/api/rf-latest?limit=80", { cache: "no-store" });
+      const res = await fetch("/api/rf-latest?limit=100", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }

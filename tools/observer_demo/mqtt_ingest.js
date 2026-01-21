@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const mqtt = require("mqtt");
+const Database = require("better-sqlite3");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
@@ -13,9 +14,17 @@ const observerPath = path.join(dataDir, "observer.ndjson");
 const observerStatusPath = path.join(dataDir, "observers.json");
 const devicesPath = path.join(dataDir, "devices.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
+const dbPath = path.join(dataDir, "meshrank.db");
 const GPS_WARN_KM = 50;
 const ESTIMATE_MIN_HOURS = 4;
 const ESTIMATE_MIN_RSSI = -75;
+const RF_MAX_ROWS = 50000;
+const RF_CLEAN_INTERVAL = 500;
+
+let rfDb = null;
+let rfInsert = null;
+let rfPrune = null;
+let rfInsertCount = 0;
 
 const mqttUrl = process.env.MESHRANK_MQTT_URL || "mqtts://meshrank.net:8883";
 const mqttTopic = process.env.MESHRANK_MQTT_TOPIC || "meshrank/observers/+/packets";
@@ -53,6 +62,80 @@ function toNumber(value) {
 function appendObserver(record) {
   ensureDataDir();
   fs.appendFileSync(observerPath, JSON.stringify(record) + "\n");
+}
+
+function initRfDb() {
+  if (rfDb) return true;
+  try {
+    ensureDataDir();
+    rfDb = new Database(dbPath);
+    rfDb.pragma("journal_mode = WAL");
+    rfDb.exec(`
+      CREATE TABLE IF NOT EXISTS rf_packets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT,
+        payload_hex TEXT,
+        frame_hash TEXT,
+        rssi REAL,
+        snr REAL,
+        crc INTEGER,
+        observer_id TEXT,
+        observer_name TEXT,
+        len INTEGER,
+        payload_len INTEGER,
+        packet_type TEXT,
+        topic TEXT,
+        route TEXT,
+        path TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_rf_packets_ts ON rf_packets(ts);
+    `);
+    rfInsert = rfDb.prepare(`
+      INSERT INTO rf_packets (
+        ts, payload_hex, frame_hash, rssi, snr, crc, observer_id, observer_name,
+        len, payload_len, packet_type, topic, route, path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    rfPrune = rfDb.prepare(`
+      DELETE FROM rf_packets
+      WHERE id <= (SELECT id FROM rf_packets ORDER BY id DESC LIMIT 1 OFFSET ?)
+    `);
+    return true;
+  } catch (err) {
+    logIngest("ERROR", `rf db init failed ${err?.message || err}`);
+    rfDb = null;
+    rfInsert = null;
+    rfPrune = null;
+    return false;
+  }
+}
+
+function storeRfPacket(record) {
+  if (!initRfDb() || !rfInsert) return;
+  try {
+    rfInsert.run(
+      record.archivedAt || null,
+      record.payloadHex || null,
+      record.frameHash || null,
+      record.rssi ?? null,
+      record.snr ?? null,
+      record.crc ? 1 : 0,
+      record.observerId || null,
+      record.observerName || null,
+      record.len ?? null,
+      record.payloadLen ?? null,
+      record.packetType || null,
+      record.topic || null,
+      record.route ? JSON.stringify(record.route) : null,
+      record.path ? JSON.stringify(record.path) : null
+    );
+    rfInsertCount += 1;
+    if (rfPrune && rfInsertCount % RF_CLEAN_INTERVAL === 0) {
+      rfPrune.run(RF_MAX_ROWS);
+    }
+  } catch (err) {
+    logIngest("ERROR", `rf db insert failed ${err?.message || err}`);
+  }
 }
 
 function logIngest(level, message) {
@@ -253,6 +336,7 @@ client.on("message", (topic, payload) => {
 
   appendObserver(record);
   updateObserverStatus(record);
+  storeRfPacket(record);
   logIngest(
     "MSG",
     `observer=${record.observerId} rssi=${record.rssi ?? "?"} len=${record.len ?? "?"}`

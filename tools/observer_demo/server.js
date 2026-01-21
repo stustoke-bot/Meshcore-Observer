@@ -1869,9 +1869,59 @@ async function buildMeshScore() {
   };
 }
 
-async function buildRfLatest(limit) {
+async function readRfRecords(limit) {
+  const max = Number.isFinite(limit) ? limit : 80;
+  try {
+    const db = getDb();
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rf_packets'").get();
+    if (has) {
+      const rows = db.prepare(`
+        SELECT ts, payload_hex, frame_hash, rssi, snr, crc, observer_id, observer_name,
+               len, payload_len, packet_type, topic, route, path
+        FROM rf_packets
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(max);
+      if (rows.length) {
+        return rows.reverse().map((row) => {
+          let route = null;
+          let path = null;
+          try { route = row.route ? JSON.parse(row.route) : null; } catch {}
+          try { path = row.path ? JSON.parse(row.path) : null; } catch {}
+          return {
+            archivedAt: row.ts,
+            payloadHex: row.payload_hex,
+            frameHash: row.frame_hash,
+            rssi: row.rssi,
+            snr: row.snr,
+            crc: row.crc === null ? null : !!row.crc,
+            observerId: row.observer_id,
+            observerName: row.observer_name,
+            len: row.len,
+            payloadLen: row.payload_len,
+            packetType: row.packet_type,
+            topic: row.topic,
+            route,
+            path
+          };
+        });
+      }
+    }
+  } catch {}
+
   const sourcePath = getRfSourcePath();
-  const lines = await tailLines(sourcePath, limit || 80);
+  const lines = await tailLines(sourcePath, max);
+  const records = [];
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line));
+    } catch {}
+  }
+  return records;
+}
+
+async function buildRfLatest(limit) {
+  const records = await readRfRecords(limit || 80);
   const keyCfg = loadKeys();
   const keyStore = buildKeyStore(keyCfg);
   const devices = readJsonSafe(devicesPath, { byPub: {} });
@@ -1882,9 +1932,7 @@ async function buildRfLatest(limit) {
   }
   const nodeMap = buildNodeHashMap();
   const items = [];
-  for (const line of lines) {
-    let rec;
-    try { rec = JSON.parse(line); } catch { continue; }
+  for (const rec of records) {
     const hex = getHex(rec);
     if (!hex) continue;
     let decoded = null;
@@ -2547,7 +2595,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/rf-latest") {
-    const limit = Number(u.searchParams.get("limit") || 400);
+    const limit = Number(u.searchParams.get("limit") || 100);
     const payload = await buildRfLatest(limit);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
