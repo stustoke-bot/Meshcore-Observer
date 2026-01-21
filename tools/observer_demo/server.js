@@ -1589,7 +1589,6 @@ async function buildRfLatest(limit) {
     const senderName = senderPublicKey
       ? (byPub[senderPublicKey]?.name ||
          byPub[senderPublicKey]?.raw?.lastAdvert?.appData?.name ||
-         nodeMap.get(nodeHashFromPub(senderPublicKey))?.name ||
          payloadDecoded?.senderName ||
          payloadDecoded?.name ||
          null)
