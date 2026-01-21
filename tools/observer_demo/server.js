@@ -758,13 +758,13 @@ async function buildRepeaterRank() {
         if (!ts) continue;
         if (now - ts.getTime() > windowMs) continue;
         const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
-        if (Number.isFinite(advTimestamp)) {
-          const advMs = advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp;
-          s.clockDriftMs = advMs - ts.getTime();
-        }
+        const driftMs = Number.isFinite(advTimestamp)
+          ? (advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp) - ts.getTime()
+          : null;
 
       if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
       const s = stats.get(pub);
+      if (Number.isFinite(driftMs)) s.clockDriftMs = driftMs;
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
       if (!s.rssi) s.rssi = [];
@@ -809,13 +809,13 @@ async function buildRepeaterRank() {
         if (!ts) continue;
         if (now - ts.getTime() > windowMs) continue;
         const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
-        if (Number.isFinite(advTimestamp)) {
-          const advMs = advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp;
-          s.clockDriftMs = advMs - ts.getTime();
-        }
+        const driftMs = Number.isFinite(advTimestamp)
+          ? (advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp) - ts.getTime()
+          : null;
 
       if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
       const s = stats.get(pub);
+      if (Number.isFinite(driftMs)) s.clockDriftMs = driftMs;
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
       if (!s.rssi) s.rssi = [];
