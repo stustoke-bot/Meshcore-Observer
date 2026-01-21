@@ -2504,6 +2504,9 @@
             limitMs: 5000,
             maxNewMessages: 2
           },
+          messageStream: {
+            es: null
+          },
           authToken: null
         };
 
@@ -3682,6 +3685,45 @@
       setTimeout(() => refreshRecentStats(channelId), 3000);
     }
 
+    function applyMessageObserverUpdates(payload) {
+      if (!payload?.updates?.length || !Array.isArray(appData.messages)) return;
+      let changed = false;
+      payload.updates.forEach((update) => {
+        const key = String(update.messageHash || "").toUpperCase();
+        if (!key) return;
+        const nextHits = Array.isArray(update.observerHits) ? update.observerHits : [];
+        appData.messages.forEach((msg) => {
+          const msgKey = String(msg.messageHash || msg.frameHash || "").toUpperCase();
+          if (msgKey !== key) return;
+          const merged = new Set([...(msg.observerHits || []), ...nextHits]);
+          if (merged.size !== (msg.observerHits || []).length) {
+            msg.observerHits = Array.from(merged);
+            msg.observerCount = merged.size;
+            changed = true;
+          }
+          if (Number.isFinite(update.pathLength) && (msg.pathLength || 0) < update.pathLength) {
+            msg.pathLength = update.pathLength;
+            changed = true;
+          }
+        });
+      });
+      if (changed) renderMessages(false, { preserveScroll: true });
+    }
+
+    function initMessageStream() {
+      if (!window.EventSource) return;
+      if (appData.messageStream?.es) return;
+      const es = new EventSource("/api/message-stream");
+      appData.messageStream.es = es;
+      es.addEventListener("updates", (event) => {
+        if (!document.body.classList.contains("view-channels")) return;
+        try {
+          const data = JSON.parse(event.data);
+          applyMessageObserverUpdates(data);
+        } catch {}
+      });
+    }
+
     async function checkServerStatus() {
       try {
         const res = await fetch("/api/channels?ts=" + Date.now(), { cache: "no-store" });
@@ -3751,6 +3793,7 @@
       try {
         await loadChannels();
         await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+        initMessageStream();
         try {
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);

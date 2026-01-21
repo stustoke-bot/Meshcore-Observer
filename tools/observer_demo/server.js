@@ -45,6 +45,9 @@ const messageRouteCache = new Map();
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
 const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
+const MESSAGE_OBSERVER_STREAM_POLL_MS = 1000;
+const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
+const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
 const RF_AGG_COOLDOWN_MS = 1500;
 const RF_AGG_LIMIT = 800;
 
@@ -399,6 +402,41 @@ function readMessageObserverAgg(db, hashes) {
     }
   });
   return map;
+}
+
+function readMessageObserverUpdatesSince(db, lastRowId, limit) {
+  if (!hasMessageObserversDb(db)) return { updates: [], lastRowId };
+  const max = Number.isFinite(limit) ? limit : MESSAGE_OBSERVER_STREAM_MAX_ROWS;
+  const rows = db.prepare(`
+    SELECT rowid, message_hash, observer_id, observer_name, path_length
+    FROM message_observers
+    WHERE rowid > ?
+    ORDER BY rowid ASC
+    LIMIT ?
+  `).all(lastRowId || 0, max);
+  let nextRowId = lastRowId || 0;
+  const map = new Map();
+  rows.forEach((row) => {
+    if (row.rowid > nextRowId) nextRowId = row.rowid;
+    const key = String(row.message_hash || "").toUpperCase();
+    if (!key) return;
+    let entry = map.get(key);
+    if (!entry) {
+      entry = { messageHash: key, observerHits: new Set(), pathLength: 0 };
+      map.set(key, entry);
+    }
+    const label = row.observer_name || row.observer_id;
+    if (label) entry.observerHits.add(label);
+    if (Number.isFinite(row.path_length)) {
+      entry.pathLength = Math.max(entry.pathLength, row.path_length || 0);
+    }
+  });
+  const updates = Array.from(map.values()).map((entry) => ({
+    messageHash: entry.messageHash,
+    observerHits: Array.from(entry.observerHits),
+    pathLength: entry.pathLength || null
+  }));
+  return { updates, lastRowId: nextRowId };
 }
 
 function getDb() {
@@ -2630,6 +2668,56 @@ const server = http.createServer(async (req, res) => {
       }
     }
     return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+  }
+
+  if (u.pathname === "/api/message-stream") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    res.write("\n");
+    let closed = false;
+    const db = getDb();
+    let lastRowId = 0;
+    try {
+      const row = db.prepare("SELECT MAX(rowid) AS max_id FROM message_observers").get();
+      lastRowId = row?.max_id || 0;
+    } catch {}
+    const sendEvent = (name, payload) => {
+      if (closed) return;
+      res.write(`event: ${name}\n`);
+      res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
+    };
+    sendEvent("ready", { ok: true, lastRowId });
+    const poll = setInterval(() => {
+      if (closed) return;
+      try {
+        const { updates, lastRowId: nextRowId } = readMessageObserverUpdatesSince(
+          db,
+          lastRowId,
+          MESSAGE_OBSERVER_STREAM_MAX_ROWS
+        );
+        if (updates.length) {
+          lastRowId = nextRowId;
+          sendEvent("updates", { updates });
+        } else {
+          lastRowId = nextRowId;
+        }
+      } catch (err) {
+        sendEvent("error", { error: String(err?.message || err) });
+      }
+    }, MESSAGE_OBSERVER_STREAM_POLL_MS);
+    const ping = setInterval(() => {
+      if (!closed) res.write("event: ping\ndata: {}\n\n");
+    }, MESSAGE_OBSERVER_STREAM_PING_MS);
+    req.on("close", () => {
+      closed = true;
+      clearInterval(poll);
+      clearInterval(ping);
+    });
+    return;
   }
 
   if (u.pathname === "/api/messages") {
