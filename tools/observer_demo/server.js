@@ -193,6 +193,11 @@ function getDb() {
       avg_repeats REAL NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS meshscore_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS repeater_rank_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       recorded_at TEXT NOT NULL,
@@ -200,6 +205,11 @@ function getDb() {
       active INTEGER NOT NULL,
       total24h INTEGER NOT NULL,
       cached_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS repeater_rank_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
     );
   `);
   return db;
@@ -232,6 +242,61 @@ function updateRankSummary(items, cachedAt) {
       // ignore persistence errors (history is best-effort)
     }
   }
+}
+
+function hydrateRepeaterRankCache() {
+  try {
+    const row = getDb()
+      .prepare("SELECT updated_at, payload FROM repeater_rank_cache WHERE id = 1")
+      .get();
+    if (!row?.payload) return;
+    const parsed = JSON.parse(row.payload);
+    if (!parsed || !Array.isArray(parsed.items)) return;
+    const updatedAt = row.updated_at || parsed.updatedAt || new Date().toISOString();
+    rankCache = { ...parsed, cachedAt: updatedAt };
+    updateRankSummary(parsed.items, updatedAt);
+  } catch {}
+}
+
+function persistRepeaterRankCache(payload) {
+  try {
+    if (!payload) return;
+    const updatedAt = payload.updatedAt || new Date().toISOString();
+    getDb()
+      .prepare(`
+        INSERT INTO repeater_rank_cache (id, updated_at, payload)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload
+      `)
+      .run(updatedAt, JSON.stringify(payload));
+  } catch {}
+}
+
+function hydrateMeshScoreCache() {
+  try {
+    const row = getDb()
+      .prepare("SELECT updated_at, payload FROM meshscore_cache WHERE id = 1")
+      .get();
+    if (!row?.payload) return;
+    const parsed = JSON.parse(row.payload);
+    if (!parsed) return;
+    const updatedAt = row.updated_at || parsed.updatedAt || new Date().toISOString();
+    meshScoreCache = { updatedAt, payload: parsed };
+  } catch {}
+}
+
+function persistMeshScoreCache(payload) {
+  try {
+    if (!payload) return;
+    const updatedAt = payload.updatedAt || new Date().toISOString();
+    getDb()
+      .prepare(`
+        INSERT INTO meshscore_cache (id, updated_at, payload)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload
+      `)
+      .run(updatedAt, JSON.stringify(payload));
+  } catch {}
 }
 
 function getAuthToken(req) {
@@ -1050,6 +1115,7 @@ async function refreshRankCache(force) {
     const data = await buildRepeaterRank();
     rankCache = { ...data, cachedAt: new Date().toISOString() };
     updateRankSummary(data.items || [], rankCache.updatedAt);
+    persistRepeaterRankCache(rankCache);
     return rankCache;
   })();
   try {
@@ -1077,6 +1143,7 @@ async function refreshMeshScoreCache(force) {
   meshScoreRefresh = (async () => {
     const payload = await buildMeshScore();
     meshScoreCache = { updatedAt: payload.updatedAt, payload };
+    persistMeshScoreCache(payload);
     return payload;
   })();
   try {
@@ -2256,5 +2323,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   console.log(`(observer-demo) http://${host}:${port}`);
+  hydrateRepeaterRankCache();
+  hydrateMeshScoreCache();
   scheduleAutoRefresh().catch(() => {});
 });
