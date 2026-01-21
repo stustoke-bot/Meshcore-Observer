@@ -1584,8 +1584,15 @@ async function buildRfLatest(limit) {
     const payloadType = decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null;
     const routeTypeName = decoded ? Utils.getRouteTypeName(decoded.routeType) : null;
     const payloadDecoded = decoded?.payload?.decoded || decoded?.decoded || null;
-    const senderPublicKey = payloadDecoded?.senderPublicKey || payloadDecoded?.publicKey || payloadDecoded?.senderPub || null;
-    const senderName = senderPublicKey ? (byPub[senderPublicKey]?.name || byPub[senderPublicKey]?.raw?.lastAdvert?.appData?.name || null) : null;
+    const senderPublicKeyRaw = payloadDecoded?.senderPublicKey || payloadDecoded?.publicKey || payloadDecoded?.senderPub || null;
+    const senderPublicKey = senderPublicKeyRaw ? String(senderPublicKeyRaw).toUpperCase() : null;
+    const senderName = senderPublicKey
+      ? (byPub[senderPublicKey]?.name ||
+         byPub[senderPublicKey]?.raw?.lastAdvert?.appData?.name ||
+         payloadDecoded?.senderName ||
+         payloadDecoded?.name ||
+         null)
+      : (payloadDecoded?.senderName || payloadDecoded?.name || null);
     const destinationHash = payloadDecoded?.destinationHash || payloadDecoded?.destHash || payloadDecoded?.destination || null;
     const channelHash = typeof payloadDecoded?.channelHash === "string" ? payloadDecoded.channelHash.toUpperCase() : null;
     const channelName = channelHash && keyMap[channelHash] ? keyMap[channelHash] : null;
