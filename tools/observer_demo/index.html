@@ -3930,7 +3930,9 @@
         else badges.push({ label: "Offline", tone: "gray" });
       }
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
-      if (Number(o.uptimeHours || 0) >= 48) badges.push({ label: "Great Uptime", tone: "green" });
+      if (Number.isFinite(o.ageHours) && o.ageHours <= 1 && Number(o.uptimeHours || 0) >= 48) {
+        badges.push({ label: "Great Uptime", tone: "green" });
+      }
       if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(o.coverageCount || 0) >= 5) badges.push({ label: "Strong Local Mesh", tone: "purple" });
       if (Number(o.coverageKm || 0) >= 20) badges.push({ label: "Wide Coverage", tone: "amber" });

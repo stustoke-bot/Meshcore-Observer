@@ -649,7 +649,7 @@ async function buildObserverRank() {
       const lastSeen = s.lastSeen ? new Date(s.lastSeen).getTime() : 0;
       const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
       const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
-      if (ageHours > 24 * 7) continue;
+      if (ageHours > 48) continue;
       const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
     if (gps && gps.lat === 0 && gps.lon === 0) gps = null;
@@ -696,7 +696,8 @@ async function buildObserverRank() {
     const coverageCount = s.repeaters.size;
     const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
     const scoreColor = colorForAge(ageHours);
-    const isStale = ageHours > 48;
+    const isStale = ageHours > 24;
+    const offline = ageHours > 1;
     items.push({
       id: s.id,
       name: s.name || s.id,
@@ -713,11 +714,12 @@ async function buildObserverRank() {
       nearestRepeaterKm,
       locSource,
       score,
-      scoreColor
+      scoreColor,
+      offline
     });
   }
 
-  items.sort((a, b) => (b.score - a.score) || (b.packetsToday - a.packetsToday));
+  items.sort((a, b) => (a.offline === b.offline ? 0 : a.offline ? 1 : -1) || (b.score - a.score) || (b.packetsToday - a.packetsToday));
   return { updatedAt: new Date().toISOString(), items };
 }
 
