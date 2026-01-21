@@ -271,6 +271,7 @@
       padding: 14px 12px;
       gap: 10px;
       overflow-y: auto;
+      overflow-x: hidden;
       min-height: 0;
       flex: 1 1 auto;
       max-height: 100%;
@@ -279,6 +280,7 @@
     #channels {
       display: grid;
       gap: 10px;
+      overflow-x: hidden;
     }
 
     .title {
@@ -342,7 +344,9 @@
       border-radius: 12px;
       border: 1px solid transparent;
       cursor: pointer;
+      overflow: hidden;
     }
+    .channel > div { min-width: 0; }
 
     .channel.active {
       background: #e8f0ff;
@@ -383,12 +387,18 @@
 
     .channel .name {
       font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .channel .snippet {
       font-size: 12px;
       color: var(--muted);
       margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .content {
@@ -1858,6 +1868,7 @@
       #channels {
         max-height: 100%;
         overflow: overlay;
+        overflow-x: hidden;
       }
       .rf-body { grid-template-columns: 1fr; }
       .rf-table { overflow-x: auto; }
