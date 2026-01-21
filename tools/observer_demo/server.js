@@ -43,9 +43,46 @@ const messageRouteCache = new Map();
 
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
 const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
+const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
+
+function recordObserverHit(rec, map, keyStore) {
+  if (!rec) return;
+  let observerKey = rec.observerId || "";
+  if (!observerKey && rec.topic) {
+    const m = String(rec.topic).match(/observers\/([^/]+)\//i);
+    if (m) observerKey = m[1];
+  }
+  if (!observerKey) observerKey = rec.observerName || "";
+  observerKey = String(observerKey).trim();
+  if (!observerKey) return;
+
+  const keys = [];
+  const frameKey = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
+  const hashKey = rec.hash ? String(rec.hash).toUpperCase() : null;
+  const msgKey = rec.messageHash ? String(rec.messageHash).toUpperCase() : null;
+  if (frameKey) keys.push(frameKey);
+  if (hashKey) keys.push(hashKey);
+  if (msgKey) keys.push(msgKey);
+  if (!msgKey && rec.payloadHex && keyStore) {
+    try {
+      const decoded = MeshCoreDecoder.decode(String(rec.payloadHex).toUpperCase(), { keyStore });
+      const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+      if (payloadType === "GroupText" && decoded.messageHash) {
+        keys.push(String(decoded.messageHash).toUpperCase());
+      }
+    } catch {}
+  }
+  if (!keys.length) return;
+
+  keys.forEach((key) => {
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(observerKey);
+  });
+}
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
+  if (observerHitsCache.map && observerHitsCache.map.size) return observerHitsCache.map;
   const keyStore = buildKeyStore(loadKeys());
   let stat = null;
   try {
@@ -87,20 +124,7 @@ async function getObserverHitsMap() {
       const m = String(rec.topic).match(/observers\/([^/]+)\//i);
       if (m) observerKey = m[1];
     }
-    if (!observerKey) observerKey = rec.observerName || "";
-    observerKey = String(observerKey).trim();
-    const keys = [];
-    const frameKey = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
-    const hashKey = rec.hash ? String(rec.hash).toUpperCase() : null;
-    const msgKey = rec.messageHash ? String(rec.messageHash).toUpperCase() : null;
-    if (frameKey) keys.push(frameKey);
-    if (hashKey) keys.push(hashKey);
-    if (msgKey) keys.push(msgKey);
-    if (!observerKey || !keys.length) continue;
-    keys.forEach((key) => {
-      if (!map.has(key)) map.set(key, new Set());
-      map.get(key).add(observerKey);
-    });
+    recordObserverHit(rec, map, keyStore);
   }
   observerHitsCache = {
     mtimeMs: stat.mtimeMs,
@@ -110,6 +134,60 @@ async function getObserverHitsMap() {
     lastReadAt: now
   };
   return map;
+}
+
+function startObserverHitsTailer() {
+  if (startObserverHitsTailer.started) return;
+  startObserverHitsTailer.started = true;
+  if (!fs.existsSync(observerPath)) return;
+  const keyStore = buildKeyStore(loadKeys());
+  let busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      let stat = null;
+      try {
+        stat = fs.statSync(observerPath);
+      } catch {
+        return;
+      }
+      let map = observerHitsCache.map || new Map();
+      let offset = observerHitsCache.offset || 0;
+      if (stat.size < offset) {
+        map = new Map();
+        offset = 0;
+      }
+      if (offset === 0 && stat.size > OBSERVER_HITS_MAX_BYTES) {
+        map = new Map();
+        offset = Math.max(0, stat.size - OBSERVER_HITS_MAX_BYTES);
+      }
+      if (stat.size === offset) return;
+      const stream = fs.createReadStream(observerPath, { encoding: "utf8", start: offset });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      let isFirst = true;
+      for await (const line of rl) {
+        if (isFirst && offset > 0) {
+          isFirst = false;
+          continue;
+        }
+        const t = line.trim();
+        if (!t) continue;
+        let rec;
+        try { rec = JSON.parse(t); } catch { continue; }
+        recordObserverHit(rec, map, keyStore);
+      }
+      observerHitsCache = {
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+        map,
+        offset: stat.size,
+        lastReadAt: Date.now()
+      };
+    } finally {
+      busy = false;
+    }
+  }, OBSERVER_HITS_TAIL_INTERVAL_MS);
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
@@ -2763,6 +2841,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   console.log(`(observer-demo) http://${host}:${port}`);
+  startObserverHitsTailer();
   hydrateRepeaterRankCache();
   hydrateObserverRankCache();
   hydrateMeshScoreCache();
