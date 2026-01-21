@@ -584,9 +584,13 @@ async function buildObserverRank() {
       if (ageHours > 24 * 7) continue;
       const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
+    if (gps && gps.lat === 0 && gps.lon === 0) gps = null;
     let locSource = s.locSource;
     if (!gps && s.bestRepeaterPub && repeatersByPub.has(String(s.bestRepeaterPub).toUpperCase())) {
-      gps = repeatersByPub.get(String(s.bestRepeaterPub).toUpperCase())?.gps || null;
+      const rptGps = repeatersByPub.get(String(s.bestRepeaterPub).toUpperCase())?.gps || null;
+      if (rptGps && Number.isFinite(rptGps.lat) && Number.isFinite(rptGps.lon) && !(rptGps.lat === 0 && rptGps.lon === 0)) {
+        gps = rptGps;
+      }
       locSource = locSource || s.bestRepeaterPub;
     }
     let coverageKm = 0;
@@ -597,7 +601,8 @@ async function buildObserverRank() {
       for (const pub of s.repeaters) {
         const rpt = repeatersByPub.get(pub);
         const rptGps = rpt?.gps;
-        if (!rptGps) continue;
+        if (!rptGps || !Number.isFinite(rptGps.lat) || !Number.isFinite(rptGps.lon)) continue;
+        if (rptGps.lat === 0 && rptGps.lon === 0) continue;
         const km = haversineKm(gps.lat, gps.lon, rptGps.lat, rptGps.lon);
         if (km > maxKm) maxKm = km;
       }
@@ -607,7 +612,8 @@ async function buildObserverRank() {
       let bestKm = Infinity;
       let bestName = null;
       for (const rpt of repeatersByPub.values()) {
-        if (!rpt?.gps) continue;
+        if (!rpt?.gps || !Number.isFinite(rpt.gps.lat) || !Number.isFinite(rpt.gps.lon)) continue;
+        if (rpt.gps.lat === 0 && rpt.gps.lon === 0) continue;
         const km = haversineKm(gps.lat, gps.lon, rpt.gps.lat, rpt.gps.lon);
         if (km < bestKm) {
           bestKm = km;
@@ -678,8 +684,8 @@ async function buildObserverDebug(observerId) {
       seen.set(key, {
         pub: key,
         name: dev?.name || adv?.name || null,
-        hasGps: !!(dev?.gps && Number.isFinite(dev.gps.lat) && Number.isFinite(dev.gps.lon)),
-        gps: dev?.gps || null,
+        hasGps: !!(dev?.gps && Number.isFinite(dev.gps.lat) && Number.isFinite(dev.gps.lon) && !(dev.gps.lat === 0 && dev.gps.lon === 0)),
+        gps: (dev?.gps && !(dev.gps.lat === 0 && dev.gps.lon === 0)) ? dev.gps : null,
         count: 0
       });
     }

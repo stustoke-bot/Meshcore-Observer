@@ -3559,6 +3559,7 @@
           ? entry.gpsApprox
           : (entry.locValidated ? entry.gps : (entry.gpsApprox || null));
         if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+        if (gps.lat === 0 && gps.lon === 0) return;
         const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
         const ageHours = ts ? (now - ts) / 3600000 : 999;
         const color = observerColor(ageHours);
@@ -3785,10 +3786,20 @@
       return `<div class="badge-row">${badges.map((b) => `<span class="badge badge-${b.tone}">${b.label}</span>`).join("")}</div>`;
     }
 
+    function formatDriftMinutes(minutes) {
+      if (!Number.isFinite(minutes)) return null;
+      const sign = minutes < 0 ? "-" : "+";
+      const abs = Math.abs(minutes);
+      if (abs < 60) return `${sign}${Math.round(abs)}m`;
+      if (abs < 60 * 24) return `${sign}${Math.round(abs / 60)}h`;
+      if (abs < 60 * 24 * 365) return `${sign}${Math.round(abs / (60 * 24))}d`;
+      return `${sign}${Math.round(abs / (60 * 24 * 365))}y`;
+    }
+
     function buildNearestObserverRepeaters(repeaters, observers) {
       const flagged = new Set();
       if (!Array.isArray(observers) || !Array.isArray(repeaters)) return flagged;
-      const repeaterPoints = repeaters.filter((r) => r?.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon));
+      const repeaterPoints = repeaters.filter((r) => r?.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon) && !(r.gps.lat === 0 && r.gps.lon === 0));
       observers.forEach((o) => {
         if (!o?.gps || !Number.isFinite(o.gps.lat) || !Number.isFinite(o.gps.lon)) return;
         let best = null;
@@ -3814,14 +3825,8 @@
       if (Number(r.zeroHopNeighbors24h || 0) >= 3) badges.push({ label: "Great Mesh Neighbour", tone: "amber" });
       if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) badges.push({ label: "Great Throughput", tone: "amber" });
       if (Number.isFinite(r.clockDriftMinutes) && Math.abs(r.clockDriftMinutes) >= 60) {
-        const drift = Math.abs(r.clockDriftMinutes);
-        const hours = Math.floor(drift / 60);
-        const minutes = drift % 60;
-        const parts = [];
-        if (hours) parts.push(`${hours}h`);
-        if (minutes) parts.push(`${minutes}m`);
-        const label = `Clock ${r.clockDriftMinutes > 0 ? "ahead" : "behind"} ${parts.join(" ") || `${drift}m`}`;
-        badges.push({ label, tone: "amber" });
+        const driftLabel = formatDriftMinutes(r.clockDriftMinutes);
+        if (driftLabel) badges.push({ label: `Clock drift ${driftLabel}`, tone: "amber" });
       }
       if (nearestObserverSet && r.pub && nearestObserverSet.has(String(r.pub).toUpperCase())) {
         badges.push({ label: "Close to Observer", tone: "green" });
@@ -3835,7 +3840,7 @@
       if (!overlay || !content || !repeater) return;
       const drift = repeater.clockDriftMinutes;
       const driftLabel = Number.isFinite(drift)
-        ? `${drift > 0 ? "Clock ahead" : "Clock behind"} ${Math.abs(drift)}m`
+        ? formatDriftMinutes(drift)
         : "Clock drift data unavailable";
       content.innerHTML = `
         <div class="rank-detail-close">
