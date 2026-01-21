@@ -41,7 +41,8 @@ const CHANNEL_CACHE_STALE_MS = 1500;
 const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
 const messageRouteCache = new Map();
 
-const OBSERVER_HITS_MAX_BYTES = 10 * 1024 * 1024;
+const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
+const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
@@ -56,7 +57,7 @@ async function getObserverHitsMap() {
     return observerHitsCache.map;
   }
   const now = Date.now();
-  if (observerHitsCache.lastReadAt && (now - observerHitsCache.lastReadAt) < 500) {
+  if (observerHitsCache.lastReadAt && (now - observerHitsCache.lastReadAt) < OBSERVER_HITS_COOLDOWN_MS) {
     return observerHitsCache.map;
   }
   let map = observerHitsCache.map || new Map();
@@ -92,20 +93,9 @@ async function getObserverHitsMap() {
     const frameKey = rec.frameHash ? String(rec.frameHash).toUpperCase() : null;
     const hashKey = rec.hash ? String(rec.hash).toUpperCase() : null;
     const msgKey = rec.messageHash ? String(rec.messageHash).toUpperCase() : null;
-    const payloadKey = rec.payloadHex ? sha256Hex(String(rec.payloadHex).toUpperCase()) : null;
     if (frameKey) keys.push(frameKey);
     if (hashKey) keys.push(hashKey);
     if (msgKey) keys.push(msgKey);
-    if (payloadKey) keys.push(payloadKey);
-    if (!msgKey && rec.payloadHex && keyStore) {
-      try {
-        const decoded = MeshCoreDecoder.decode(String(rec.payloadHex).toUpperCase(), { keyStore });
-        const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
-        if (payloadType === "GroupText" && decoded.messageHash) {
-          keys.push(String(decoded.messageHash).toUpperCase());
-        }
-      } catch {}
-    }
     if (!observerKey || !keys.length) continue;
     keys.forEach((key) => {
       if (!map.has(key)) map.set(key, new Set());
