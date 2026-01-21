@@ -114,6 +114,8 @@ const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
 const OBSERVER_RANK_REFRESH_MS = 5 * 60 * 1000;
 const MESH_REFRESH_MS = 15 * 60 * 1000;
+const OBSERVER_OFFLINE_MINUTES = 15;
+const OBSERVER_OFFLINE_HOURS = OBSERVER_OFFLINE_MINUTES / 60;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
@@ -684,7 +686,8 @@ async function buildObserverRank() {
       const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
       if (ageHours > 48) continue;
       const rawUptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
-      const uptimeHours = ageHours > 1 ? 0 : rawUptimeHours;
+      const offline = ageHours > OBSERVER_OFFLINE_HOURS;
+      const uptimeHours = offline ? 0 : rawUptimeHours;
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
     if (gps && gps.lat === 0 && gps.lon === 0) gps = null;
     let locSource = s.locSource;
@@ -731,7 +734,6 @@ async function buildObserverRank() {
     const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
     const scoreColor = colorForAge(ageHours);
     const isStale = ageHours > 24;
-    const offline = ageHours > 1;
     const lastSeenAgoMinutes = Number.isFinite(ageHours) ? Math.round(ageHours * 60) : null;
     items.push({
       id: s.id,
@@ -2297,7 +2299,7 @@ const server = http.createServer(async (req, res) => {
       updatedAt: observerRankCache.updatedAt,
       count: observerRankCache.items.length,
       totals: {
-        active: observerRankCache.items.filter((o) => o.ageHours < 1).length,
+        active: observerRankCache.items.filter((o) => o.ageHours < OBSERVER_OFFLINE_HOURS).length,
         packetsToday: observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0)
       }
     };
