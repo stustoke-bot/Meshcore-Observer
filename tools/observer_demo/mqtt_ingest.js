@@ -14,6 +14,7 @@ const observerPath = path.join(dataDir, "observer.ndjson");
 const observerStatusPath = path.join(dataDir, "observers.json");
 const devicesPath = path.join(dataDir, "devices.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
+const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const dbPath = path.join(dataDir, "meshrank.db");
 const GPS_WARN_KM = 50;
 const ESTIMATE_MIN_HOURS = 4;
@@ -25,6 +26,10 @@ let rfDb = null;
 let rfInsert = null;
 let rfPrune = null;
 let rfInsertCount = 0;
+let msgInsert = null;
+let keysMtime = 0;
+let keyStore = null;
+let keyMap = {};
 
 const mqttUrl = process.env.MESHRANK_MQTT_URL || "mqtts://meshrank.net:8883";
 const mqttTopic = process.env.MESHRANK_MQTT_TOPIC || "meshrank/observers/+/packets";
@@ -64,6 +69,39 @@ function appendObserver(record) {
   fs.appendFileSync(observerPath, JSON.stringify(record) + "\n");
 }
 
+function loadKeys() {
+  try {
+    if (!fs.existsSync(keysPath)) return { channels: [] };
+    const obj = JSON.parse(fs.readFileSync(keysPath, "utf8"));
+    if (!obj || typeof obj !== "object") return { channels: [] };
+    if (!Array.isArray(obj.channels)) obj.channels = [];
+    return obj;
+  } catch {
+    return { channels: [] };
+  }
+}
+
+function refreshKeysIfNeeded() {
+  try {
+    if (!fs.existsSync(keysPath)) return;
+    const stat = fs.statSync(keysPath);
+    if (keysMtime && stat.mtimeMs === keysMtime) return;
+    keysMtime = stat.mtimeMs;
+    const cfg = loadKeys();
+    keyStore = MeshCoreDecoder.createKeyStore({
+      channelSecrets: (cfg.channels || []).map((c) => c.secretHex).filter(Boolean)
+    });
+    keyMap = {};
+    for (const ch of cfg.channels || []) {
+      if (ch?.hashByte && ch?.name) {
+        keyMap[String(ch.hashByte).toUpperCase()] = String(ch.name);
+      }
+    }
+  } catch (err) {
+    logIngest("ERROR", `keys reload failed ${err?.message || err}`);
+  }
+}
+
 function initRfDb() {
   if (rfDb) return true;
   try {
@@ -89,6 +127,20 @@ function initRfDb() {
         path TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_rf_packets_ts ON rf_packets(ts);
+      CREATE TABLE IF NOT EXISTS messages (
+        message_hash TEXT PRIMARY KEY,
+        frame_hash TEXT,
+        channel_name TEXT,
+        channel_hash TEXT,
+        sender TEXT,
+        sender_pub TEXT,
+        body TEXT,
+        ts TEXT,
+        path_json TEXT,
+        path_length INTEGER,
+        repeats INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
     `);
     rfInsert = rfDb.prepare(`
       INSERT INTO rf_packets (
@@ -100,12 +152,33 @@ function initRfDb() {
       DELETE FROM rf_packets
       WHERE id <= (SELECT id FROM rf_packets ORDER BY id DESC LIMIT 1 OFFSET ?)
     `);
+    msgInsert = rfDb.prepare(`
+      INSERT INTO messages (
+        message_hash, frame_hash, channel_name, channel_hash, sender, sender_pub,
+        body, ts, path_json, path_length, repeats
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(message_hash) DO UPDATE SET
+        ts = CASE WHEN excluded.ts > messages.ts THEN excluded.ts ELSE messages.ts END,
+        frame_hash = COALESCE(messages.frame_hash, excluded.frame_hash),
+        channel_name = COALESCE(messages.channel_name, excluded.channel_name),
+        channel_hash = COALESCE(messages.channel_hash, excluded.channel_hash),
+        sender = COALESCE(messages.sender, excluded.sender),
+        sender_pub = COALESCE(messages.sender_pub, excluded.sender_pub),
+        body = COALESCE(messages.body, excluded.body),
+        path_length = MAX(messages.path_length, excluded.path_length),
+        repeats = MAX(messages.repeats, excluded.repeats),
+        path_json = CASE
+          WHEN excluded.path_length > messages.path_length THEN excluded.path_json
+          ELSE messages.path_json
+        END
+    `);
     return true;
   } catch (err) {
     logIngest("ERROR", `rf db init failed ${err?.message || err}`);
     rfDb = null;
     rfInsert = null;
     rfPrune = null;
+    msgInsert = null;
     return false;
   }
 }
@@ -135,6 +208,63 @@ function storeRfPacket(record) {
     }
   } catch (err) {
     logIngest("ERROR", `rf db insert failed ${err?.message || err}`);
+  }
+}
+
+function normalizePathHash(value) {
+  if (!value) return null;
+  const clean = String(value).trim().toUpperCase();
+  if (/^[0-9A-F]{2}$/.test(clean)) return clean;
+  return clean;
+}
+
+function storeMessage(record) {
+  if (!initRfDb() || !msgInsert) return;
+  refreshKeysIfNeeded();
+  if (!keyStore) return;
+  let decoded;
+  try {
+    decoded = MeshCoreDecoder.decode(String(record.payloadHex).toUpperCase(), { keyStore });
+  } catch {
+    return;
+  }
+  const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+  if (payloadType !== "GroupText") return;
+  const payload = decoded.payload?.decoded;
+  if (!payload || !payload.decrypted) return;
+
+  const channelHash = typeof payload.channelHash === "string" ? payload.channelHash.toUpperCase() : null;
+  const channelName = channelHash && keyMap[channelHash] ? keyMap[channelHash] : null;
+  const sender = String(payload.decrypted.sender || "unknown");
+  const senderPub = payload.senderPublicKey || payload.publicKey || payload.senderPub || null;
+  const body = String(payload.decrypted.message || "");
+  const msgHash = String(
+    decoded.messageHash ||
+    record.frameHash ||
+    sha256Hex(String(record.payloadHex).toUpperCase()) ||
+    "unknown"
+  ).toUpperCase();
+  const pathRaw = Array.isArray(decoded.path) ? decoded.path : [];
+  const path = pathRaw.map(normalizePathHash).filter(Boolean);
+  const pathLength = path.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
+  const hopCount = pathLength || 0;
+
+  try {
+    msgInsert.run(
+      msgHash,
+      record.frameHash || null,
+      channelName || null,
+      channelHash || null,
+      sender || null,
+      senderPub ? String(senderPub).toUpperCase() : null,
+      body || null,
+      record.archivedAt || null,
+      path.length ? JSON.stringify(path) : null,
+      pathLength,
+      hopCount
+    );
+  } catch (err) {
+    logIngest("ERROR", `message insert failed ${err?.message || err}`);
   }
 }
 
@@ -337,6 +467,7 @@ client.on("message", (topic, payload) => {
   appendObserver(record);
   updateObserverStatus(record);
   storeRfPacket(record);
+  storeMessage(record);
   logIngest(
     "MSG",
     `observer=${record.observerId} rssi=${record.rssi ?? "?"} len=${record.len ?? "?"}`

@@ -174,6 +174,98 @@ function resolveRecordTimestamp(rec, baseNow, maxNumericTs) {
   return null;
 }
 
+function hasMessagesDb(db) {
+  try {
+    const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+function mapMessageRow(row, nodeMap, observerHitsMap) {
+  let path = [];
+  if (row.path_json) {
+    try {
+      const parsed = JSON.parse(row.path_json);
+      if (Array.isArray(parsed)) path = parsed;
+    } catch {}
+  }
+  const observerSet = new Set();
+  if (observerHitsMap) {
+    const keys = [];
+    if (row.message_hash) keys.push(String(row.message_hash).toUpperCase());
+    if (row.frame_hash) keys.push(String(row.frame_hash).toUpperCase());
+    keys.forEach((key) => {
+      const hits = observerHitsMap.get(key);
+      if (hits) hits.forEach((o) => observerSet.add(o));
+    });
+  }
+  const observerHits = Array.from(observerSet);
+  const observerCount = observerHits.length;
+  const baseRepeats = Number.isFinite(row.repeats) ? row.repeats : (path.length || 0);
+  const repeats = Math.max(baseRepeats, observerCount);
+  const pathPoints = path.map((h) => {
+    const hit = nodeMap.get(h);
+    return {
+      hash: h,
+      name: hit ? hit.name : h,
+      gps: hit?.gps || null
+    };
+  });
+  return {
+    id: row.message_hash,
+    frameHash: row.frame_hash,
+    messageHash: row.message_hash,
+    channelName: row.channel_name,
+    sender: row.sender || "unknown",
+    body: row.body || "",
+    ts: row.ts,
+    repeats,
+    path,
+    pathNames: pathPoints.map((p) => p.name),
+    pathPoints,
+    pathLength: Number.isFinite(row.path_length) ? row.path_length : path.length,
+    observerHits,
+    observerCount
+  };
+}
+
+function readMessagesFromDb(channelName, limit, beforeTs) {
+  const db = getDb();
+  if (!hasMessagesDb(db)) return null;
+  const before = typeof beforeTs === "string" ? beforeTs : (beforeTs ? new Date(beforeTs).toISOString() : null);
+  const max = Number.isFinite(limit) ? limit : CHANNEL_HISTORY_LIMIT;
+  let rows = [];
+  if (channelName) {
+    if (before) {
+      rows = db.prepare(`
+        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+        FROM messages
+        WHERE channel_name = ? AND ts < ?
+        ORDER BY ts DESC
+        LIMIT ?
+      `).all(channelName, before, max);
+    } else {
+      rows = db.prepare(`
+        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+        FROM messages
+        WHERE channel_name = ?
+        ORDER BY ts DESC
+        LIMIT ?
+      `).all(channelName, max);
+    }
+  } else {
+    rows = db.prepare(`
+      SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+      FROM messages
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(max);
+  }
+  return rows;
+}
+
 function getDb() {
   if (db) return db;
   db = new Database(dbPath);
@@ -209,6 +301,20 @@ function getDb() {
       created_at TEXT NOT NULL,
       verified_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS messages (
+      message_hash TEXT PRIMARY KEY,
+      frame_hash TEXT,
+      channel_name TEXT,
+      channel_hash TEXT,
+      sender TEXT,
+      sender_pub TEXT,
+      body TEXT,
+      ts TEXT,
+      path_json TEXT,
+      path_length INTEGER,
+      repeats INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
     CREATE TABLE IF NOT EXISTS site_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -1376,6 +1482,43 @@ async function refreshObserverRankCache(force) {
 }
 
 async function buildChannelMessages() {
+  const db = getDb();
+  if (hasMessagesDb(db)) {
+    const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
+    if ((countRow?.count || 0) > 0) {
+      const nodeMap = buildNodeHashMap();
+      const observerHitsMap = await getObserverHitsMap();
+      const latestRows = db.prepare(`
+        SELECT m.channel_name, m.sender, m.body, m.ts
+        FROM messages m
+        JOIN (
+          SELECT channel_name, MAX(ts) AS max_ts
+          FROM messages
+          GROUP BY channel_name
+        ) x
+        ON m.channel_name = x.channel_name AND m.ts = x.max_ts
+      `).all();
+      const channels = latestRows
+        .filter((row) => row.channel_name)
+        .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
+        .map((row) => ({
+          id: String(row.channel_name || "").replace(/^#/, ""),
+          name: row.channel_name,
+          snippet: String(row.body || "").slice(0, 48) || "No recent messages",
+          time: row.ts ? new Date(row.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
+        }));
+
+      const messages = [];
+      for (const row of latestRows) {
+        const limit = channelHistoryLimit(row.channel_name);
+        const rows = readMessagesFromDb(row.channel_name, limit, null) || [];
+        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap)).reverse();
+        mapped.forEach((msg) => messages.push(msg));
+      }
+      return { channels, messages };
+    }
+  }
+
   const sourcePath = getRfSourcePath();
   let stat = null;
   try {
@@ -1486,6 +1629,7 @@ async function buildChannelMessages() {
       const observerHits = Array.from(observerSet);
       const observerCount = observerHits.length;
       const msgKey = chName + "|" + msgHash;
+      const repeatCount = Math.max(hopCount, observerCount || 0);
     const body = String(payload.decrypted.message || "");
     const sender = String(payload.decrypted.sender || "unknown");
     let ts = null;
@@ -1520,7 +1664,7 @@ async function buildChannelMessages() {
           sender,
           body,
           ts,
-          repeats: hopCount,
+          repeats: repeatCount,
           path,
           pathNames,
           pathPoints,
@@ -1529,7 +1673,7 @@ async function buildChannelMessages() {
         });
       } else {
         const m = messagesMap.get(msgKey);
-        m.repeats += hopCount;
+        m.repeats = Math.max(m.repeats || 0, repeatCount);
         if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
         if (path.length > (m.path?.length || 0)) {
           m.path = path;
@@ -1594,6 +1738,15 @@ async function refreshNodeRankCache(force) {
 }
 
 async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
+  const db = getDb();
+  if (hasMessagesDb(db)) {
+    const rows = readMessagesFromDb(channelName, limit, beforeTs) || [];
+    if (rows.length) {
+      const nodeMap = buildNodeHashMap();
+      const observerHitsMap = await getObserverHitsMap();
+      return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap)).reverse();
+    }
+  }
   const sourcePath = getRfSourcePath();
   if (!fs.existsSync(sourcePath)) return [];
   const keyCfg = loadKeys();
@@ -1709,6 +1862,7 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
     });
     const pathNames = pathPoints.map((p) => p.name);
     const msgKey = chName + "|" + msgHash;
+    const repeatCount = Math.max(hopCount, observerCount || 0);
 
     if (!messagesMap.has(msgKey)) {
       messagesMap.set(msgKey, {
@@ -1719,7 +1873,7 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
         sender,
         body,
         ts,
-        repeats: hopCount,
+        repeats: repeatCount,
         path,
         pathNames,
         pathPoints,
@@ -1728,7 +1882,7 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
       });
     } else {
       const m = messagesMap.get(msgKey);
-      m.repeats += hopCount;
+      m.repeats = Math.max(m.repeats || 0, repeatCount);
       if (ts && (!m.ts || new Date(ts) > new Date(m.ts))) m.ts = ts;
       if (path.length > (m.path?.length || 0)) {
         m.path = path;
