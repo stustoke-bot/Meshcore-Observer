@@ -3104,7 +3104,7 @@
       }
     }
 
-    document.addEventListener("click", (e) => {
+    document.addEventListener("click", async (e) => {
       const hops = e.target.closest(".msg-hops");
       if (hops) {
         e.preventDefault();
@@ -3118,7 +3118,7 @@
           .split("|")
           .map((v) => v.trim())
           .filter(Boolean);
-        openObserverHitsModal(list);
+        await openObserverHitsModal(list);
         return;
       }
       const confidence = e.target.closest(".msg-confidence");
@@ -3168,14 +3168,18 @@
     const observerHitsSummary = document.getElementById("observerHitsSummary");
     const observerHitsClose = document.getElementById("observerHitsClose");
 
-    function openObserverHitsModal(list) {
+    async function openObserverHitsModal(list) {
       if (!observerHitsModal || !observerHitsList || !observerHitsSummary) return;
+      try {
+        await ensureObservers(true);
+      } catch {}
       const items = Array.isArray(list) ? list.filter(Boolean) : [];
-      observerHitsSummary.textContent = items.length
-        ? `${items.length} observer${items.length === 1 ? "" : "s"}`
+      const resolved = items.map(resolveObserverLabel).filter(Boolean);
+      observerHitsSummary.textContent = resolved.length
+        ? `${resolved.length} observer${resolved.length === 1 ? "" : "s"}`
         : "No observers available.";
-      observerHitsList.innerHTML = items.length
-        ? items.map((name) => `<div class="list-item">${name}</div>`).join("")
+      observerHitsList.innerHTML = resolved.length
+        ? resolved.map((name) => `<div class="list-item">${name}</div>`).join("")
         : "";
       observerHitsModal.classList.add("open");
     }
@@ -3883,8 +3887,8 @@
       appData.observersUpdatedAt = Date.now();
     }
 
-    async function ensureObservers() {
-      if (Date.now() - appData.observersUpdatedAt < 60000) return;
+    async function ensureObservers(force) {
+      if (!force && Date.now() - appData.observersUpdatedAt < 60000) return;
       const data = await fetchObservers();
       updateObserversData(data);
     }
