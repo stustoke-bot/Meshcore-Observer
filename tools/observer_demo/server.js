@@ -34,6 +34,7 @@ const MESSAGE_DEBUG_TAIL_LINES = 6000;
 const NODE_RANK_TAIL_LINES = 6000;
 
 let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, lastReadAt: 0 };
+let rfAggCache = { builtAt: 0, map: new Map(), limit: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
 const CHANNEL_CACHE_MIN_MS = 500;
@@ -44,6 +45,8 @@ const messageRouteCache = new Map();
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
 const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
+const RF_AGG_COOLDOWN_MS = 1500;
+const RF_AGG_LIMIT = 800;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -259,7 +262,16 @@ function hasMessagesDb(db) {
   }
 }
 
-function mapMessageRow(row, nodeMap, observerHitsMap) {
+function hasMessageObserversDb(db) {
+  try {
+    const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_observers'").get();
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
   let path = [];
   if (row.path_json) {
     try {
@@ -276,6 +288,13 @@ function mapMessageRow(row, nodeMap, observerHitsMap) {
       const hits = observerHitsMap.get(key);
       if (hits) hits.forEach((o) => observerSet.add(o));
     });
+  }
+  if (observerAggMap) {
+    const agg = observerAggMap.get(String(row.message_hash || "").toUpperCase());
+    if (agg?.observerHits) agg.observerHits.forEach((o) => observerSet.add(o));
+    if (agg?.hopCodes && agg.hopCodes.size) {
+      path = Array.from(agg.hopCodes);
+    }
   }
   const observerHits = Array.from(observerSet);
   const observerCount = observerHits.length;
@@ -342,6 +361,42 @@ function readMessagesFromDb(channelName, limit, beforeTs) {
   return rows;
 }
 
+function readMessageObserverAgg(db, hashes) {
+  if (!hasMessageObserversDb(db)) return new Map();
+  const list = Array.isArray(hashes) ? hashes.filter(Boolean) : [];
+  if (!list.length) return new Map();
+  const placeholders = list.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT message_hash, observer_id, observer_name, path_json
+    FROM message_observers
+    WHERE message_hash IN (${placeholders})
+  `).all(...list);
+  const map = new Map();
+  rows.forEach((row) => {
+    const key = String(row.message_hash || "").toUpperCase();
+    if (!key) return;
+    let entry = map.get(key);
+    if (!entry) {
+      entry = { observerHits: new Set(), hopCodes: new Set() };
+      map.set(key, entry);
+    }
+    const label = row.observer_name || row.observer_id;
+    if (label) entry.observerHits.add(label);
+    if (row.path_json) {
+      try {
+        const parsed = JSON.parse(row.path_json);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((code) => {
+            const norm = normalizePathHash(code);
+            if (norm) entry.hopCodes.add(norm);
+          });
+        }
+      } catch {}
+    }
+  });
+  return map;
+}
+
 function getDb() {
   if (db) return db;
   db = new Database(dbPath);
@@ -391,6 +446,16 @@ function getDb() {
       repeats INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
+    CREATE TABLE IF NOT EXISTS message_observers (
+      message_hash TEXT NOT NULL,
+      observer_id TEXT NOT NULL,
+      observer_name TEXT,
+      ts TEXT,
+      path_json TEXT,
+      path_length INTEGER,
+      PRIMARY KEY (message_hash, observer_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_observers_hash ON message_observers(message_hash);
     CREATE TABLE IF NOT EXISTS site_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -1596,7 +1661,9 @@ async function buildChannelMessages() {
       for (const row of latestRows) {
         const limit = channelHistoryLimit(row.channel_name);
         const rows = readMessagesFromDb(row.channel_name, limit, null) || [];
-        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap)).reverse();
+        const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+        const observerAggMap = readMessageObserverAgg(db, hashes);
+        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap)).reverse();
         mapped.forEach((msg) => messages.push(msg));
       }
       return { channels, messages };
@@ -1835,7 +1902,9 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
     if (rows.length) {
       const nodeMap = buildNodeHashMap();
       const observerHitsMap = await getObserverHitsMap();
-      return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap)).reverse();
+      const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+      const observerAggMap = readMessageObserverAgg(db, hashes);
+      return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap)).reverse();
     }
   }
   const sourcePath = getRfSourcePath();

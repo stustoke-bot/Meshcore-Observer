@@ -27,6 +27,7 @@ let rfInsert = null;
 let rfPrune = null;
 let rfInsertCount = 0;
 let msgInsert = null;
+let msgObserverInsert = null;
 let keysMtime = 0;
 let keyStore = null;
 let keyMap = {};
@@ -141,6 +142,16 @@ function initRfDb() {
         repeats INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
+      CREATE TABLE IF NOT EXISTS message_observers (
+        message_hash TEXT NOT NULL,
+        observer_id TEXT NOT NULL,
+        observer_name TEXT,
+        ts TEXT,
+        path_json TEXT,
+        path_length INTEGER,
+        PRIMARY KEY (message_hash, observer_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_observers_hash ON message_observers(message_hash);
     `);
     rfInsert = rfDb.prepare(`
       INSERT INTO rf_packets (
@@ -172,6 +183,19 @@ function initRfDb() {
           ELSE messages.path_json
         END
     `);
+    msgObserverInsert = rfDb.prepare(`
+      INSERT INTO message_observers (
+        message_hash, observer_id, observer_name, ts, path_json, path_length
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(message_hash, observer_id) DO UPDATE SET
+        ts = CASE WHEN excluded.ts > message_observers.ts THEN excluded.ts ELSE message_observers.ts END,
+        observer_name = COALESCE(message_observers.observer_name, excluded.observer_name),
+        path_length = MAX(message_observers.path_length, excluded.path_length),
+        path_json = CASE
+          WHEN excluded.path_length > message_observers.path_length THEN excluded.path_json
+          ELSE message_observers.path_json
+        END
+    `);
     return true;
   } catch (err) {
     logIngest("ERROR", `rf db init failed ${err?.message || err}`);
@@ -179,6 +203,7 @@ function initRfDb() {
     rfInsert = null;
     rfPrune = null;
     msgInsert = null;
+    msgObserverInsert = null;
     return false;
   }
 }
@@ -263,6 +288,24 @@ function storeMessage(record) {
       pathLength,
       hopCount
     );
+    if (msgObserverInsert) {
+      let observerId = record.observerId || "";
+      if (!observerId && record.topic) {
+        const m = String(record.topic).match(/observers\/([^/]+)\//i);
+        if (m) observerId = m[1];
+      }
+      observerId = String(observerId || record.observerName || "").trim();
+      if (observerId) {
+        msgObserverInsert.run(
+          msgHash,
+          observerId,
+          record.observerName || observerId,
+          record.archivedAt || null,
+          path.length ? JSON.stringify(path) : null,
+          pathLength
+        );
+      }
+    }
   } catch (err) {
     logIngest("ERROR", `message insert failed ${err?.message || err}`);
   }

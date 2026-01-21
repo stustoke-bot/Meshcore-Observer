@@ -4679,16 +4679,16 @@
         const sender = p.senderName || (p.senderPublicKey ? shortHex(p.senderPublicKey, 12) : "--");
         const entries = Array.isArray(p.observerEntries) ? p.observerEntries : [];
         const toggle = entries.length
-          ? `<button class="rf-toggle" data-rf-toggle="${row.dataset.key}">+</button> ${hopCount}`
-          : `${hopCount}`;
+          ? `<button class="rf-toggle" data-rf-toggle="${row.dataset.key}">+</button> ${p.observerCount ?? 1}`
+          : `${p.observerCount ?? 1}`;
         row.innerHTML = `
           <div>${time}</div>
           <div><span class="rf-type">${p.payloadType || "Unknown"}</span></div>
           <div>${route}</div>
           <div>${hash}</div>
-          <div title="${pathLabel}">${toggle}</div>
+          <div title="${pathLabel}">${hopCount}</div>
           <div>${sender}</div>
-          <div>${p.observerCount ?? 1}</div>
+          <div>${toggle}</div>
           <div>${Number.isFinite(p.rssi) ? p.rssi : "--"}</div>
           <div>${Number.isFinite(p.snr) ? p.snr : "--"}</div>
           <div>${p.len ?? "--"}</div>
