@@ -2460,6 +2460,8 @@
         observerRankSummary: null,
         observersById: {},
         observersByName: {},
+        observersByIdUpper: {},
+        observersByNameLower: {},
         observersUpdatedAt: 0,
         routeSuggestions: null,
         repeatersByCode: null,
@@ -2509,14 +2511,32 @@
 
     function mapObserverLabels(list) {
       const byId = appData.observersById || {};
+      const byIdUpper = appData.observersByIdUpper || {};
       const byName = appData.observersByName || {};
+      const byNameLower = appData.observersByNameLower || {};
       const rawList = Array.isArray(list) ? list : [];
       return rawList.map((raw) => {
         const key = String(raw || "").trim();
         if (!key) return "";
-        const entry = byId[key] || byName[key] || null;
+        const upper = key.toUpperCase();
+        const lower = key.toLowerCase();
+        const entry = byId[key] || byIdUpper[upper] || byName[key] || byNameLower[lower] || null;
         return entry?.name || entry?.id || key;
       }).filter(Boolean);
+    }
+
+    function resolveObserverLabel(raw) {
+      const key = String(raw || "").trim();
+      if (!key) return "";
+      const upper = key.toUpperCase();
+      const lower = key.toLowerCase();
+      const entry =
+        appData.observersById?.[key] ||
+        appData.observersByIdUpper?.[upper] ||
+        appData.observersByName?.[key] ||
+        appData.observersByNameLower?.[lower] ||
+        null;
+      return entry?.name || entry?.id || key;
     }
 
     function normalizeChannelId(value) {
@@ -3845,12 +3865,20 @@
     }
 
     function updateObserversData(data) {
-      appData.observersById = data?.byId || {};
+      const byId = data?.byId || {};
+      appData.observersById = byId;
+      appData.observersByIdUpper = {};
       appData.observersByName = {};
-      Object.values(appData.observersById).forEach((entry) => {
+      appData.observersByNameLower = {};
+      Object.entries(byId).forEach(([rawKey, entry]) => {
         if (!entry) return;
+        const idKey = String(entry.id || rawKey || "").trim();
+        if (idKey) appData.observersByIdUpper[idKey.toUpperCase()] = entry;
         const name = String(entry.name || "").trim();
-        if (name) appData.observersByName[name] = entry;
+        if (name) {
+          appData.observersByName[name] = entry;
+          appData.observersByNameLower[name.toLowerCase()] = entry;
+        }
       });
       appData.observersUpdatedAt = Date.now();
     }
