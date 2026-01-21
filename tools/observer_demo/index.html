@@ -540,6 +540,13 @@
       cursor: pointer;
     }
     .msg-observers:hover { text-decoration: underline; }
+    .msg-confidence {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .msg-confidence:hover { text-decoration: underline; }
 
     .analysis {
       display: grid;
@@ -1774,6 +1781,38 @@
         margin-bottom: 10px;
         font-size: 14px;
       }
+      .route-history-title {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      .route-history-meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      .route-history-list {
+        display: grid;
+        gap: 10px;
+      }
+      .route-history-item {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: var(--panel);
+      }
+      .route-history-path {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .route-history-sub {
+        color: var(--muted);
+        font-size: 12px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
       .rank-body { height: auto; }
       .rank-map { display: none; }
       #rankMap { display: none; }
@@ -2618,7 +2657,10 @@
               hopsEl.textContent = `Total hops: ${hops}`;
             }
             const confEl = existing.querySelector(".msg-confidence");
-            if (confEl) confEl.textContent = `MeshRank Confidence: ${conf}%`;
+            if (confEl) {
+              confEl.textContent = `MeshRank Confidence: ${conf}%`;
+              confEl.dataset.id = keyId;
+            }
           }
           return;
         }
@@ -2642,7 +2684,7 @@
               <div class="msg-footer">
                 <a class="msg-observers" href="#" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
                 <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${Number.isFinite(msg.uniqueHopCount) ? msg.uniqueHopCount : (msg.pathLength ?? msg.repeats ?? 0)}</a>
-                <span class="msg-confidence">MeshRank Confidence: ${conf}%</span>
+                <a class="msg-confidence" href="#" data-id="${keyId}">MeshRank Confidence: ${conf}%</a>
               </div>
           </div>
         `;
@@ -2886,6 +2928,13 @@
           .map((v) => v.trim())
           .filter(Boolean);
         openObserverHitsModal(list);
+        return;
+      }
+      const confidence = e.target.closest(".msg-confidence");
+      if (confidence) {
+        e.preventDefault();
+        const id = confidence.dataset.id;
+        if (id) openMessageRouteOverlay(id);
       }
     });
 
@@ -3928,6 +3977,102 @@
 
     function closeRankDetail() {
       const overlay = document.getElementById("rankDetailOverlay");
+      if (overlay) overlay.classList.remove("open");
+    }
+
+    async function fetchMessageRoutes(hash, hours = 24) {
+      const url = new URL("/api/message-routes", window.location.origin);
+      url.searchParams.set("hash", hash);
+      url.searchParams.set("hours", String(hours));
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    function formatRoutePath(route) {
+      const names = Array.isArray(route?.pathNames) ? route.pathNames : [];
+      if (names.length) return names.join(" > ");
+      const hashes = Array.isArray(route?.path) ? route.path : [];
+      if (hashes.length) return hashes.join(" > ");
+      return "Direct";
+    }
+
+    function formatRouteTime(ts) {
+      if (!ts) return "--";
+      const d = new Date(ts);
+      if (!Number.isFinite(d.getTime())) return "--";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function openMessageRouteOverlay(messageId) {
+      const overlay = document.getElementById("messageRouteOverlay");
+      const content = document.getElementById("messageRouteContent");
+      if (!overlay || !content) return;
+      const msg = (appData.messages || []).find((m) =>
+        m.id === messageId || m.frameHash === messageId || m.messageHash === messageId
+      );
+      const hash = msg?.messageHash || msg?.frameHash || msg?.id || messageId;
+      const sender = msg?.sender || "Unknown";
+      const body = msg?.body || "";
+      const shortBody = body.length > 120 ? body.slice(0, 120) + "…" : body;
+      overlay.classList.add("open");
+      content.innerHTML = `
+        <div class="rank-detail-close">
+          <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
+        </div>
+        <div class="route-history-title">Message route history (24h)</div>
+        <div class="route-history-meta">${sender}${shortBody ? ` · ${shortBody}` : ""}</div>
+        <div class="route-history-meta">Loading routes…</div>
+      `;
+
+      fetchMessageRoutes(hash, 24)
+        .then((data) => {
+          if (!data?.ok) throw new Error(data?.error || "Route lookup failed");
+          const stop = data.stop?.name ? `Most common stop: ${data.stop.name} (${data.stop.count})` : "Most common stop: --";
+          const routes = Array.isArray(data.routes) ? data.routes : [];
+          const listHtml = routes.length
+            ? routes.map((route) => {
+                const pathLabel = formatRoutePath(route);
+                const lastHop = Array.isArray(route.pathNames) && route.pathNames.length
+                  ? route.pathNames[route.pathNames.length - 1]
+                  : (Array.isArray(route.path) && route.path.length ? route.path[route.path.length - 1] : "Direct");
+                return `
+                  <div class="route-history-item">
+                    <div class="route-history-path">${pathLabel}</div>
+                    <div class="route-history-sub">
+                      <span>Count: ${route.count || 0}</span>
+                      <span>Hops: ${route.hopCount || 0}</span>
+                      <span>Stops at: ${lastHop}</span>
+                      <span>Last seen: ${formatRouteTime(route.lastSeen)}</span>
+                    </div>
+                  </div>
+                `;
+              }).join("")
+            : "<div class='route-history-meta'>No route data in the last 24 hours.</div>";
+
+          content.innerHTML = `
+            <div class="rank-detail-close">
+              <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
+            </div>
+            <div class="route-history-title">Message route history (24h)</div>
+            <div class="route-history-meta">${sender}${shortBody ? ` · ${shortBody}` : ""}</div>
+            <div class="route-history-meta">${stop} · Matches: ${data.total || 0} · Routes: ${routes.length}</div>
+            <div class="route-history-list">${listHtml}</div>
+          `;
+        })
+        .catch((err) => {
+          content.innerHTML = `
+            <div class="rank-detail-close">
+              <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
+            </div>
+            <div class="route-history-title">Message route history (24h)</div>
+            <div class="route-history-meta">Unable to load route history: ${err?.message || err}</div>
+          `;
+        });
+    }
+
+    function closeMessageRouteOverlay() {
+      const overlay = document.getElementById("messageRouteOverlay");
       if (overlay) overlay.classList.remove("open");
     }
 
@@ -5193,6 +5338,11 @@
       if (rankMap) rankMap.invalidateSize();
     });
   </script>
+  <div id="messageRouteOverlay" class="rank-detail-overlay" onclick="closeMessageRouteOverlay()">
+    <div class="rank-detail-card" onclick="event.stopPropagation()">
+      <div id="messageRouteContent"></div>
+    </div>
+  </div>
   <div id="rankDetailOverlay" class="rank-detail-overlay" onclick="closeRankDetail()">
     <div class="rank-detail-card" onclick="event.stopPropagation()">
       <div id="rankDetailContent"></div>

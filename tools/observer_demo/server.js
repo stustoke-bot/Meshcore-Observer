@@ -38,6 +38,8 @@ let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 
 let channelMessagesInFlight = null;
 const CHANNEL_CACHE_MIN_MS = 500;
 const CHANNEL_CACHE_STALE_MS = 1500;
+const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
+const messageRouteCache = new Map();
 
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
@@ -159,6 +161,17 @@ function channelHistoryLimit(channelName) {
   const mapped = CHANNEL_HISTORY_LIMITS[key];
   if (Number.isFinite(mapped) && mapped > 0) return mapped;
   return CHANNEL_HISTORY_LIMIT;
+}
+
+function resolveRecordTimestamp(rec, baseNow, maxNumericTs) {
+  if (!rec) return null;
+  if (typeof rec.archivedAt === "string" && parseIso(rec.archivedAt)) return rec.archivedAt;
+  if (typeof rec.ts === "string" && parseIso(rec.ts)) return rec.ts;
+  if (Number.isFinite(rec.ts) && maxNumericTs !== null) {
+    const approx = baseNow - (maxNumericTs - rec.ts);
+    return new Date(approx).toISOString();
+  }
+  return null;
 }
 
 function getDb() {
@@ -843,6 +856,146 @@ async function buildMessageDebug(hash) {
     fromIndex,
     fromLog: Array.from(fromLog)
   };
+}
+
+async function buildMessageRouteHistory(hash, hours) {
+  const key = String(hash || "").trim().toUpperCase();
+  if (!key) return { ok: false, error: "hash required" };
+  const hoursNum = Number.isFinite(Number(hours)) ? Math.max(1, Math.min(168, Number(hours))) : 24;
+  const cacheKey = `${key}|${hoursNum}`;
+  const cached = messageRouteCache.get(cacheKey);
+  if (cached && (Date.now() - cached.builtAt) < MESSAGE_ROUTE_CACHE_MS) {
+    return cached.payload;
+  }
+
+  const sourcePath = getRfSourcePath();
+  if (!fs.existsSync(sourcePath)) {
+    const payload = { ok: true, hash: key, hours: hoursNum, total: 0, routes: [], stop: null };
+    messageRouteCache.set(cacheKey, { builtAt: Date.now(), payload });
+    return payload;
+  }
+
+  const keyStore = buildKeyStore(loadKeys());
+  const nodeMap = buildNodeHashMap();
+  const cutoffMs = Date.now() - (hoursNum * 3600000);
+  let baseNow = Date.now();
+  try {
+    const stat = fs.statSync(sourcePath);
+    if (Number.isFinite(stat.mtimeMs)) baseNow = stat.mtimeMs;
+  } catch {}
+
+  let maxNumericTs = null;
+  {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(sourcePath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    for await (const line of rl) {
+      try {
+        const rec = JSON.parse(line);
+        if (Number.isFinite(rec.ts)) {
+          if (maxNumericTs === null || rec.ts > maxNumericTs) maxNumericTs = rec.ts;
+        }
+      } catch {}
+    }
+  }
+
+  const routes = new Map();
+  const stopCounts = new Map();
+  let total = 0;
+
+  const rl = readline.createInterface({
+    input: fs.createReadStream(sourcePath, { encoding: "utf8" }),
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const ts = resolveRecordTimestamp(rec, baseNow, maxNumericTs);
+    if (!ts) continue;
+    const tsMs = new Date(ts).getTime();
+    if (!Number.isFinite(tsMs) || tsMs < cutoffMs) continue;
+
+    const hex = getHex(rec);
+    if (!hex) continue;
+
+    let decoded;
+    try {
+      decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined);
+    } catch {
+      continue;
+    }
+    const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+    if (payloadType !== "GroupText") continue;
+    const payload = decoded.payload?.decoded;
+    if (!payload || !payload.decrypted) continue;
+
+    const msgHash = String(
+      decoded.messageHash ||
+      rec.frameHash ||
+      sha256Hex(hex) ||
+      hex.slice(0, 16) ||
+      "unknown"
+    ).toUpperCase();
+    const messageHash = decoded.messageHash ? String(decoded.messageHash).toUpperCase() : null;
+    const frameHash = (rec.frameHash ? String(rec.frameHash) : sha256Hex(hex) || "").toUpperCase();
+    if (key !== msgHash && key !== messageHash && key !== frameHash) continue;
+
+    total += 1;
+    const path = Array.isArray(decoded.path) ? decoded.path.map(normalizePathHash) : [];
+    const hopCount = path.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
+    const pathPoints = path.map((h) => {
+      const hit = nodeMap.get(h);
+      return {
+        hash: h,
+        name: hit ? hit.name : h,
+        gps: hit?.gps || null
+      };
+    });
+    const pathNames = pathPoints.map((p) => p.name);
+    const routeKey = path.length ? path.join(">") : "direct";
+    const existing = routes.get(routeKey) || {
+      key: routeKey,
+      path,
+      pathNames,
+      hopCount,
+      count: 0,
+      lastSeen: ts
+    };
+    existing.count += 1;
+    if (Number.isFinite(hopCount) && hopCount > (existing.hopCount || 0)) {
+      existing.hopCount = hopCount;
+      existing.path = path;
+      existing.pathNames = pathNames;
+    }
+    if (!existing.lastSeen || new Date(ts) > new Date(existing.lastSeen)) {
+      existing.lastSeen = ts;
+    }
+    routes.set(routeKey, existing);
+
+    const stopName = pathNames.length ? pathNames[pathNames.length - 1] : "Direct";
+    stopCounts.set(stopName, (stopCounts.get(stopName) || 0) + 1);
+  }
+
+  const routesList = Array.from(routes.values())
+    .sort((a, b) => (b.count - a.count) || (new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0)));
+
+  let topStop = null;
+  for (const [name, count] of stopCounts.entries()) {
+    if (!topStop || count > topStop.count) topStop = { name, count };
+  }
+
+  const payload = {
+    ok: true,
+    hash: key,
+    hours: hoursNum,
+    total,
+    routes: routesList,
+    stop: topStop
+  };
+  messageRouteCache.set(cacheKey, { builtAt: Date.now(), payload });
+  return payload;
 }
 
 async function buildRepeaterRank() {
@@ -2282,6 +2435,13 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/message-debug") {
     const hash = u.searchParams.get("hash");
     const payload = await buildMessageDebug(hash);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/message-routes") {
+    const hash = u.searchParams.get("hash");
+    const hours = u.searchParams.get("hours");
+    const payload = await buildMessageRouteHistory(hash, hours);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
