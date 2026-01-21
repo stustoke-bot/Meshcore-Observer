@@ -409,6 +409,23 @@
       white-space: nowrap;
     }
 
+    .channel-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-top: 4px;
+      min-width: 0;
+    }
+    .channel-meta .snippet {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .channel-time {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
     .content {
       display: flex;
       flex-direction: column;
@@ -2718,10 +2735,12 @@
           <div class="avatar" style="background:${colors[idx % colors.length]}">${avatarChar}</div>
           <div>
             <div class="name">${displayName}</div>
-            <div class="snippet">${snippet}</div>
+            <div class="channel-meta">
+              <div class="snippet">${snippet}</div>
+              <div class="channel-time">${time}</div>
+            </div>
           </div>
           <div style="display:grid;gap:6px;justify-items:end;">
-            <div class="muted">${time}</div>
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
             ${isAdmin ? `<button class="channel-remove" type="button" data-remove="${displayName}">Remove</button>` : ""}
           </div>
