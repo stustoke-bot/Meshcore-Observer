@@ -112,6 +112,7 @@ async function getObserverHitsMap() {
 }
 const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
+const OBSERVER_RANK_REFRESH_MS = 5 * 60 * 1000;
 const MESH_REFRESH_MS = 15 * 60 * 1000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
@@ -211,6 +212,11 @@ function getDb() {
       updated_at TEXT NOT NULL,
       payload TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS observer_rank_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -265,6 +271,33 @@ function persistRepeaterRankCache(payload) {
     getDb()
       .prepare(`
         INSERT INTO repeater_rank_cache (id, updated_at, payload)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload
+      `)
+      .run(updatedAt, JSON.stringify(payload));
+  } catch {}
+}
+
+function hydrateObserverRankCache() {
+  try {
+    const row = getDb()
+      .prepare("SELECT updated_at, payload FROM observer_rank_cache WHERE id = 1")
+      .get();
+    if (!row?.payload) return;
+    const parsed = JSON.parse(row.payload);
+    if (!parsed || !Array.isArray(parsed.items)) return;
+    const updatedAt = row.updated_at || parsed.updatedAt || new Date().toISOString();
+    observerRankCache = { ...parsed, updatedAt };
+  } catch {}
+}
+
+function persistObserverRankCache(payload) {
+  try {
+    if (!payload) return;
+    const updatedAt = payload.updatedAt || new Date().toISOString();
+    getDb()
+      .prepare(`
+        INSERT INTO observer_rank_cache (id, updated_at, payload)
         VALUES (1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload
       `)
@@ -1131,6 +1164,7 @@ async function scheduleAutoRefresh() {
   try {
     await refreshRankCache(true);
     await refreshMeshScoreCache(true);
+    await refreshObserverRankCache(true);
   } catch {}
   setTimeout(() => scheduleAutoRefresh().catch(() => {}), AUTO_REFRESH_MS);
 }
@@ -1153,6 +1187,23 @@ async function refreshMeshScoreCache(force) {
   } finally {
     meshScoreRefresh = null;
   }
+}
+
+async function refreshObserverRankCache(force) {
+  const now = Date.now();
+  const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+  if (!force && observerRankCache.items?.length && last && (now - last) < OBSERVER_RANK_REFRESH_MS) {
+    return observerRankCache;
+  }
+  if (observerRankRefresh) return observerRankRefresh;
+  observerRankRefresh = buildObserverRank()
+    .then((data) => {
+      observerRankCache = data;
+      persistObserverRankCache(data);
+      return observerRankCache;
+    })
+    .finally(() => { observerRankRefresh = null; });
+  return observerRankRefresh;
 }
 
 async function buildChannelMessages() {
@@ -2219,13 +2270,12 @@ const server = http.createServer(async (req, res) => {
     const force = u.searchParams.get("refresh") === "1";
     const limitRaw = u.searchParams.get("_limit");
     const limit = limitRaw ? Number(limitRaw) : 0;
-    if (force || !last || now - last >= 5 * 60 * 1000) {
-      if (!observerRankRefresh) {
-        observerRankRefresh = buildObserverRank()
-          .then((data) => { observerRankCache = data; })
-          .finally(() => { observerRankRefresh = null; });
-      }
-      await observerRankRefresh;
+    if (!observerRankCache.items?.length) {
+      await refreshObserverRankCache(true);
+    } else if (force) {
+      await refreshObserverRankCache(true);
+    } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
+      refreshObserverRankCache(false).catch(() => {});
     }
     const payload = limit > 0
       ? { ...observerRankCache, items: observerRankCache.items.slice(0, limit) }
@@ -2235,13 +2285,10 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/observer-rank-summary") {
     const now = Date.now();
     const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
-    if (!last || now - last >= 5 * 60 * 1000) {
-      if (!observerRankRefresh) {
-        observerRankRefresh = buildObserverRank()
-          .then((data) => { observerRankCache = data; })
-          .finally(() => { observerRankRefresh = null; });
-      }
-      await observerRankRefresh;
+    if (!observerRankCache.items?.length) {
+      await refreshObserverRankCache(true);
+    } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
+      refreshObserverRankCache(false).catch(() => {});
     }
     const summary = {
       updatedAt: observerRankCache.updatedAt,
@@ -2326,6 +2373,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, host, () => {
   console.log(`(observer-demo) http://${host}:${port}`);
   hydrateRepeaterRankCache();
+  hydrateObserverRankCache();
   hydrateMeshScoreCache();
   scheduleAutoRefresh().catch(() => {});
 });
