@@ -26,6 +26,9 @@ const dbPath = path.join(dataDir, "meshrank.db");
 
 const CHANNEL_TAIL_LINES = 6000;
 const CHANNEL_HISTORY_LIMIT = 10;
+const CHANNEL_HISTORY_LIMITS = {
+  "#hashtags": 30
+};
 const OBSERVER_DEBUG_TAIL_LINES = 5000;
 const MESSAGE_DEBUG_TAIL_LINES = 6000;
 const NODE_RANK_TAIL_LINES = 6000;
@@ -148,6 +151,14 @@ const AUTO_REFRESH_MS = 60 * 1000;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+function channelHistoryLimit(channelName) {
+  if (!channelName) return CHANNEL_HISTORY_LIMIT;
+  const key = String(channelName).trim().toLowerCase();
+  const mapped = CHANNEL_HISTORY_LIMITS[key];
+  if (Number.isFinite(mapped) && mapped > 0) return mapped;
+  return CHANNEL_HISTORY_LIMIT;
 }
 
 function getDb() {
@@ -2057,7 +2068,7 @@ const server = http.createServer(async (req, res) => {
     const channel = u.searchParams.get("channel");
     const limitRaw = u.searchParams.get("limit");
     const beforeRaw = u.searchParams.get("before");
-    const limit = limitRaw ? Number(limitRaw) : null;
+    let limit = limitRaw ? Number(limitRaw) : null;
     let beforeTs = null;
     if (beforeRaw) {
       const beforeDate = parseIso(beforeRaw);
@@ -2066,6 +2077,10 @@ const server = http.createServer(async (req, res) => {
 
     let list = payload.messages;
     if (channel) {
+      const channelLimit = channelHistoryLimit(channel);
+      if (!Number.isFinite(limit) || limit <= 0 || limit < channelLimit) {
+        limit = channelLimit;
+      }
       const cutoff = Number.isFinite(beforeTs) ? beforeTs : Date.now();
       list = await buildChannelMessagesBefore(channel, cutoff, limit);
     } else {
@@ -2089,8 +2104,9 @@ const server = http.createServer(async (req, res) => {
         perChannel.set(key, bucket);
       }
       const trimmed = [];
-      for (const bucket of perChannel.values()) {
-        const keep = bucket.slice(Math.max(0, bucket.length - CHANNEL_HISTORY_LIMIT));
+      for (const [key, bucket] of perChannel.entries()) {
+        const limitForChannel = channelHistoryLimit(key);
+        const keep = bucket.slice(Math.max(0, bucket.length - limitForChannel));
         keep.forEach((item) => trimmed.push(item));
       }
       list = trimmed.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
