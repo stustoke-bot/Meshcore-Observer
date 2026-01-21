@@ -40,6 +40,8 @@ let channelMessagesInFlight = null;
 const CHANNEL_CACHE_MIN_MS = 500;
 const CHANNEL_CACHE_STALE_MS = 1500;
 const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
+const CONFIDENCE_HISTORY_MAX_ROWS = 400;
+const CONFIDENCE_DEAD_END_LIMIT = 20;
 const messageRouteCache = new Map();
 
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
@@ -1285,6 +1287,99 @@ async function buildMessageRouteHistory(hash, hours) {
   };
   messageRouteCache.set(cacheKey, { builtAt: Date.now(), payload });
   return payload;
+}
+
+function buildConfidenceHistory(sender, channel, hours, limit) {
+  const db = getDb();
+  if (!hasMessagesDb(db)) return { ok: false, error: "messages db unavailable" };
+  const senderName = String(sender || "").trim();
+  if (!senderName) return { ok: false, error: "sender required" };
+  const channelName = String(channel || "").trim();
+  const hoursNum = Number.isFinite(Number(hours)) ? Math.max(1, Math.min(168, Number(hours))) : 168;
+  const maxRows = Number.isFinite(Number(limit))
+    ? Math.max(50, Math.min(CONFIDENCE_HISTORY_MAX_ROWS, Number(limit)))
+    : CONFIDENCE_HISTORY_MAX_ROWS;
+  const cutoff = new Date(Date.now() - hoursNum * 3600000).toISOString();
+  const nodeMap = buildNodeHashMap();
+  let rows = [];
+  if (channelName) {
+    rows = db.prepare(`
+      SELECT message_hash, ts, path_json, path_length
+      FROM messages
+      WHERE sender = ? AND channel_name = ? AND ts >= ?
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(senderName, channelName, cutoff, maxRows);
+  } else {
+    rows = db.prepare(`
+      SELECT message_hash, ts, path_json, path_length
+      FROM messages
+      WHERE sender = ? AND ts >= ?
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(senderName, cutoff, maxRows);
+  }
+
+  const paths = [];
+  const deadEnds = new Map();
+  rows.forEach((row) => {
+    if (!row?.path_json) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(row.path_json);
+    } catch {
+      parsed = null;
+    }
+    if (!Array.isArray(parsed) || !parsed.length) return;
+    const path = parsed.map(normalizePathHash).filter(Boolean);
+    if (!path.length) return;
+    const pathPoints = path.map((code) => {
+      const hit = nodeMap.get(code);
+      if (!hit?.gps || !Number.isFinite(hit.gps.lat) || !Number.isFinite(hit.gps.lon)) return null;
+      return {
+        hash: code,
+        name: hit.name || code,
+        lat: hit.gps.lat,
+        lon: hit.gps.lon
+      };
+    }).filter(Boolean);
+    if (pathPoints.length >= 2) {
+      paths.push({
+        ts: row.ts,
+        hops: Number.isFinite(row.path_length) ? row.path_length : path.length,
+        pathPoints
+      });
+    }
+    const lastCode = path[path.length - 1];
+    if (lastCode) {
+      const hit = nodeMap.get(lastCode);
+      const label = hit?.name || lastCode;
+      const key = String(lastCode).toUpperCase();
+      const entry = deadEnds.get(key) || {
+        hash: key,
+        name: label,
+        gps: hit?.gps || null,
+        count: 0
+      };
+      entry.count += 1;
+      deadEnds.set(key, entry);
+    }
+  });
+
+  paths.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  const deadList = Array.from(deadEnds.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, CONFIDENCE_DEAD_END_LIMIT);
+
+  return {
+    ok: true,
+    sender: senderName,
+    channel: channelName || null,
+    hours: hoursNum,
+    total: rows.length,
+    paths,
+    deadEnds: deadList
+  };
 }
 
 async function buildRepeaterRank() {
@@ -2946,6 +3041,14 @@ const server = http.createServer(async (req, res) => {
     const hash = u.searchParams.get("hash");
     const hours = u.searchParams.get("hours");
     const payload = await buildMessageRouteHistory(hash, hours);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+  if (u.pathname === "/api/confidence-history") {
+    const sender = u.searchParams.get("sender");
+    const channel = u.searchParams.get("channel");
+    const hours = u.searchParams.get("hours");
+    const limit = u.searchParams.get("limit");
+    const payload = buildConfidenceHistory(sender, channel, hours, limit);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 

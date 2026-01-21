@@ -606,6 +606,78 @@
       background: rgba(0, 0, 0, 0.45);
       z-index: 9;
     }
+    .rank-detail-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      background: rgba(0, 0, 0, 0.4);
+      align-items: center;
+      justify-content: center;
+      z-index: 900;
+    }
+    .rank-detail-overlay.open {
+      display: flex;
+    }
+    .rank-detail-card {
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 20px;
+      width: min(95vw, 820px);
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+    .rank-detail-close {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+    .rank-detail-close button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .confidence-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .confidence-meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    .confidence-map {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      height: 320px;
+      margin-bottom: 12px;
+    }
+    #confidenceMap {
+      width: 100%;
+      height: 100%;
+    }
+    .confidence-deadends {
+      display: grid;
+      gap: 8px;
+    }
+    .confidence-deadend {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .confidence-deadend strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
 
     .rank-panel {
       grid-column: 1 / -1;
@@ -2955,6 +3027,9 @@
 
     let map;
     let routeLayer;
+    let confidenceMap;
+    let confidenceLayers = [];
+    let confidenceTimer = null;
 
     function initMap() {
       map = L.map("routeMap", { zoomControl: true }).setView([52.2, -1.5], 6);
@@ -4345,6 +4420,75 @@
       return res.json();
     }
 
+    async function fetchConfidenceHistory(sender, channel, hours = 168, limit = 400) {
+      const url = new URL("/api/confidence-history", window.location.origin);
+      if (sender) url.searchParams.set("sender", sender);
+      if (channel) url.searchParams.set("channel", channel);
+      url.searchParams.set("hours", String(hours));
+      url.searchParams.set("limit", String(limit));
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    function resetConfidenceMap() {
+      if (confidenceTimer) {
+        clearTimeout(confidenceTimer);
+        confidenceTimer = null;
+      }
+      if (confidenceMap) {
+        confidenceMap.remove();
+        confidenceMap = null;
+      }
+      confidenceLayers = [];
+    }
+
+    function initConfidenceMap(paths) {
+      const mapEl = document.getElementById("confidenceMap");
+      if (!mapEl || !window.L) return;
+      confidenceMap = L.map(mapEl, { zoomControl: true }).setView([52.2, -1.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(confidenceMap);
+
+      const bounds = [];
+      paths.forEach((path) => {
+        (path.pathPoints || []).forEach((pt) => {
+          if (Number.isFinite(pt.lat) && Number.isFinite(pt.lon)) bounds.push([pt.lat, pt.lon]);
+        });
+      });
+      if (bounds.length) {
+        confidenceMap.fitBounds(bounds, { padding: [20, 20] });
+      }
+    }
+
+    function animateConfidencePaths(paths) {
+      if (!confidenceMap) return;
+      const palette = ["#2f6fed", "#6ab0ff", "#2ecc71", "#f39c12", "#9b59b6"];
+      let idx = 0;
+      const list = Array.isArray(paths) ? paths : [];
+      const total = list.length;
+      const step = () => {
+        if (idx >= total) return;
+        const entry = list[idx];
+        const points = (entry.pathPoints || [])
+          .filter((pt) => Number.isFinite(pt.lat) && Number.isFinite(pt.lon))
+          .map((pt) => [pt.lat, pt.lon]);
+        if (points.length >= 2) {
+          const line = L.polyline(points, {
+            color: palette[idx % palette.length],
+            weight: 2,
+            opacity: 0.8
+          }).addTo(confidenceMap);
+          confidenceLayers.push(line);
+        }
+        idx += 1;
+        confidenceTimer = setTimeout(step, 120);
+      };
+      step();
+    }
+
     function formatRoutePath(route) {
       const names = Array.isArray(route?.pathNames) ? route.pathNames : [];
       if (names.length) return names.join(" > ");
@@ -4367,62 +4511,59 @@
       const msg = (appData.messages || []).find((m) =>
         m.id === messageId || m.frameHash === messageId || m.messageHash === messageId
       );
-      const hash = msg?.messageHash || msg?.frameHash || msg?.id || messageId;
       const sender = msg?.sender || "Unknown";
-      const body = msg?.body || "";
-      const shortBody = body.length > 120 ? body.slice(0, 120) + "…" : body;
+      const channelName = msg?.channelName || "";
       overlay.classList.add("open");
+      resetConfidenceMap();
       content.innerHTML = `
         <div class="rank-detail-close">
-          <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
+          <button type="button" onclick="closeMessageRouteOverlay()">x</button>
         </div>
-        <div class="route-history-title">Message route history (24h)</div>
-        <div class="route-history-meta">${sender}${shortBody ? ` · ${shortBody}` : ""}</div>
-        <div class="route-history-meta">Loading routes…</div>
+        <div class="confidence-title">MeshRank Confidence (7 days)</div>
+        <div class="confidence-meta" id="confidenceMeta">Sender: ${sender}${channelName ? ` | Channel: ${channelName}` : ""}</div>
+        <div class="confidence-meta" id="confidenceStatus">Loading path history...</div>
+        <div class="confidence-map"><div id="confidenceMap"></div></div>
+        <div class="confidence-title">Dead ends</div>
+        <div class="confidence-deadends" id="confidenceDeadEnds"></div>
       `;
 
-      fetchMessageRoutes(hash, 24)
+      fetchConfidenceHistory(sender, channelName || null, 168, 400)
         .then((data) => {
-          if (!data?.ok) throw new Error(data?.error || "Route lookup failed");
-          const stop = data.stop?.name ? `Most common stop: ${data.stop.name} (${data.stop.count})` : "Most common stop: --";
-          const routes = Array.isArray(data.routes) ? data.routes : [];
-          const listHtml = routes.length
-            ? routes.map((route) => {
-                const pathLabel = formatRoutePath(route);
-                const lastHop = Array.isArray(route.pathNames) && route.pathNames.length
-                  ? route.pathNames[route.pathNames.length - 1]
-                  : (Array.isArray(route.path) && route.path.length ? route.path[route.path.length - 1] : "Direct");
-                return `
-                  <div class="route-history-item">
-                    <div class="route-history-path">${pathLabel}</div>
-                    <div class="route-history-sub">
-                      <span>Count: ${route.count || 0}</span>
-                      <span>Hops: ${route.hopCount || 0}</span>
-                      <span>Stops at: ${lastHop}</span>
-                      <span>Last seen: ${formatRouteTime(route.lastSeen)}</span>
-                    </div>
+          if (!data?.ok) throw new Error(data?.error || "History lookup failed");
+          const paths = Array.isArray(data.paths) ? data.paths : [];
+          const deadEnds = Array.isArray(data.deadEnds) ? data.deadEnds : [];
+          const meta = document.getElementById("confidenceMeta");
+          const status = document.getElementById("confidenceStatus");
+          const deadEl = document.getElementById("confidenceDeadEnds");
+          if (meta) {
+            const channelLabel = data.channel ? ` | Channel: ${data.channel}` : "";
+            meta.textContent = `Sender: ${data.sender}${channelLabel} ? Messages: ${data.total || 0}`;
+          }
+          if (status) {
+            status.textContent = paths.length
+              ? `Animating ${paths.length} paths from the last ${data.hours || 168} hours.`
+              : `No route data found in the last ${data.hours || 168} hours.`;
+          }
+          if (deadEl) {
+            deadEl.innerHTML = deadEnds.length
+              ? deadEnds.map((stop) => `
+                  <div class="confidence-deadend">
+                    <strong>${stop.name || stop.hash}</strong>
+                    <span>${stop.count || 0}</span>
                   </div>
-                `;
-              }).join("")
-            : "<div class='route-history-meta'>No route data in the last 24 hours.</div>";
-
-          content.innerHTML = `
-            <div class="rank-detail-close">
-              <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
-            </div>
-            <div class="route-history-title">Message route history (24h)</div>
-            <div class="route-history-meta">${sender}${shortBody ? ` · ${shortBody}` : ""}</div>
-            <div class="route-history-meta">${stop} · Matches: ${data.total || 0} · Routes: ${routes.length}</div>
-            <div class="route-history-list">${listHtml}</div>
-          `;
+                `).join("")
+              : "<div class='confidence-meta'>No dead ends detected.</div>";
+          }
+          initConfidenceMap(paths);
+          animateConfidencePaths(paths);
         })
         .catch((err) => {
           content.innerHTML = `
             <div class="rank-detail-close">
-              <button type="button" onclick="closeMessageRouteOverlay()">✕</button>
+              <button type="button" onclick="closeMessageRouteOverlay()">x</button>
             </div>
-            <div class="route-history-title">Message route history (24h)</div>
-            <div class="route-history-meta">Unable to load route history: ${err?.message || err}</div>
+            <div class="confidence-title">MeshRank Confidence (7 days)</div>
+            <div class="confidence-meta">Unable to load confidence data: ${err?.message || err}</div>
           `;
         });
     }
@@ -4430,6 +4571,7 @@
     function closeMessageRouteOverlay() {
       const overlay = document.getElementById("messageRouteOverlay");
       if (overlay) overlay.classList.remove("open");
+      resetConfidenceMap();
     }
 
     function buildObserverBadges(o) {
