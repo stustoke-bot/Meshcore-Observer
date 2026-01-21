@@ -41,6 +41,8 @@ const CHANNEL_CACHE_STALE_MS = 1500;
 const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
 const messageRouteCache = new Map();
 
+const OBSERVER_HITS_MAX_BYTES = 10 * 1024 * 1024;
+
 async function getObserverHitsMap() {
   if (!fs.existsSync(observerPath)) return new Map();
   const keyStore = buildKeyStore(loadKeys());
@@ -62,6 +64,10 @@ async function getObserverHitsMap() {
   if (stat.size < offset) {
     map = new Map();
     offset = 0;
+  }
+  if (offset === 0 && stat.size > OBSERVER_HITS_MAX_BYTES) {
+    map = new Map();
+    offset = Math.max(0, stat.size - OBSERVER_HITS_MAX_BYTES);
   }
   const stream = fs.createReadStream(observerPath, { encoding: "utf8", start: offset });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
