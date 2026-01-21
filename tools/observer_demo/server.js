@@ -1336,6 +1336,7 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
     const pathPoints = path.map((code) => {
       const hit = nodeMap.get(code);
       if (!hit?.gps || !Number.isFinite(hit.gps.lat) || !Number.isFinite(hit.gps.lon)) return null;
+      if (hit.gps.lat === 0 && hit.gps.lon === 0) return null;
       return {
         hash: code,
         name: hit.name || code,
@@ -1353,12 +1354,15 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
     const lastCode = path[path.length - 1];
     if (lastCode) {
       const hit = nodeMap.get(lastCode);
+      const gps = hit?.gps || null;
+      if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon) && gps.lat === 0 && gps.lon === 0) return;
+      if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
       const label = hit?.name || lastCode;
       const key = String(lastCode).toUpperCase();
       const entry = deadEnds.get(key) || {
         hash: key,
         name: label,
-        gps: hit?.gps || null,
+        gps,
         count: 0
       };
       entry.count += 1;
