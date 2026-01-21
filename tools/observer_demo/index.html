@@ -2841,7 +2841,8 @@
                 : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
               const updatedHits = Array.isArray(msg.observerHits) ? msg.observerHits : [];
               observerEl.textContent = `Observers: ${updatedCount}`;
-              observerEl.dataset.observers = mapObserverLabels(updatedHits).join("|");
+              observerEl.dataset.observers = updatedHits.map((v) => String(v).trim()).filter(Boolean).join("|");
+              observerEl.dataset.id = keyId;
             }
             const hopsEl = existing.querySelector(".msg-hops");
             if (hopsEl) {
@@ -2862,7 +2863,10 @@
         const observerCount = Number.isFinite(msg.observerCount)
           ? msg.observerCount
           : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
-        const observerList = mapObserverLabels(msg.observerHits || []).join(", ");
+        const observerList = (Array.isArray(msg.observerHits) ? msg.observerHits : [])
+          .map((v) => String(v).trim())
+          .filter(Boolean)
+          .join("|");
         const hopCount = getHopCount(msg);
         row.innerHTML = `
           <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
@@ -2874,7 +2878,7 @@
             </div>
             <div class="bubble ${msg.type}">${msg.body}</div>
               <div class="msg-footer">
-                <a class="msg-observers" href="#" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
+                <a class="msg-observers" href="#" data-id="${keyId}" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
                 <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${hopCount}</a>
                 <a class="msg-confidence" href="#" data-id="${keyId}">MeshRank Confidence: ${conf}%</a>
               </div>
@@ -3115,10 +3119,20 @@
       const observers = e.target.closest(".msg-observers");
       if (observers) {
         e.preventDefault();
-        const list = String(observers.dataset.observers || "")
-          .split("|")
-          .map((v) => v.trim())
-          .filter(Boolean);
+        const msgId = observers.dataset.id;
+        let list = [];
+        if (msgId) {
+          const msg = appData.messages.find((m) =>
+            m.id === msgId || m.frameHash === msgId || m.messageHash === msgId
+          );
+          list = Array.isArray(msg?.observerHits) ? msg.observerHits : [];
+        }
+        if (!list.length) {
+          list = String(observers.dataset.observers || "")
+            .split("|")
+            .map((v) => v.trim())
+            .filter(Boolean);
+        }
         await openObserverHitsModal(list);
         return;
       }
