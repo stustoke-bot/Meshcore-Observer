@@ -2166,6 +2166,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "DELETE") {
       try {
+        const user = getSessionUser(req);
+        if (!user || !user.isAdmin) {
+          return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+        }
         const name = String(u.searchParams.get("name") || "").trim();
         if (!name) {
           return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "name required" }));

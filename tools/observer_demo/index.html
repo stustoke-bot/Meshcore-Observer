@@ -1367,6 +1367,24 @@
       padding: 0;
       display: none;
     }
+    .admin-only {
+      display: none;
+    }
+    .channel-history-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .channel-history-control select {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 12px;
+    }
 
     .slider {
       width: 100%;
@@ -1911,7 +1929,13 @@
     <section class="panel sidebar-panel">
       <div class="title column">
         <span>Channels <span class="chip">UK Mesh</span></span>
-        <button class="btn" id="addChannelBtn">Add Channel</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn" id="addChannelBtn">Add Channel</button>
+          <div class="admin-only channel-history-control">
+            <span>History</span>
+            <select id="channelHistoryLimit" aria-label="Channel history limit"></select>
+          </div>
+        </div>
       </div>
       <div class="sidebar">
         <div id="channels"></div>
@@ -2377,10 +2401,10 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     document.body.classList.add("view-channels");
-    const appData = {
-      channels: [],
-      messages: [],
-      lastChannelsSig: "",
+      const appData = {
+        channels: [],
+        messages: [],
+        lastChannelsSig: "",
         lastMessagesSig: "",
         renderedIdsByChannel: {},
         meshScore: null,
@@ -2406,6 +2430,7 @@
         routeActivePathCodes: [],
         routeActivePathPoints: [],
         routeActiveMsg: null,
+        channelHistoryLimit: 10,
         authUser: null,
         authToken: null
       };
@@ -2487,6 +2512,21 @@
       } catch {}
     }
 
+    function loadChannelHistoryLimit() {
+      try {
+        const raw = localStorage.getItem("meshrank.channelHistoryLimit");
+        const value = Number(raw);
+        if (Number.isFinite(value) && value >= 1 && value <= 50) return value;
+      } catch {}
+      return 10;
+    }
+
+    function saveChannelHistoryLimit(value) {
+      try {
+        localStorage.setItem("meshrank.channelHistoryLimit", String(value));
+      } catch {}
+    }
+
     function authHeaders() {
       const token = appData.authToken || loadAuthToken();
       if (!token) return {};
@@ -2505,7 +2545,12 @@
           ? `Logged in as ${user.username}${user.isAdmin ? " (admin)" : ""}`
           : "Not logged in.";
       }
+      const isAdmin = !!user?.isAdmin;
+      document.querySelectorAll(".admin-only").forEach((el) => {
+        el.style.display = isAdmin ? "inline-flex" : "none";
+      });
       updateNodeRankVisibility();
+      renderChannels();
     }
 
     function setBootstrapVisibility(hasAdmin) {
@@ -2580,6 +2625,7 @@
         badge.textContent = totalUnread || 0;
         badge.style.display = totalUnread ? "inline-flex" : "none";
       });
+      const isAdmin = !!appData.authUser?.isAdmin;
       list.forEach((ch, idx) => {
         const unread = appData.unreadByChannel[ch.id] || 0;
         const displayName = ch.name || "#unknown";
@@ -2597,8 +2643,32 @@
           <div style="display:grid;gap:6px;justify-items:end;">
             <div class="muted">${time}</div>
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
+            ${isAdmin ? `<button class="channel-remove" type="button" data-remove="${displayName}">Remove</button>` : ""}
           </div>
         `;
+        if (isAdmin) {
+          const removeBtn = row.querySelector(".channel-remove");
+          removeBtn.style.display = "inline-flex";
+          removeBtn.addEventListener("click", async (ev) => {
+            ev.stopPropagation();
+            if (!confirm(`Remove ${displayName}?`)) return;
+            try {
+              const res = await fetch(`/api/channels?name=${encodeURIComponent(displayName)}`, {
+                method: "DELETE",
+                headers: authHeaders()
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || "Failed to remove channel.");
+                return;
+              }
+              await loadChannels();
+              await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+            } catch (err) {
+              alert(err?.message || err);
+            }
+          });
+        }
         row.addEventListener("click", () => {
           activeChannelId = ch.id;
           document.getElementById("activeChannel").textContent = ch.name;
@@ -2612,7 +2682,7 @@
           saveReadState();
           renderChannels();
           renderMessages(true);
-          loadMessages(false, { limit: 10 });
+          loadMessages(false, { limit: appData.channelHistoryLimit });
           document.body.classList.remove("menu-open-left", "menu-open-right");
         });
         el.appendChild(row);
@@ -2718,7 +2788,7 @@
         const added = await loadMessages(false, {
           channel: getChannelNameById(channelId),
           before,
-          limit: 10,
+          limit: appData.channelHistoryLimit,
           preserveScroll: true
         });
         const newHeight = el.scrollHeight;
@@ -3422,6 +3492,28 @@
       localStorage.setItem("meshmonitor.lastReadByChannel", JSON.stringify(appData.lastReadByChannel));
     }
 
+    function initChannelHistoryControl() {
+      const select = document.getElementById("channelHistoryLimit");
+      if (!select) return;
+      select.innerHTML = "";
+      for (let i = 1; i <= 50; i += 1) {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = String(i);
+        select.appendChild(opt);
+      }
+      select.value = String(appData.channelHistoryLimit);
+      select.addEventListener("change", async () => {
+        const next = Number(select.value);
+        if (!Number.isFinite(next) || next < 1 || next > 50) return;
+        appData.channelHistoryLimit = next;
+        saveChannelHistoryLimit(next);
+        try {
+          await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+        } catch {}
+      });
+    }
+
     async function boot() {
       const url = new URL(window.location.href);
       const channelParam = url.searchParams.get("channel");
@@ -3445,7 +3537,7 @@
       }
       try {
         await loadChannels();
-        await loadMessages(true, { replace: true, limit: 10 });
+        await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
         try {
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);
@@ -3482,7 +3574,7 @@
         const ok = await checkServerStatus();
         if (!ok) return;
         try {
-          await loadMessages(false, { limit: 10 });
+          await loadMessages(false, { limit: appData.channelHistoryLimit });
         } catch {}
       }, 2000);
 
@@ -5316,6 +5408,8 @@
     });
 
     loadReadState();
+    appData.channelHistoryLimit = loadChannelHistoryLimit();
+    initChannelHistoryControl();
     const rankSearch = document.getElementById("rankSearch");
     if (rankSearch) {
       rankSearch.addEventListener("input", () => {
