@@ -2259,16 +2259,17 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     document.body.classList.add("view-channels");
-      const appData = {
-        channels: [],
-        messages: [],
-        lastChannelsSig: "",
+    const appData = {
+      channels: [],
+      messages: [],
+      lastChannelsSig: "",
         lastMessagesSig: "",
         renderedIdsByChannel: {},
         meshScore: null,
         rankSummary: null,
-        rankData: null,
-        rankFilter: "",
+      rankData: [],
+      rankTotalCount: 0,
+      rankFilter: "",
         nodeRankSummary: null,
         nodeRank: null,
         unreadByChannel: {},
@@ -3343,8 +3344,7 @@
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);
           await refreshRankSummary();
-          const data = await fetchRank();
-          renderRank(data);
+          await loadRankDefault();
         } catch {}
       }, 15 * 60 * 1000);
 
@@ -3796,10 +3796,61 @@
       return badges;
     }
 
-    async function fetchRank() {
-      const res = await fetch(`/api/repeater-rank?_ts=${Date.now()}`, { cache: "no-store" });
+    const MOBILE_RANK_PAGE_SIZE = 40;
+
+    async function fetchRank(opts = {}) {
+      const params = new URLSearchParams();
+      params.set("_ts", Date.now().toString());
+      if (Number.isFinite(opts.limit) && opts.limit > 0) params.set("_limit", opts.limit);
+      if (Number.isFinite(opts.skip) && opts.skip > 0) params.set("_skip", opts.skip);
+      const res = await fetch(`/api/repeater-rank?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
+    }
+
+    async function loadRankChunk(limit, skip, replace) {
+      const data = await fetchRank({ limit, skip });
+      if (!data?.items?.length) return 0;
+      if (replace) {
+        appData.rankData = data.items.slice();
+      } else {
+        appData.rankData = appData.rankData.concat(data.items);
+      }
+      appData.rankTotalCount = typeof data.count === "number" ? data.count : appData.rankTotalCount;
+      renderRank({ ...data, items: appData.rankData });
+      return data.items.length;
+    }
+
+    let rankMobileLoadingMore = false;
+
+    function loadMoreRankChunks() {
+      if (rankMobileLoadingMore) return;
+      if (appData.rankData.length >= (appData.rankTotalCount || Infinity)) return;
+      rankMobileLoadingMore = true;
+      loadRankChunk(MOBILE_RANK_PAGE_SIZE, appData.rankData.length, false)
+        .then((count) => {
+          if (count >= MOBILE_RANK_PAGE_SIZE) {
+            setTimeout(loadMoreRankChunks, 200);
+          }
+        })
+        .finally(() => {
+          rankMobileLoadingMore = false;
+        });
+    }
+
+    async function loadRankForMobile() {
+      appData.rankData = [];
+      await loadRankChunk(MOBILE_RANK_PAGE_SIZE, 0, true);
+      loadMoreRankChunks();
+    }
+
+    async function loadRankDefault() {
+      if (isMobile()) {
+        await loadRankForMobile();
+      } else {
+        const data = await fetchRank();
+        renderRank(data);
+      }
     }
 
     async function fetchNodeRank() {
@@ -4114,7 +4165,9 @@
     }
 
     function renderRank(data) {
-      renderRankWithOptions(data, { preserveView: true });
+      if (!data?.items) return;
+      appData.rankData = data.items.slice();
+      renderRankWithOptions({ ...data, items: appData.rankData }, { preserveView: true });
     }
 
     function renderRankSummary(summary) {
@@ -4208,7 +4261,7 @@
 
     function renderRankWithOptions(data, options) {
       const opts = options || {};
-      appData.rankData = data;
+      appData.rankData = data.items || [];
       appData.repeatersByCode = buildRepeatersByCode(data);
       const list = document.getElementById("rankList");
       list.innerHTML = "";
@@ -4394,8 +4447,7 @@
             await refreshRankSummary();
             const mesh = await fetchMeshScore();
             renderMeshScore(mesh, meshRangeDays);
-            const data = await fetchRank();
-            renderRank(data);
+            await loadRankDefault();
           } catch (err) {
             const list = document.getElementById("rankList");
             list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";

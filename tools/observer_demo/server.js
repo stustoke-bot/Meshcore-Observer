@@ -138,6 +138,7 @@ try {
 
 const host = "0.0.0.0";
 const port = 5199;
+const AUTO_REFRESH_MS = 60 * 1000;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -1037,6 +1038,13 @@ async function refreshRankCache(force) {
   }
 }
 
+async function scheduleAutoRefresh() {
+  try {
+    await refreshRankCache(true);
+  } catch {}
+  setTimeout(() => scheduleAutoRefresh().catch(() => {}), AUTO_REFRESH_MS);
+}
+
 async function buildChannelMessages() {
   const sourcePath = getRfSourcePath();
   let stat = null;
@@ -1925,14 +1933,21 @@ const server = http.createServer(async (req, res) => {
     const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
     const force = u.searchParams.get("refresh") === "1";
     const limitRaw = u.searchParams.get("_limit");
+    const skipRaw = u.searchParams.get("_skip");
     const limit = limitRaw ? Number(limitRaw) : 0;
+    const skip = skipRaw ? Number(skipRaw) : 0;
     if (force || !last) {
       await refreshRankCache(true);
     } else if (now - last >= RANK_REFRESH_MS) {
       refreshRankCache(false).catch(() => {});
     }
+    let payloadItems = rankCache.items;
+    if (limit > 0) {
+      const start = Number.isFinite(skip) && skip > 0 ? skip : 0;
+      payloadItems = rankCache.items.slice(start, start + limit);
+    }
     const payload = limit > 0
-      ? { ...rankCache, items: rankCache.items.slice(0, limit) }
+      ? { ...rankCache, items: payloadItems }
       : rankCache;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
@@ -2185,4 +2200,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   console.log(`(observer-demo) http://${host}:${port}`);
+  scheduleAutoRefresh().catch(() => {});
 });
