@@ -2429,11 +2429,22 @@
         repeatersByCode: null,
         routeActivePathCodes: [],
         routeActivePathPoints: [],
-        routeActiveMsg: null,
-        channelHistoryLimit: 10,
-        authUser: null,
-        authToken: null
-      };
+          routeActiveMsg: null,
+          channelHistoryLimit: 10,
+          authUser: null,
+          latestByChannel: {},
+          livePulse: {
+            timer: null,
+            running: false,
+            channelId: null,
+            startedAt: 0,
+            latestSeenTs: 0,
+            newMessageCount: 0,
+            limitMs: 5000,
+            maxNewMessages: 2
+          },
+          authToken: null
+        };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
 
@@ -2584,6 +2595,56 @@
     function getChannelNameById(id) {
       const entry = appData.channels.find((c) => c.id === id);
       return entry ? entry.name : `#${id}`;
+    }
+
+    function stopLiveMessagePulse() {
+      const pulse = appData.livePulse;
+      if (pulse.timer) clearInterval(pulse.timer);
+      pulse.timer = null;
+      pulse.running = false;
+      pulse.channelId = null;
+      pulse.startedAt = 0;
+      pulse.latestSeenTs = 0;
+      pulse.newMessageCount = 0;
+    }
+
+    async function runLiveMessagePulse() {
+      const pulse = appData.livePulse;
+      if (pulse.running) return;
+      if (!pulse.channelId || pulse.channelId !== activeChannelId) return stopLiveMessagePulse();
+      if (!document.body.classList.contains("view-channels")) return stopLiveMessagePulse();
+      if (Date.now() - pulse.startedAt > pulse.limitMs) return stopLiveMessagePulse();
+
+      pulse.running = true;
+      try {
+        await loadMessages(false, {
+          limit: Math.max(10, appData.channelHistoryLimit),
+          channel: getChannelNameById(pulse.channelId),
+          preserveScroll: true,
+          liveEnrich: true
+        });
+      } catch {}
+      pulse.running = false;
+
+      const latest = appData.latestByChannel[pulse.channelId] || 0;
+      if (latest > pulse.latestSeenTs) {
+        pulse.latestSeenTs = latest;
+        pulse.newMessageCount += 1;
+      }
+      if (pulse.newMessageCount >= pulse.maxNewMessages) stopLiveMessagePulse();
+    }
+
+    function startLiveMessagePulse(channelId, latestTs) {
+      const pulse = appData.livePulse;
+      if (!channelId) return;
+      if (pulse.timer) clearInterval(pulse.timer);
+      pulse.channelId = channelId;
+      pulse.startedAt = Date.now();
+      pulse.latestSeenTs = latestTs || 0;
+      pulse.newMessageCount = 0;
+      pulse.running = false;
+      pulse.timer = setInterval(runLiveMessagePulse, 1000);
+      runLiveMessagePulse();
     }
 
     let activeChannelId = "public";
@@ -3411,6 +3472,7 @@
     }
 
     async function loadMessages(forceFull, opts = {}) {
+      const previousLatest = appData.latestByChannel || {};
       const data = await fetchMessages(opts);
       const raw = mergeMessages(data.messages || []);
       const mapped = raw.map((m) => ({
@@ -3458,6 +3520,7 @@
         unread[activeChannelId] = 0;
         saveReadState();
       }
+      appData.latestByChannel = latestByChannel;
       appData.unreadByChannel = unread;
       if (Array.isArray(data.channels)) {
         applyChannels(data.channels);
@@ -3467,6 +3530,13 @@
       renderMessages(!!forceFull, { preserveScroll: !!opts.preserveScroll });
       if (forceFull && appData.messages.length && !isMobile()) {
         showRoute(appData.messages[0].id);
+      }
+      if (!opts.liveEnrich && document.body.classList.contains("view-channels")) {
+        const prev = previousLatest[activeChannelId] || 0;
+        const next = latestByChannel[activeChannelId] || 0;
+        if (next && next > prev) {
+          startLiveMessagePulse(activeChannelId, next);
+        }
       }
       return mapped.length;
     }
