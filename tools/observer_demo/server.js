@@ -683,7 +683,8 @@ async function buildObserverRank() {
       const firstSeen = s.firstSeen ? new Date(s.firstSeen).getTime() : 0;
       const ageHours = lastSeen ? (now - lastSeen) / 3600000 : 999;
       if (ageHours > 48) continue;
-      const uptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
+      const rawUptimeHours = firstSeen ? (now - firstSeen) / 3600000 : 0;
+      const uptimeHours = ageHours > 1 ? 0 : rawUptimeHours;
     let gps = s.gps && Number.isFinite(s.gps.lat) && Number.isFinite(s.gps.lon) ? s.gps : null;
     if (gps && gps.lat === 0 && gps.lon === 0) gps = null;
     let locSource = s.locSource;
