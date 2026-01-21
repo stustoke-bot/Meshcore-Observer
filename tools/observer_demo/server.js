@@ -1436,12 +1436,20 @@ async function refreshRankCache(force) {
 }
 
 async function scheduleAutoRefresh() {
-  try {
-    await refreshRankCache(true);
-    await refreshMeshScoreCache(true);
-    await refreshObserverRankCache(true);
-  } catch {}
-  setTimeout(() => scheduleAutoRefresh().catch(() => {}), AUTO_REFRESH_MS);
+  setTimeout(async () => {
+    try {
+      if (rankCache.items?.length) {
+        await refreshRankCache(false);
+      }
+      if (meshScoreCache.payload) {
+        await refreshMeshScoreCache(false);
+      }
+      if (observerRankCache.items?.length) {
+        await refreshObserverRankCache(false);
+      }
+    } catch {}
+    scheduleAutoRefresh().catch(() => {});
+  }, AUTO_REFRESH_MS);
 }
 
 async function refreshMeshScoreCache(force) {
