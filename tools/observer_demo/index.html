@@ -2716,8 +2716,12 @@
           if (existing) {
             const observerEl = existing.querySelector(".msg-observers");
             if (observerEl) {
-              observerEl.textContent = `Observers: ${observerCount}`;
-              observerEl.dataset.observers = mapObserverLabels(observerHits).join("|");
+              const updatedCount = Number.isFinite(msg.observerCount)
+                ? msg.observerCount
+                : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
+              const updatedHits = Array.isArray(msg.observerHits) ? msg.observerHits : [];
+              observerEl.textContent = `Observers: ${updatedCount}`;
+              observerEl.dataset.observers = mapObserverLabels(updatedHits).join("|");
             }
             const hopsEl = existing.querySelector(".msg-hops");
             if (hopsEl) {
