@@ -850,7 +850,7 @@ async function buildRepeaterRank() {
       const lastSeenDate = parseIso(lastSeen);
       const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
         const isStale = ageHours > 48;
-        if (ageHours > 24 * 7) return null;
+        // Keep stale repeaters visible even if lastSeen is old.
         const uniqueMsgs = s.msgCounts.size || 0;
         const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
         const zeroHopNeighbors24h = s.zeroHopNeighbors ? s.zeroHopNeighbors.size : 0;
