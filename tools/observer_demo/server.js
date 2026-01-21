@@ -1501,7 +1501,7 @@ async function buildChannelMessages() {
     const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
     if ((countRow?.count || 0) > 0) {
       const nodeMap = buildNodeHashMap();
-      const observerHitsMap = await getObserverHitsMap();
+      const observerHitsMap = null;
       const latestRows = db.prepare(`
         SELECT m.channel_name, m.sender, m.body, m.ts
         FROM messages m
@@ -1757,7 +1757,7 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
     const rows = readMessagesFromDb(channelName, limit, beforeTs) || [];
     if (rows.length) {
       const nodeMap = buildNodeHashMap();
-      const observerHitsMap = await getObserverHitsMap();
+      const observerHitsMap = null;
       return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap)).reverse();
     }
   }
