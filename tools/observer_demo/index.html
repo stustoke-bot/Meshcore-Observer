@@ -4549,7 +4549,7 @@
       const meta = document.getElementById("neighborMapMeta");
       if (!modal) return;
       const repeaterName = entry?.name || entry?.pub || "Repeater";
-      if (title) title.textContent = `Zero-hop neighbors: ${repeaterName}`;
+      if (title) title.textContent = `Zero-hop neighbours: ${repeaterName}`;
       if (meta) meta.textContent = "Lines show zero-hop repeaters linked to this node.";
       modal.classList.add("open");
 
@@ -5496,10 +5496,8 @@
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
           const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
-          const neighborCount = Array.isArray(r.zeroHopNeighborDetails) ? r.zeroHopNeighborDetails.length : 0;
           const adminControls = `
             <div class="row repeater-location-controls" data-repeater-controls="${r.pub || ""}">
-              <button class="btn" type="button" data-repeater-neighbors="${r.pub || ""}">Neighbours: ${neighborCount}</button>
               <span class="admin-only">
                 <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
               </span>
@@ -5514,7 +5512,7 @@
               </div>
             <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
             <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-            <div class="row">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}${Array.isArray(r.zeroHopNeighborNames) && r.zeroHopNeighborNames.length ? ` — ${r.zeroHopNeighborNames.slice(0, 5).join(", ")}${r.zeroHopNeighborNames.length > 5 ? ` +${r.zeroHopNeighborNames.length - 5}` : ""}` : ""}</div>
+            <div class="row"><a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">Zero-hop neighbours (24hrs)</a></div>
             <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
             <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
             ${badgeHtml(badges)}
@@ -5579,7 +5577,7 @@
           <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${r.stale ? "stale" : "active"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbors (24h): ${r.zeroHopNeighbors24h ?? 0}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
           ${locationNote}
