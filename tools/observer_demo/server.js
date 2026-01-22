@@ -37,6 +37,10 @@ let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, 
 let rfAggCache = { builtAt: 0, map: new Map(), limit: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
+const DEVICES_CACHE_MS = 1000;
+const OBSERVERS_CACHE_MS = 1000;
+let devicesCache = { readAt: 0, data: null };
+let observersCache = { readAt: 0, data: null };
 const CHANNEL_CACHE_MIN_MS = 500;
 const CHANNEL_CACHE_STALE_MS = 1500;
 const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
@@ -534,6 +538,31 @@ function getDb() {
       updated_at TEXT NOT NULL,
       payload TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS devices (
+      pub TEXT PRIMARY KEY,
+      name TEXT,
+      is_repeater INTEGER,
+      is_observer INTEGER,
+      last_seen TEXT,
+      observer_last_seen TEXT,
+      gps_lat REAL,
+      gps_lon REAL,
+      raw_json TEXT,
+      hidden_on_map INTEGER,
+      updated_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
+    CREATE TABLE IF NOT EXISTS observers (
+      observer_id TEXT PRIMARY KEY,
+      name TEXT,
+      first_seen TEXT,
+      last_seen TEXT,
+      count INTEGER,
+      gps_lat REAL,
+      gps_lon REAL,
+      updated_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
   `);
   return db;
 }
@@ -698,6 +727,110 @@ function writeJsonSafe(p, data) {
   fs.renameSync(tmp, p);
 }
 
+function readDevicesJson() {
+  return readJsonSafe(devicesPath, { byPub: {} });
+}
+
+function readObserversJson() {
+  return readJsonSafe(observersPath, { byId: {} });
+}
+
+function readDevices() {
+  const now = Date.now();
+  if (devicesCache.data && (now - devicesCache.readAt) < DEVICES_CACHE_MS) {
+    return devicesCache.data;
+  }
+  const fallback = readDevicesJson();
+  try {
+    const db = getDb();
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='devices'").get();
+    if (!has) return fallback;
+    const rows = db.prepare(`
+      SELECT pub, name, is_repeater, is_observer, last_seen, observer_last_seen,
+             gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
+      FROM devices
+    `).all();
+    if (!rows.length) return fallback;
+    const byPub = {};
+    let updatedAt = null;
+    rows.forEach((row) => {
+      const pub = String(row.pub || "").toUpperCase();
+      if (!pub) return;
+      let raw = null;
+      if (row.raw_json) {
+        try { raw = JSON.parse(row.raw_json); } catch {}
+      }
+      const gps = (Number.isFinite(row.gps_lat) && Number.isFinite(row.gps_lon))
+        ? { lat: row.gps_lat, lon: row.gps_lon }
+        : null;
+      byPub[pub] = {
+        pub,
+        name: row.name || null,
+        isRepeater: !!row.is_repeater,
+        isObserver: !!row.is_observer,
+        lastSeen: row.last_seen || null,
+        observerLastSeen: row.observer_last_seen || null,
+        gps,
+        raw: raw ? { lastAdvert: raw } : null,
+        hiddenOnMap: row.hidden_on_map ? true : false
+      };
+      const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (!updatedAt || ts > new Date(updatedAt).getTime()) updatedAt = row.updated_at;
+    });
+    const payload = { byPub, updatedAt: updatedAt || new Date().toISOString() };
+    devicesCache = { readAt: now, data: payload };
+    return payload;
+  } catch {
+    return fallback;
+  }
+}
+
+function readObservers() {
+  const now = Date.now();
+  if (observersCache.data && (now - observersCache.readAt) < OBSERVERS_CACHE_MS) {
+    return observersCache.data;
+  }
+  const fallback = readObserversJson();
+  try {
+    const db = getDb();
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observers'").get();
+    if (!has) return fallback;
+    const rows = db.prepare(`
+      SELECT observer_id, name, first_seen, last_seen, count,
+             gps_lat, gps_lon, updated_at
+      FROM observers
+    `).all();
+    if (!rows.length) return fallback;
+    const byId = {};
+    let updatedAt = null;
+    rows.forEach((row) => {
+      const id = String(row.observer_id || "").trim();
+      if (!id) return;
+      const gps = (Number.isFinite(row.gps_lat) && Number.isFinite(row.gps_lon))
+        ? { lat: row.gps_lat, lon: row.gps_lon }
+        : null;
+      const entry = {
+        id,
+        name: row.name || null,
+        firstSeen: row.first_seen || null,
+        lastSeen: row.last_seen || null,
+        count: row.count || 0,
+        gps
+      };
+      const manual = fallback.byId?.[id];
+      if (manual) Object.assign(entry, manual);
+      byId[id] = entry;
+      const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (!updatedAt || ts > new Date(updatedAt).getTime()) updatedAt = row.updated_at;
+    });
+    const payload = { byId, updatedAt: updatedAt || fallback.updatedAt || new Date().toISOString() };
+    observersCache = { readAt: now, data: payload };
+    return payload;
+  } catch {
+    return fallback;
+  }
+}
+
 function parseIso(ts) {
   const d = new Date(ts);
   return Number.isFinite(d.getTime()) ? d : null;
@@ -757,7 +890,7 @@ function nodeHashFromPub(pubHex) {
 }
 
 function buildNodeHashMap() {
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const map = new Map(); // hash -> {name, lastSeen}
 
@@ -895,9 +1028,9 @@ async function tailLines(filePath, limit) {
 }
 
 async function buildObserverRank() {
-  const observers = readJsonSafe(observersPath, { byId: {} });
+  const observers = readObservers();
   const byId = observers.byId || {};
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const repeatersByPub = new Map();
   for (const d of Object.values(byPub)) {
@@ -1079,7 +1212,7 @@ async function buildObserverRank() {
 async function buildObserverDebug(observerId) {
   const id = String(observerId || "").trim();
   if (!id) return { ok: false, error: "observerId required" };
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const seen = new Map();
   if (!fs.existsSync(observerPath)) return { ok: true, observerId: id, items: [] };
@@ -1387,7 +1520,7 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
 }
 
 async function buildRepeaterRank() {
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const nodeMap = buildNodeHashMap();
   const isRepeaterPub = (pub) => {
@@ -1596,7 +1729,7 @@ async function buildRepeaterRank() {
 }
 
 async function buildNodeRank() {
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const all = Object.values(byPub).filter(Boolean);
   const companions = all.filter((d) => {
@@ -2207,7 +2340,7 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
 }
 
 async function buildMeshScore() {
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const all = Object.values(byPub).filter(Boolean);
   const repeaters = all.filter((d) => d.isRepeater);
@@ -2380,7 +2513,7 @@ async function buildRfLatest(limit) {
   const records = await readRfRecords(limit || 80);
   const keyCfg = loadKeys();
   const keyStore = buildKeyStore(keyCfg);
-  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const devices = readDevices();
   const byPub = devices.byPub || {};
   const keyMap = {};
   for (const ch of keyCfg.channels || []) {
@@ -2967,16 +3100,28 @@ const server = http.createServer(async (req, res) => {
       if (!pub) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub required" }));
       }
-      const devices = readJsonSafe(devicesPath, { byPub: {} });
+      const devices = readDevices();
       const byPub = devices.byPub || {};
       if (!byPub[pub]) {
         return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub not found" }));
       }
       byPub[pub].hiddenOnMap = hidden;
-      devices.updatedAt = new Date().toISOString();
+      const updatedAt = new Date().toISOString();
+      devices.updatedAt = updatedAt;
       const tmp = devicesPath + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify(devices, null, 2));
       fs.renameSync(tmp, devicesPath);
+      try {
+        const db = getDb();
+        db.prepare(`
+          INSERT INTO devices (pub, hidden_on_map, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(pub) DO UPDATE SET
+            hidden_on_map = excluded.hidden_on_map,
+            updated_at = excluded.updated_at
+        `).run(pub, hidden ? 1 : 0, updatedAt);
+      } catch {}
+      devicesCache = { readAt: 0, data: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hidden }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
@@ -2997,7 +3142,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/observers") {
-    const payload = readJsonSafe(observersPath, { byId: {}, updatedAt: null });
+    const payload = readObservers();
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
@@ -3011,7 +3156,7 @@ const server = http.createServer(async (req, res) => {
       if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "id, lat, lon required" }));
       }
-      const data = readJsonSafe(observersPath, { byId: {} });
+      const data = readObservers();
       const byId = data.byId || {};
       const entry = byId[id] || { id, firstSeen: new Date().toISOString(), count: 0 };
       entry.gpsApprox = { lat, lon };
@@ -3020,9 +3165,36 @@ const server = http.createServer(async (req, res) => {
       entry.locSource = "manual";
       entry.manualLocation = true;
       byId[id] = entry;
+      const updatedAt = new Date().toISOString();
       data.byId = byId;
-      data.updatedAt = new Date().toISOString();
+      data.updatedAt = updatedAt;
       writeJsonSafe(observersPath, data);
+      try {
+        const db = getDb();
+        db.prepare(`
+          INSERT INTO observers (
+            observer_id, name, first_seen, last_seen, count, gps_lat, gps_lon, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(observer_id) DO UPDATE SET
+            name = COALESCE(observers.name, excluded.name),
+            first_seen = COALESCE(observers.first_seen, excluded.first_seen),
+            last_seen = COALESCE(observers.last_seen, excluded.last_seen),
+            count = COALESCE(observers.count, excluded.count),
+            gps_lat = excluded.gps_lat,
+            gps_lon = excluded.gps_lon,
+            updated_at = excluded.updated_at
+        `).run(
+          id,
+          entry.name || null,
+          entry.firstSeen || null,
+          entry.lastSeen || null,
+          entry.count || 0,
+          lat,
+          lon,
+          updatedAt
+        );
+      } catch {}
+      observersCache = { readAt: 0, data: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
@@ -3095,7 +3267,7 @@ const server = http.createServer(async (req, res) => {
 
   if (u.pathname === "/api/route-suggestions") {
     const suggestions = getRouteSuggestions();
-    const devices = readJsonSafe(devicesPath, { byPub: {} });
+    const devices = readDevices();
     const byCode = calcSuggestionScores(suggestions, devices);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
       updatedAt: suggestions.updatedAt,
@@ -3121,7 +3293,7 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-zA-Z0-9_-]{6,64}$/.test(voterId)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid voter id" }));
       }
-      const devices = readJsonSafe(devicesPath, { byPub: {} });
+      const devices = readDevices();
       const byPub = devices.byPub || {};
       const candGps = byPub[repeaterPub]?.gps || null;
       const minDistanceKm = minDistanceKmFromPath(candGps, pathGps);

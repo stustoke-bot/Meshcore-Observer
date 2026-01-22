@@ -28,6 +28,8 @@ let rfPrune = null;
 let rfInsertCount = 0;
 let msgInsert = null;
 let msgObserverInsert = null;
+let deviceUpsert = null;
+let observerUpsert = null;
 let keysMtime = 0;
 let keyStore = null;
 let keyMap = {};
@@ -152,6 +154,31 @@ function initRfDb() {
         PRIMARY KEY (message_hash, observer_id)
       );
       CREATE INDEX IF NOT EXISTS idx_message_observers_hash ON message_observers(message_hash);
+      CREATE TABLE IF NOT EXISTS devices (
+        pub TEXT PRIMARY KEY,
+        name TEXT,
+        is_repeater INTEGER,
+        is_observer INTEGER,
+        last_seen TEXT,
+        observer_last_seen TEXT,
+        gps_lat REAL,
+        gps_lon REAL,
+        raw_json TEXT,
+        hidden_on_map INTEGER,
+        updated_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
+      CREATE TABLE IF NOT EXISTS observers (
+        observer_id TEXT PRIMARY KEY,
+        name TEXT,
+        first_seen TEXT,
+        last_seen TEXT,
+        count INTEGER,
+        gps_lat REAL,
+        gps_lon REAL,
+        updated_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
     `);
     rfInsert = rfDb.prepare(`
       INSERT INTO rf_packets (
@@ -196,6 +223,44 @@ function initRfDb() {
           ELSE message_observers.path_json
         END
     `);
+    deviceUpsert = rfDb.prepare(`
+      INSERT INTO devices (
+        pub, name, is_repeater, is_observer, last_seen, observer_last_seen,
+        gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(pub) DO UPDATE SET
+        name = COALESCE(excluded.name, devices.name),
+        is_repeater = MAX(devices.is_repeater, excluded.is_repeater),
+        is_observer = MAX(devices.is_observer, excluded.is_observer),
+        last_seen = CASE
+          WHEN excluded.last_seen > devices.last_seen THEN excluded.last_seen
+          ELSE devices.last_seen
+        END,
+        observer_last_seen = CASE
+          WHEN excluded.observer_last_seen > devices.observer_last_seen THEN excluded.observer_last_seen
+          ELSE devices.observer_last_seen
+        END,
+        gps_lat = COALESCE(excluded.gps_lat, devices.gps_lat),
+        gps_lon = COALESCE(excluded.gps_lon, devices.gps_lon),
+        raw_json = COALESCE(excluded.raw_json, devices.raw_json),
+        hidden_on_map = COALESCE(devices.hidden_on_map, excluded.hidden_on_map),
+        updated_at = excluded.updated_at
+    `);
+    observerUpsert = rfDb.prepare(`
+      INSERT INTO observers (
+        observer_id, name, first_seen, last_seen, count, gps_lat, gps_lon, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(observer_id) DO UPDATE SET
+        name = COALESCE(excluded.name, observers.name),
+        last_seen = CASE
+          WHEN excluded.last_seen > observers.last_seen THEN excluded.last_seen
+          ELSE observers.last_seen
+        END,
+        count = MAX(observers.count, excluded.count),
+        gps_lat = COALESCE(excluded.gps_lat, observers.gps_lat),
+        gps_lon = COALESCE(excluded.gps_lon, observers.gps_lon),
+        updated_at = excluded.updated_at
+    `);
     return true;
   } catch (err) {
     logIngest("ERROR", `rf db init failed ${err?.message || err}`);
@@ -204,6 +269,8 @@ function initRfDb() {
     rfPrune = null;
     msgInsert = null;
     msgObserverInsert = null;
+    deviceUpsert = null;
+    observerUpsert = null;
     return false;
   }
 }
@@ -313,6 +380,7 @@ function storeMessage(record) {
 
 function updateDeviceFromAdvert(record) {
   if (!record?.payloadHex) return;
+  if (!initRfDb()) return;
   let decoded;
   try {
     decoded = MeshCoreDecoder.decode(String(record.payloadHex).toUpperCase());
@@ -353,6 +421,22 @@ function updateDeviceFromAdvert(record) {
   devices.byPub = byPub;
   devices.updatedAt = new Date().toISOString();
   writeJsonSafe(devicesPath, devices);
+  if (deviceUpsert) {
+    const gps = entry.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) ? entry.gps : null;
+    deviceUpsert.run(
+      key,
+      entry.name || null,
+      entry.isRepeater ? 1 : 0,
+      entry.isObserver ? 1 : 0,
+      entry.lastSeen || null,
+      entry.observerLastSeen || null,
+      gps ? gps.lat : null,
+      gps ? gps.lon : null,
+      entry.raw ? JSON.stringify(entry.raw) : null,
+      null,
+      new Date().toISOString()
+    );
+  }
 }
 
 function logIngest(level, message) {
@@ -419,6 +503,19 @@ function updateObserverStatus(record) {
   data.byId = byId;
   data.updatedAt = new Date().toISOString();
   writeJsonSafe(observerStatusPath, data);
+  if (initRfDb() && observerUpsert) {
+    const gps = entry.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) ? entry.gps : null;
+    observerUpsert.run(
+      id,
+      entry.name || null,
+      entry.firstSeen || null,
+      entry.lastSeen || null,
+      entry.count || 0,
+      gps ? gps.lat : null,
+      gps ? gps.lon : null,
+      new Date().toISOString()
+    );
+  }
 
   if (record.observerPub) {
     const pub = String(record.observerPub).toUpperCase();
@@ -427,6 +524,24 @@ function updateObserverStatus(record) {
       byPub[pub].observerLastSeen = record.archivedAt;
       devices.updatedAt = new Date().toISOString();
       writeJsonSafe(devicesPath, devices);
+      if (initRfDb() && deviceUpsert) {
+        const gps = byPub[pub].gps && Number.isFinite(byPub[pub].gps.lat) && Number.isFinite(byPub[pub].gps.lon)
+          ? byPub[pub].gps
+          : null;
+        deviceUpsert.run(
+          pub,
+          byPub[pub].name || null,
+          byPub[pub].isRepeater ? 1 : 0,
+          1,
+          byPub[pub].lastSeen || null,
+          byPub[pub].observerLastSeen || null,
+          gps ? gps.lat : null,
+          gps ? gps.lon : null,
+          byPub[pub].raw ? JSON.stringify(byPub[pub].raw) : null,
+          null,
+          new Date().toISOString()
+        );
+      }
     }
   }
 }
