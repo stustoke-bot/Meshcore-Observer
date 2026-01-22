@@ -1853,15 +1853,9 @@ async function refreshRankCache(force) {
 async function scheduleAutoRefresh() {
   setTimeout(async () => {
     try {
-      if (rankCache.items?.length) {
-        await refreshRankCache(false);
-      }
-      if (meshScoreCache.payload) {
-        await refreshMeshScoreCache(false);
-      }
-      if (observerRankCache.items?.length) {
-        await refreshObserverRankCache(false);
-      }
+      await refreshRankCache(false);
+      await refreshMeshScoreCache(false);
+      await refreshObserverRankCache(false);
     } catch {}
     scheduleAutoRefresh().catch(() => {});
   }, AUTO_REFRESH_MS);
