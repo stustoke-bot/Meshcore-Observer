@@ -1481,7 +1481,7 @@ async function buildMessageRouteHistory(hash, hours) {
   return payload;
 }
 
-function buildConfidenceHistory(sender, channel, hours, limit) {
+async function buildConfidenceHistory(sender, channel, hours, limit) {
   const db = getDb();
   if (!hasMessagesDb(db)) return { ok: false, error: "messages db unavailable" };
   const senderName = String(sender || "").trim();
@@ -3558,7 +3558,7 @@ const server = http.createServer(async (req, res) => {
     const channel = u.searchParams.get("channel");
     const hours = u.searchParams.get("hours");
     const limit = u.searchParams.get("limit");
-    const payload = buildConfidenceHistory(sender, channel, hours, limit);
+    const payload = await buildConfidenceHistory(sender, channel, hours, limit);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
