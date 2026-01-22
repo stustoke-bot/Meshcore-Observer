@@ -1948,25 +1948,34 @@ async function buildRepeaterRank() {
         // Keep stale repeaters visible even if lastSeen is old.
         const uniqueMsgs = s.msgCounts.size || 0;
         const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
-        const zeroHopNeighbors24h = s.zeroHopNeighbors ? s.zeroHopNeighbors.size : 0;
         const zeroHopNeighborNames = s.zeroHopNeighbors
           ? Array.from(s.zeroHopNeighbors)
+            .filter((hash) => {
+              const node = nodeMap.get(hash);
+              return !node?.hiddenOnMap && !node?.gpsImplausible;
+            })
             .map((hash) => nodeMap.get(hash)?.name || hash)
             .filter(Boolean)
           : [];
         const zeroHopNeighborDetails = s.zeroHopNeighbors
-          ? Array.from(s.zeroHopNeighbors).map((hash) => {
-            const node = nodeMap.get(hash);
-            const rssiEntry = s.neighborRssi ? s.neighborRssi.get(hash) : null;
-            const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
-            return {
-              hash,
-              name: node?.name || hash,
-              rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
-              rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
-            };
-          })
+          ? Array.from(s.zeroHopNeighbors)
+            .filter((hash) => {
+              const node = nodeMap.get(hash);
+              return !node?.hiddenOnMap && !node?.gpsImplausible;
+            })
+            .map((hash) => {
+              const node = nodeMap.get(hash);
+              const rssiEntry = s.neighborRssi ? s.neighborRssi.get(hash) : null;
+              const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+              return {
+                hash,
+                name: node?.name || hash,
+                rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
+                rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
+              };
+            })
           : [];
+        const zeroHopNeighbors24h = zeroHopNeighborDetails.length;
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
       const driftMinutes = Number.isFinite(s.clockDriftMs) ? Math.round(s.clockDriftMs / 60000) : null;
