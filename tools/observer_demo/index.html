@@ -1586,6 +1586,20 @@
       background: var(--panel);
       color: var(--ink);
     }
+
+    body.view-rotm {
+      overflow: auto;
+    }
+
+    body.view-rotm .app {
+      height: auto;
+      min-height: 100vh;
+    }
+
+    body.view-rotm .rotm-panel,
+    body.view-rotm .rotm-body {
+      overflow: visible;
+    }
     body.theme-dark .rf-controls,
     body.theme-dark .rf-detail,
     body.theme-dark .rf-summary,
@@ -2246,6 +2260,8 @@
       .analysis-panel .title .route-close {
         margin-left: auto;
       }
+      body.view-rotm { height: auto; overflow: auto; }
+      body.view-rotm .app { height: auto; min-height: 100vh; }
       .rotm-grid { grid-template-columns: 1fr; }
       .rotm-settings-grid { grid-template-columns: 1fr; }
       .rotm-leader-row {
