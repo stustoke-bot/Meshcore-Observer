@@ -4548,7 +4548,7 @@
       confidenceLayers = [];
     }
 
-    function initConfidenceMap(paths) {
+    function initConfidenceMap(paths, extraPoints) {
       const mapEl = document.getElementById("confidenceMap");
       if (!mapEl || !window.L) return;
       confidenceMap = L.map(mapEl, { zoomControl: true }).setView([52.2, -1.5], 6);
@@ -4562,6 +4562,9 @@
         (path.pathPoints || []).forEach((pt) => {
           if (Number.isFinite(pt.lat) && Number.isFinite(pt.lon)) bounds.push([pt.lat, pt.lon]);
         });
+      });
+      (extraPoints || []).forEach((pt) => {
+        if (Number.isFinite(pt.lat) && Number.isFinite(pt.lon)) bounds.push([pt.lat, pt.lon]);
       });
       if (bounds.length) {
         confidenceMap.fitBounds(bounds, { padding: [20, 20] });
@@ -4628,6 +4631,11 @@
         <div class="confidence-meta" id="confidenceMeta">Sender: ${sender}${channelName ? ` | Channel: ${channelName}` : ""}</div>
         <div class="confidence-meta" id="confidenceStatus">Loading path history...</div>
         <div class="confidence-map"><div id="confidenceMap"></div></div>
+        <div class="confidence-meta" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" type="button" id="confidenceViewSuccess">Successful routes</button>
+          <button class="btn" type="button" id="confidenceViewFailed">Failed routes</button>
+        </div>
+        <div class="confidence-meta" id="confidenceExplain"></div>
         <div class="confidence-title">Dead ends</div>
         <div class="confidence-deadends" id="confidenceDeadEnds"></div>
       `;
@@ -4640,16 +4648,15 @@
           const meta = document.getElementById("confidenceMeta");
           const status = document.getElementById("confidenceStatus");
           const deadEl = document.getElementById("confidenceDeadEnds");
+          const explain = document.getElementById("confidenceExplain");
+          const btnSuccess = document.getElementById("confidenceViewSuccess");
+          const btnFailed = document.getElementById("confidenceViewFailed");
           if (meta) {
             const channelLabel = data.channel ? ` | Channel: ${data.channel}` : "";
             meta.textContent = `Sender: ${data.sender}${channelLabel} ? Messages: ${data.total || 0}`;
           }
-          if (status) {
-            status.textContent = paths.length
-              ? `Animating ${paths.length} paths from the last ${data.hours || 168} hours.`
-              : `No route data found in the last ${data.hours || 168} hours.`;
-          }
-          if (deadEl) {
+          const renderDeadEnds = () => {
+            if (!deadEl) return;
             deadEl.innerHTML = deadEnds.length
               ? deadEnds.map((stop) => `
                   <div class="confidence-deadend">
@@ -4658,9 +4665,43 @@
                   </div>
                 `).join("")
               : "<div class='confidence-meta'>No dead ends detected.</div>";
-          }
-          initConfidenceMap(paths);
-          animateConfidencePaths(paths);
+          };
+          const renderMode = (mode) => {
+            const successOnly = mode === "success";
+            const filtered = successOnly ? paths.filter((p) => p.observed) : paths.filter((p) => !p.observed);
+            const points = deadEnds
+              .map((d) => ({ lat: d.gps?.lat, lon: d.gps?.lon }))
+              .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+            resetConfidenceMap();
+            initConfidenceMap(filtered, successOnly ? [] : points);
+            if (status) {
+              status.textContent = filtered.length
+                ? `Animating ${filtered.length} ${successOnly ? "successful" : "failed"} routes from the last ${data.hours || 168} hours.`
+                : `No ${successOnly ? "successful" : "failed"} routes found in the last ${data.hours || 168} hours.`;
+            }
+            if (explain) {
+              explain.textContent = successOnly
+                ? "Successful routes are messages observed by the MeshRank observer network."
+                : "Failed routes end before we see the final hop. This can be observer coverage gaps or a repeater failing to forward.";
+            }
+            if (!successOnly && confidenceMap && points.length) {
+              points.forEach((pt) => {
+                const dot = L.circleMarker([pt.lat, pt.lon], {
+                  radius: 5,
+                  color: "#ff9500",
+                  fillColor: "#ff9500",
+                  fillOpacity: 0.9,
+                  weight: 2
+                }).addTo(confidenceMap);
+                confidenceLayers.push(dot);
+              });
+            }
+            animateConfidencePaths(filtered);
+          };
+          renderDeadEnds();
+          if (btnSuccess) btnSuccess.onclick = () => renderMode("success");
+          if (btnFailed) btnFailed.onclick = () => renderMode("failed");
+          renderMode("success");
         })
         .catch((err) => {
           content.innerHTML = `
