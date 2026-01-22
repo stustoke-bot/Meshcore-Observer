@@ -4277,6 +4277,10 @@
         alert("Channel name must start with #");
         return;
       }
+      if (name.toLowerCase() === "#rotm" && !appData.authUser?.isAdmin) {
+        alert("You cannot add this hashgroup.");
+        return;
+      }
       if (!/^[0-9a-fA-F]{32}$/.test(secret)) {
         alert("Secret must be 32 hex characters");
         return;
