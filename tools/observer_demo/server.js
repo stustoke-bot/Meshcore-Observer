@@ -1490,6 +1490,7 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
   const observers = readObservers();
   const observerById = observers.byId || {};
   const destinationRepeaterHashes = new Set();
+  const observerLinkedRepeaterHashes = new Set();
   const repeaters = Object.values(byPub).filter((d) =>
     d && d.isRepeater && d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon) && !(d.gps.lat === 0 && d.gps.lon === 0)
   );
@@ -1504,6 +1505,33 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
         const hash = nodeHashFromPub(pub);
         if (hash) destinationRepeaterHashes.add(hash);
       }
+    }
+  }
+  if (fs.existsSync(observerPath)) {
+    const tail = await tailLines(observerPath, OBSERVER_DEBUG_TAIL_LINES);
+    for (const line of tail) {
+      let rec;
+      try { rec = JSON.parse(line); } catch { continue; }
+      const hex = getHex(rec);
+      if (!hex) continue;
+      let decoded;
+      try {
+        decoded = MeshCoreDecoder.decode(String(hex).toUpperCase());
+      } catch {
+        continue;
+      }
+      const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+      if (payloadType !== "Advert") continue;
+      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
+      const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
+      if (hopCount > 1) continue;
+      const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
+      const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
+      if (!pub) continue;
+      const entry = byPub[String(pub).toUpperCase()];
+      if (!entry?.isRepeater) continue;
+      const hash = nodeHashFromPub(pub);
+      if (hash) observerLinkedRepeaterHashes.add(String(hash).toUpperCase());
     }
   }
   let rows = [];
@@ -1575,6 +1603,7 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
     }
     const lastCode = path[path.length - 1];
     if (lastCode) {
+      if (observerLinkedRepeaterHashes.has(String(lastCode).toUpperCase())) return;
       if (destinationRepeaterHashes.has(String(lastCode).toUpperCase())) return;
       const hit = nodeMap.get(lastCode);
       const gps = hit?.gps || null;
