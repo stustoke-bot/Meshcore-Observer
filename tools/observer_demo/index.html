@@ -5305,16 +5305,18 @@
     function buildRankPopupHtml(r) {
       const impact = Math.min(100, Math.max(0, r.score || 0));
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
+      const hasToken = !!loadAuthToken();
       const isAdmin = !!appData.authUser?.isAdmin;
+      const canEdit = isAdmin || hasToken;
       const implausibleNote = r.gpsImplausible
         ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible — hidden from map</div>`
         : "";
-      const actionButtons = isAdmin
+      const actionButtons = canEdit
         ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn" type="button" data-repeater-correct="${r.pub}">Correct location</button>
             ${r.gpsImplausible ? `<button class="btn" type="button" data-repeater-override="${r.pub}">Show on map</button>` : ""}
           </div>`
-        : "";
+        : `<div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">Admin login required to edit location.</div>`;
       const locationNote = `${implausibleNote}${actionButtons}`;
       return `
         <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
