@@ -2512,7 +2512,7 @@
         <div class="rotm-intro">
           <h2>#ROTM – Repeaters on the Mesh</h2>
           <p>Repeaters on the Mesh (#ROTM) gamifies your mesh activity! Send a "CQ" message on the #rotm channel to "activate" a repeater, get a reply from another node, and claim that repeater toward your personal score. It's inspired by POTA/SOTA activations and FT8-style quick QSOs — encouraging real-world exploration of mesh coverage while building community.</p>
-          <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to both nodes' unique claims. Only high-confidence observer data counts!</p>
+          <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to the CQ sender and both nodes log the QSO. Only high-confidence observer data counts!</p>
           <p>MeshRank applies AI-inspired geo intelligence to resolve likely repeater hops before scoring a claim.</p>
           <p>Leaderboards and maps update live. Expand the observer network to hear more repeaters and improve accuracy. Coming soon: badges, milestones, and public access once stable.</p>
           <details class="rotm-tips">
@@ -5026,8 +5026,11 @@
         const badgeClass = item.tone ? `rotm-badge ${item.tone}` : "rotm-badge";
         const via = item.viaRepeater ? `via ${item.viaRepeater}` : "via --";
         const channelLabel = item.channel || "#rotm";
-        const isCq = item.tone === "cq";
+        const isCq = item.tone === "cq" && !item.confirmed;
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
+        const responder = item.responseSender
+          ? `<div class="rotm-feed-body"><strong>Responder:</strong> @${item.responseSender} — ${item.responseBody || ""}</div>`
+          : "";
         return `
           <div class="rotm-feed-row">
             <div class="rotm-feed-meta">
@@ -5038,6 +5041,7 @@
               ${timer}
             </div>
             <div class="rotm-feed-body">${item.body || ""}</div>
+            ${responder}
             <span class="${badgeClass}">${item.badge || "Message"}</span>
           </div>
         `;

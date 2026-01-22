@@ -2814,7 +2814,7 @@ async function buildRotmData() {
   const qsos = [];
   const claims = new Map(); // nodeKey -> entry
 
-  const addClaim = (nodeName, nodeKey, repeater, ts) => {
+  const addClaim = (nodeName, nodeKey, repeater, ts, countRepeater) => {
     if (!nodeKey) return;
     if (!claims.has(nodeKey)) {
       claims.set(nodeKey, {
@@ -2828,7 +2828,7 @@ async function buildRotmData() {
     const entry = claims.get(nodeKey);
     entry.qsos += 1;
     if (!entry.lastActivity || ts > entry.lastActivity) entry.lastActivity = ts;
-    if (repeater?.hash || repeater?.name) {
+    if (countRepeater && (repeater?.hash || repeater?.name)) {
       const key = repeater.hash || repeater.name;
       if (!entry.repeaters.has(key)) {
         entry.repeaters.set(key, {
@@ -2911,45 +2911,50 @@ async function buildRotmData() {
     };
     qsos.push(qso);
     cqInfo.confirmed = true;
+    cqInfo.confirmedAt = ts;
+    cqInfo.responseSender = info.sender;
+    cqInfo.responseBody = info.body;
     info.confirmed = true;
-    addClaim(cqInfo.sender, cqInfo.senderKey, repeater, ts);
-    addClaim(info.sender, info.senderKey, repeater, ts);
+    addClaim(cqInfo.sender, cqInfo.senderKey, repeater, ts, true);
+    addClaim(info.sender, info.senderKey, repeater, ts, false);
   }
 
-  const feed = messagesAsc
-    .slice()
-    .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
-    .slice(0, ROTM_FEED_LIMIT)
-    .map((msg) => {
-      const info = infoById.get(msg.id) || {};
-      const repeater = info.repeater || pickRotmRepeater(msg);
-      let badge = "Message";
-      let tone = "muted";
-      if (info.confirmed) {
-        badge = "Confirmed QSO!";
-        tone = "ok";
-      } else if (info.isCq) {
-        badge = "CQ";
-        tone = "cq";
-      } else if (info.response) {
-        badge = "Response";
-        tone = "response";
-      }
-      return {
-        id: msg.id,
-        ts: msg.ts,
-        channel: msg.channelName,
-        sender: msg.sender,
-        body: msg.body,
-        viaRepeater: repeater?.name || "Unknown",
-        viaRepeaterHash: repeater?.hash || null,
-        viaRepeaterGps: repeater?.gps || null,
-        observerCount: msg.observerCount || 0,
-        confidenceOk: (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS,
-        badge,
-        tone
-      };
+  const cqFeed = [];
+  infoById.forEach((info, id) => {
+    if (!info.isCq) return;
+    const msg = messagesAsc.find((m) => m.id === id);
+    if (!msg) return;
+    const createdAt = new Date(msg.ts || 0).getTime();
+    if (!Number.isFinite(createdAt)) return;
+    const nowMs = Date.now();
+    if (!info.confirmed) {
+      if (nowMs - createdAt > ROTM_QSO_WINDOW_MS) return;
+    } else {
+      const confirmedAt = info.confirmedAt ? new Date(info.confirmedAt).getTime() : nowMs;
+      if (nowMs - confirmedAt > 60 * 1000) return;
+    }
+    cqFeed.push({
+      id,
+      ts: msg.ts,
+      channel: msg.channelName,
+      sender: msg.sender,
+      body: msg.body,
+      responseSender: info.responseSender || null,
+      responseBody: info.responseBody || null,
+      confirmed: !!info.confirmed,
+      viaRepeater: info.repeater?.name || "Unknown",
+      viaRepeaterHash: info.repeater?.hash || null,
+      viaRepeaterGps: info.repeater?.gps || null,
+      observerCount: msg.observerCount || 0,
+      confidenceOk: (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS,
+      badge: info.confirmed ? "Confirmed QSO!" : "CQ",
+      tone: info.confirmed ? "ok" : "cq"
     });
+  });
+
+  const feed = cqFeed
+    .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
+    .slice(0, ROTM_FEED_LIMIT);
 
   const leaderboard = Array.from(claims.values())
     .map((entry) => ({
