@@ -5496,9 +5496,10 @@
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
           const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
+          const neighborCount = Array.isArray(r.zeroHopNeighborDetails) ? r.zeroHopNeighborDetails.length : 0;
           const adminControls = `
             <div class="row repeater-location-controls" data-repeater-controls="${r.pub || ""}">
-              <button class="btn" type="button" data-repeater-neighbors="${r.pub || ""}">Neighbours</button>
+              <button class="btn" type="button" data-repeater-neighbors="${r.pub || ""}">Neighbours: ${neighborCount}</button>
               <span class="admin-only">
                 <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
               </span>
