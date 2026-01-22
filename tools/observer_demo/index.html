@@ -706,6 +706,53 @@
       border-radius: 50%;
       display: inline-block;
     }
+    .neighbor-map-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1200;
+    }
+    .neighbor-map-modal.open { display: flex; }
+    .neighbor-map-card {
+      width: min(92vw, 720px);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+    .neighbor-map {
+      height: 320px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .neighbor-map-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .neighbor-map-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .neighbor-map-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
 
     .rank-panel {
       grid-column: 1 / -1;
@@ -2474,6 +2521,22 @@
       </div>
     </div>
 
+    <div class="neighbor-map-modal" id="neighborMapModal">
+      <div class="neighbor-map-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong id="neighborMapTitle">Zero-hop Neighbors</strong>
+          <button class="observer-location-button" type="button" id="neighborMapClose">Close</button>
+        </div>
+        <div class="neighbor-map" id="neighborMap"></div>
+        <div class="neighbor-map-legend">
+          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#34c759;"></span>Good RSSI</div>
+          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ffcc00;"></span>Unknown/OK</div>
+          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ff3b30;"></span>Weak RSSI</div>
+        </div>
+        <div class="confidence-meta" id="neighborMapMeta">Lines show zero-hop repeaters linked to this node.</div>
+      </div>
+    </div>
+
     <section class="panel why-panel">
       <div class="title">Why MeshRank?</div>
       <div class="why-body">
@@ -3529,6 +3592,8 @@
     const repeaterLocationModal = document.getElementById("repeaterLocationModal");
     const repeaterLocationClose = document.getElementById("repeaterLocationClose");
     const repeaterLocationSave = document.getElementById("repeaterLocationSave");
+    const neighborMapModal = document.getElementById("neighborMapModal");
+    const neighborMapClose = document.getElementById("neighborMapClose");
 
     observerLocationClose?.addEventListener("click", closeObserverLocationModal);
     observerLocationModal?.addEventListener("click", (e) => {
@@ -3537,6 +3602,10 @@
     repeaterLocationClose?.addEventListener("click", closeRepeaterLocationModal);
     repeaterLocationModal?.addEventListener("click", (e) => {
       if (e.target === repeaterLocationModal) closeRepeaterLocationModal();
+    });
+    neighborMapClose?.addEventListener("click", closeNeighborMapModal);
+    neighborMapModal?.addEventListener("click", (e) => {
+      if (e.target === neighborMapModal) closeNeighborMapModal();
     });
 
     observerListEl?.addEventListener("click", (e) => {
@@ -4352,6 +4421,8 @@
     let repeaterLocationMarker;
     let repeaterLocationTarget = null;
     let repeaterLocationCoords = null;
+    let neighborMap;
+    let neighborMapLayer;
 
     function openObserverLocationModal(entry) {
       const modal = document.getElementById("observerLocationModal");
@@ -4461,6 +4532,88 @@
 
     function closeRepeaterLocationModal() {
       const modal = document.getElementById("repeaterLocationModal");
+      if (!modal) return;
+      modal.classList.remove("open");
+    }
+
+    function rssiTone(rssi) {
+      if (!Number.isFinite(rssi)) return { color: "#ffcc00", label: "RSSI n/a" };
+      if (rssi >= -75) return { color: "#34c759", label: `${rssi} dBm` };
+      if (rssi >= -95) return { color: "#ffcc00", label: `${rssi} dBm` };
+      return { color: "#ff3b30", label: `${rssi} dBm` };
+    }
+
+    function openNeighborMapModal(entry) {
+      const modal = document.getElementById("neighborMapModal");
+      const title = document.getElementById("neighborMapTitle");
+      const meta = document.getElementById("neighborMapMeta");
+      if (!modal) return;
+      const repeaterName = entry?.name || entry?.pub || "Repeater";
+      if (title) title.textContent = `Zero-hop neighbors: ${repeaterName}`;
+      if (meta) meta.textContent = "Lines show zero-hop repeaters linked to this node.";
+      modal.classList.add("open");
+
+      if (!neighborMap) {
+        neighborMap = L.map("neighborMap", { zoomControl: true });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 18,
+          attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(neighborMap);
+        neighborMapLayer = L.layerGroup().addTo(neighborMap);
+      }
+      if (neighborMapLayer) neighborMapLayer.clearLayers();
+
+      const repeaterGps = entry?.gps;
+      const neighbors = Array.isArray(entry?.zeroHopNeighborDetails) ? entry.zeroHopNeighborDetails : [];
+      const byHash = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
+      const points = [];
+
+      if (repeaterGps && Number.isFinite(repeaterGps.lat) && Number.isFinite(repeaterGps.lon)) {
+        const root = L.circleMarker([repeaterGps.lat, repeaterGps.lon], {
+          radius: 7,
+          color: "#007aff",
+          fillColor: "#007aff",
+          fillOpacity: 0.9,
+          weight: 2
+        }).bindPopup(repeaterName).addTo(neighborMapLayer);
+        points.push([repeaterGps.lat, repeaterGps.lon]);
+      }
+
+      neighbors.forEach((n) => {
+        const candidates = byHash.get(String(n.hash || "").toUpperCase()) || [];
+        const target = candidates.find((c) => c?.gps && Number.isFinite(c.gps.lat) && Number.isFinite(c.gps.lon)) || null;
+        const gps = target?.gps || null;
+        if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+        const tone = rssiTone(n.rssiAvg);
+        const label = n.name || n.hash || "Neighbor";
+        const marker = L.circleMarker([gps.lat, gps.lon], {
+          radius: 6,
+          color: tone.color,
+          fillColor: tone.color,
+          fillOpacity: 0.85,
+          weight: 2
+        }).bindPopup(`${label} | ${tone.label}`).addTo(neighborMapLayer);
+        if (repeaterGps && Number.isFinite(repeaterGps.lat) && Number.isFinite(repeaterGps.lon)) {
+          const line = L.polyline([[repeaterGps.lat, repeaterGps.lon], [gps.lat, gps.lon]], {
+            color: tone.color,
+            weight: 2,
+            opacity: 0.8
+          }).addTo(neighborMapLayer);
+          line.bindTooltip(`${label} (${tone.label})`, { sticky: true });
+        }
+        points.push([gps.lat, gps.lon]);
+      });
+
+      if (points.length) {
+        neighborMap.fitBounds(points, { padding: [20, 20] });
+      } else {
+        neighborMap.setView([52.2, -1.5], 6);
+      }
+      setTimeout(() => neighborMap.invalidateSize(), 80);
+    }
+
+    function closeNeighborMapModal() {
+      const modal = document.getElementById("neighborMapModal");
       if (!modal) return;
       modal.classList.remove("open");
     }
@@ -5344,8 +5497,11 @@
           item.dataset.pub = (r.pub || "").toUpperCase();
           const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
           const adminControls = `
-            <div class="row admin-only repeater-location-controls" data-repeater-controls="${r.pub || ""}">
-              <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
+            <div class="row repeater-location-controls" data-repeater-controls="${r.pub || ""}">
+              <button class="btn" type="button" data-repeater-neighbors="${r.pub || ""}">Neighbors</button>
+              <span class="admin-only">
+                <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
+              </span>
             </div>
           `;
           const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
@@ -6110,6 +6266,20 @@
         const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
         if (!entry) return;
         openRepeaterLocationModal(entry);
+      });
+    }
+
+    if (rankList) {
+      rankList.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-repeater-neighbors]");
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const pub = String(btn.getAttribute("data-repeater-neighbors") || "").trim().toUpperCase();
+        if (!pub) return;
+        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
+        if (!entry) return;
+        openNeighborMapModal(entry);
       });
     }
 

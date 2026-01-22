@@ -1729,14 +1729,21 @@ async function buildRepeaterRank() {
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
 
-  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, clockDriftMs}
+  const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, neighborRssi, clockDriftMs}
   const ensureRepeaterStat = (pub) => {
     if (!stats.has(pub)) {
-      stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
+      stats.set(pub, {
+        total24h: 0,
+        msgCounts: new Map(),
+        lastSeenTs: null,
+        zeroHopNeighbors: new Set(),
+        neighborRssi: new Map(),
+        clockDriftMs: null
+      });
     }
     return stats.get(pub);
   };
-  const addPathNeighbors = (path) => {
+  const addPathNeighbors = (path, rssi) => {
     if (!Array.isArray(path) || path.length < 2) return;
     for (let i = 0; i < path.length; i += 1) {
       const hash = path[i];
@@ -1748,7 +1755,16 @@ async function buildRepeaterRank() {
       if (neighbors.length === 0) continue;
       for (const pub of pubs) {
         const s = ensureRepeaterStat(pub);
-        for (const neighbor of neighbors) s.zeroHopNeighbors.add(neighbor);
+        for (const neighbor of neighbors) {
+          s.zeroHopNeighbors.add(neighbor);
+          if (Number.isFinite(rssi)) {
+            const entry = s.neighborRssi.get(neighbor) || { sum: 0, count: 0, max: -999 };
+            entry.sum += rssi;
+            entry.count += 1;
+            if (rssi > entry.max) entry.max = rssi;
+            s.neighborRssi.set(neighbor, entry);
+          }
+        }
       }
     }
   };
@@ -1770,7 +1786,7 @@ async function buildRepeaterRank() {
       if (!ts) continue;
       if (now - ts.getTime() > windowMs) continue;
       const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash).filter(Boolean) : [];
-      addPathNeighbors(path);
+      addPathNeighbors(path, rec.rssi);
       if (payloadTypeName !== "Advert") continue;
         const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
         if (!adv || typeof adv !== "object") continue;
@@ -1821,7 +1837,7 @@ async function buildRepeaterRank() {
       if (!ts) continue;
       if (now - ts.getTime() > windowMs) continue;
       const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash).filter(Boolean) : [];
-      addPathNeighbors(path);
+      addPathNeighbors(path, rec.rssi);
       if (payloadTypeName !== "Advert") continue;
         const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
         if (!adv || typeof adv !== "object") continue;
@@ -1938,6 +1954,19 @@ async function buildRepeaterRank() {
             .map((hash) => nodeMap.get(hash)?.name || hash)
             .filter(Boolean)
           : [];
+        const zeroHopNeighborDetails = s.zeroHopNeighbors
+          ? Array.from(s.zeroHopNeighbors).map((hash) => {
+            const node = nodeMap.get(hash);
+            const rssiEntry = s.neighborRssi ? s.neighborRssi.get(hash) : null;
+            const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+            return {
+              hash,
+              name: node?.name || hash,
+              rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
+              rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
+            };
+          })
+          : [];
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
       const driftMinutes = Number.isFinite(s.clockDriftMs) ? Math.round(s.clockDriftMs / 60000) : null;
@@ -1989,9 +2018,10 @@ async function buildRepeaterRank() {
         avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
         avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
           total24h: s.total24h,
-          zeroHopNeighbors24h,
-          zeroHopNeighborNames,
-          uniqueMsgs,
+        zeroHopNeighbors24h,
+        zeroHopNeighborNames,
+        zeroHopNeighborDetails,
+        uniqueMsgs,
           avgRepeats: Number(avgRepeats.toFixed(2)),
         score: Math.round(score),
         stale: isStale,
