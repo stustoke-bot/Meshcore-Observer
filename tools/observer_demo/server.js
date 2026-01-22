@@ -1125,7 +1125,9 @@ async function buildObserverRank() {
           lastSeen: rec.archivedAt || null,
           gps: rec.gps || null,
           packetsToday: 0,
-          repeaters: new Set()
+          repeaters: new Set(),
+          bestRepeaterPub: null,
+          bestRepeaterRssi: null
         });
       }
       const s = stats.get(id);
@@ -1155,6 +1157,12 @@ async function buildObserverRank() {
       if (!pub) continue;
       const rpt = repeatersByPub.get(String(pub).toUpperCase());
       if (rpt?.gps) s.repeaters.add(String(pub).toUpperCase());
+      if (Number.isFinite(rec.rssi)) {
+        if (!Number.isFinite(s.bestRepeaterRssi) || rec.rssi > s.bestRepeaterRssi) {
+          s.bestRepeaterRssi = rec.rssi;
+          s.bestRepeaterPub = String(pub).toUpperCase();
+        }
+      }
     }
   }
 
