@@ -851,9 +851,10 @@
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
       background: rgba(0, 0, 0, 0.02);
     }
 
@@ -877,6 +878,26 @@
     .rotm-feed-body {
       font-size: 14px;
       line-height: 1.45;
+    }
+
+    .rotm-feed-col {
+      display: grid;
+      gap: 6px;
+    }
+
+    .rotm-feed-col-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .rotm-feed-timer {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      text-align: right;
     }
 
     .rotm-badge {
@@ -2264,6 +2285,7 @@
       body.view-rotm .app { height: auto; min-height: 100vh; }
       .rotm-grid { grid-template-columns: 1fr; }
       .rotm-settings-grid { grid-template-columns: 1fr; }
+      .rotm-feed-row { grid-template-columns: 1fr; }
       .rotm-leader-row {
         grid-template-columns: 28px 1fr;
         grid-template-rows: auto auto;
@@ -4397,6 +4419,15 @@
           applyMessageObserverUpdates(data);
         } catch {}
       });
+      es.addEventListener("stats", () => {
+        if (document.body.classList.contains("view-channels")) {
+          loadChannels().catch(() => {});
+        }
+        fetchRankSummary().then(renderRankSummary).catch(() => {});
+        refreshNodeRankSummary().catch(() => {});
+        fetchMeshScore().then((mesh) => renderMeshScore(mesh, meshRangeDays)).catch(() => {});
+        loadRotm().catch(() => {});
+      });
     }
 
     async function checkServerStatus() {
@@ -5100,21 +5131,33 @@
         const channelLabel = item.channel || "#rotm";
         const isCq = item.tone === "cq" && !item.confirmed;
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
-        const responder = item.responseSender
-          ? `<div class="rotm-feed-body"><strong>Responder:</strong> @${item.responseSender} — ${item.responseBody || ""}</div>`
-          : "";
+        const responseTitle = item.responseSender ? "@"+item.responseSender : "Waiting";
+        const responseBody = item.responseBody || "—";
         return `
           <div class="rotm-feed-row">
-            <div class="rotm-feed-meta">
-              <span>${formatRotmTime(item.ts)}</span>
-              <span>${channelLabel}</span>
-              <span class="rotm-feed-sender">@${item.sender || "unknown"}</span>
-              <span>${via}</span>
-              ${timer}
+            <div class="rotm-feed-col">
+              <div class="rotm-feed-col-title">CQ call</div>
+              <div class="rotm-feed-meta">
+                <span>${formatRotmTime(item.ts)}</span>
+                <span>${channelLabel}</span>
+                <span class="rotm-feed-sender">@${item.sender || "unknown"}</span>
+                <span>${via}</span>
+              </div>
+              <div class="rotm-feed-body">${item.body || ""}</div>
+              <span class="${badgeClass}">${item.badge || "Message"}</span>
             </div>
-            <div class="rotm-feed-body">${item.body || ""}</div>
-            ${responder}
-            <span class="${badgeClass}">${item.badge || "Message"}</span>
+            <div class="rotm-feed-col">
+              <div class="rotm-feed-col-title">Response</div>
+              <div class="rotm-feed-meta">
+                <span class="rotm-feed-sender">${responseTitle}</span>
+                <span>${item.confirmed ? "Confirmed QSO" : "Pending"}</span>
+              </div>
+              <div class="rotm-feed-body">${responseBody}</div>
+            </div>
+            <div class="rotm-feed-col">
+              <div class="rotm-feed-col-title">Timer</div>
+              <div class="rotm-feed-timer">${timer || "--"}</div>
+            </div>
           </div>
         `;
       }).join("");

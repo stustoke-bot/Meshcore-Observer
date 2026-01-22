@@ -66,7 +66,7 @@ const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
 const ROTM_MIN_OBSERVER_HITS = 1;
 const ROTM_FEED_LIMIT = 200;
 const ROTM_DB_LIMIT = 2000;
-const ROTM_CACHE_MS = 15000;
+const ROTM_CACHE_MS = 2000;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -3642,6 +3642,9 @@ const server = http.createServer(async (req, res) => {
       res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
     };
     sendEvent("ready", { ok: true, lastRowId });
+    const statsInterval = setInterval(() => {
+      sendEvent("stats", { ts: Date.now() });
+    }, 5000);
     const poll = setInterval(() => {
       if (closed) return;
       try {
@@ -3665,6 +3668,7 @@ const server = http.createServer(async (req, res) => {
     }, MESSAGE_OBSERVER_STREAM_PING_MS);
     req.on("close", () => {
       closed = true;
+      clearInterval(statsInterval);
       clearInterval(poll);
       clearInterval(ping);
     });
