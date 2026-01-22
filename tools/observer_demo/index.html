@@ -3836,11 +3836,13 @@
           }
 
           const latlngs = [];
+          const mainRoute = [];
           normalized.forEach((p) => {
             if (!hasGps(p)) return;
             const gps = p.gps;
             const latlng = [gps.lat, gps.lon];
             latlngs.push(latlng);
+            mainRoute.push(latlng);
             const color = "#007aff";
             L.circleMarker(latlng, {
               radius: 5,
@@ -3850,6 +3852,14 @@
               weight: 2
             }).bindPopup(p.name || "#unknown").addTo(routeLayer);
           });
+
+          if (mainRoute.length >= 2) {
+            L.polyline(mainRoute, {
+              color: "#007aff",
+              weight: 3,
+              opacity: 0.85
+            }).addTo(routeLayer);
+          }
 
         const observerPaths = Array.isArray(msg.observerPaths) ? msg.observerPaths : [];
         const branchPalette = ["#34c759", "#007aff", "#ff9500", "#ff2d55", "#5856d6", "#8e8e93"];
