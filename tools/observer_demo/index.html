@@ -783,8 +783,8 @@
     }
 
     .rotm-info-link {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: inherit;
+      font-weight: 700;
       color: var(--blue-dark);
       cursor: pointer;
       border: 0;
@@ -1012,31 +1012,70 @@
     }
 
     .rotm-qso-log {
-      display: grid;
-      gap: 10px;
       max-height: 360px;
       overflow: auto;
-    }
-
-    .rotm-qso-item {
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 10px 12px;
-      display: grid;
-      gap: 6px;
-      background: rgba(0, 0, 0, 0.02);
     }
 
-    body.theme-dark .rotm-qso-item {
-      background: rgba(255, 255, 255, 0.04);
+    .rotm-qso-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      background: transparent;
     }
 
-    .rotm-qso-meta {
+    .rotm-qso-table th,
+    .rotm-qso-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .rotm-qso-table th {
+      position: sticky;
+      top: 0;
+      background: var(--panel);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    body.theme-dark .rotm-qso-table th {
+      background: var(--panel);
+    }
+
+    .rotm-qso-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .rotm-qso-msg {
       font-size: 12px;
       color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .rotm-qso-override {
+      margin-top: 6px;
       display: flex;
-      flex-wrap: wrap;
+      align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .rotm-qso-select {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      background: var(--panel);
+      color: inherit;
+    }
+
+    .rotm-qso-note {
+      font-size: 11px;
+      color: var(--muted);
     }
 
     .rank-body {
@@ -2526,13 +2565,16 @@
     </section>
 
     <section class="panel rotm-panel" id="rotm">
-      <div class="title rotm-title">
-        <span>#ROTM – Repeaters on the Mesh</span>
+      <div class="title rotm-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span>#ROTM - Repeaters on the Mesh</span>
+          <button class="rotm-info-link" type="button" id="rotmInfoBtn">What is ROTM?</button>
+        </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="rotm-info-link" type="button" id="rotmInfoBtn">What is this?</button>
           <button class="rotm-info-link admin-only" type="button" id="rotmSettingsBtn">Change ROTM key</button>
           <span class="chip" id="rotmUpdated">--</span>
         </div>
+      </div>
       </div>
       <div class="rotm-body">
         <div class="rotm-grid">
@@ -2884,14 +2926,14 @@
         <div class="why-card">
           <h3>Why MeshRank?</h3>
           <p>Mesh networks promise resilience, but in their early stages they often struggle with something more basic: confidence.</p>
-          <p>With MeshCORE, new repeaters are frequently deployed into sparse or growing networks. When messages don’t appear to move — or there’s no clear feedback — operators naturally assume the repeater isn’t helping. Too often, it gets switched off, and the network loses coverage just when it needs it most.</p>
+          <p>With MeshCORE, new repeaters are frequently deployed into sparse or growing networks. When messages don’t appear to move - or there’s no clear feedback - operators naturally assume the repeater isn’t helping. Too often, it gets switched off, and the network loses coverage just when it needs it most.</p>
           <p>MeshRank exists to answer one question early mesh networks struggle with: “Is this helping?”</p>
           <p>By giving honest, low-impact feedback, MeshRank helps good repeaters stay online long enough for the mesh to become truly resilient. MeshRank exists to change that experience.</p>
           <p>It provides visibility into how the mesh is actually performing:</p>
           <p>Which repeaters are active and contributing over time. Which messages were delivered, with a confidence score rather than guesswork. Where messages were observed but failed to fully propagate.</p>
           <p>This feedback loop keeps operators engaged and informed, even when the network is still maturing.</p>
           <p>MeshRank uses a passive observer network to provide insight without increasing mesh traffic. By reducing the need for repeated test messages, it lowers network load while giving users meaningful information about what’s happening behind the scenes.</p>
-          <p>Repeaters are ranked based on real contribution, not assumptions — encouraging operators to keep nodes online, improve placement, and actively strengthen the network.</p>
+          <p>Repeaters are ranked based on real contribution, not assumptions - encouraging operators to keep nodes online, improve placement, and actively strengthen the network.</p>
           <p>MeshRank doesn’t replace the mesh, and it doesn’t route traffic through the internet. It simply helps the mesh understand itself.</p>
           <p>Visibility builds confidence. Confidence builds resilience.</p>
         </div>
@@ -2903,11 +2945,11 @@
           </div>
           <div class="faq-item">
             <strong>Does this break the idea of a “pure” mesh?</strong>
-            <p>No. The mesh remains fully autonomous and functional without MeshRank. If MeshRank disappeared tomorrow, the mesh would continue to operate exactly as it does today. MeshRank does not participate in routing decisions, message delivery, or network control — it provides visibility, not dependency.</p>
+            <p>No. The mesh remains fully autonomous and functional without MeshRank. If MeshRank disappeared tomorrow, the mesh would continue to operate exactly as it does today. MeshRank does not participate in routing decisions, message delivery, or network control - it provides visibility, not dependency.</p>
           </div>
           <div class="faq-item">
             <strong>Why involve the internet at all?</strong>
-            <p>Because feedback matters. In early and sparse networks, lack of feedback causes repeaters to be switched off, not improved. MeshRank uses off-mesh observation to help operators understand what’s happening without increasing RF traffic or adding test spam to the network. This strengthens the mesh — it doesn’t weaken it.</p>
+            <p>Because feedback matters. In early and sparse networks, lack of feedback causes repeaters to be switched off, not improved. MeshRank uses off-mesh observation to help operators understand what’s happening without increasing RF traffic or adding test spam to the network. This strengthens the mesh - it doesn’t weaken it.</p>
           </div>
           <div class="faq-item">
             <strong>Could this become a central point of failure?</strong>
@@ -2919,15 +2961,15 @@
           </div>
           <div class="faq-item">
             <strong>Is this surveillance or message tracking?</strong>
-            <p>No. Observers do not inject traffic or control the network. They report limited metadata needed to understand propagation — not to monitor users. The goal is network health, not message content analysis.</p>
+            <p>No. Observers do not inject traffic or control the network. They report limited metadata needed to understand propagation - not to monitor users. The goal is network health, not message content analysis.</p>
           </div>
           <div class="faq-item">
             <strong>Why ranking repeaters? Isn’t that gamification?</strong>
-            <p>Yes — intentionally. Visibility and motivation matter. Ranking makes contribution measurable, encourages operators to keep repeaters online, and helps the network grow during its most fragile phase. Strong networks are built by engaged operators.</p>
+            <p>Yes - intentionally. Visibility and motivation matter. Ranking makes contribution measurable, encourages operators to keep repeaters online, and helps the network grow during its most fragile phase. Strong networks are built by engaged operators.</p>
           </div>
           <div class="faq-item">
             <strong>What happens when the mesh becomes dense and mature?</strong>
-            <p>MeshRank becomes less critical — and that’s a success. As density increases, confidence becomes self-sustaining. MeshRank’s role naturally shifts toward diagnostics, optimisation, and historical insight rather than reassurance.</p>
+            <p>MeshRank becomes less critical - and that’s a success. As density increases, confidence becomes self-sustaining. MeshRank’s role naturally shifts toward diagnostics, optimisation, and historical insight rather than reassurance.</p>
           </div>
           <div class="faq-item">
             <strong>So what is MeshRank really for?</strong>
@@ -2958,16 +3000,18 @@
 
     <div class="modal" id="rotmInfoModal">
       <div class="modal-card">
-        <strong>#ROTM – Repeaters on the Mesh</strong>
-        <p>Repeaters on the Mesh (#ROTM) gamifies your mesh activity! Send a "CQ" message on the #rotm channel to activate a repeater, get a reply from another node, and claim that repeater toward your personal score. It's inspired by POTA/SOTA activations and FT8-style quick QSOs — encouraging real-world exploration of mesh coverage while building community.</p>
-        <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to the CQ sender and both nodes log the QSO. Only high-confidence observer data counts!</p>
-        <p>MeshRank applies AI-inspired geo intelligence to resolve likely repeater hops before scoring a claim.</p>
-        <p>Leaderboards and maps update live. Expand the observer network to hear more repeaters and improve accuracy. Coming soon: badges, milestones, and public access once stable.</p>
-        <p><strong>Tips for success:</strong> send clear CQ calls, reply quickly, and place observers strategically to boost confidence and coverage.</p>
+        <strong>#ROTM - Repeaters on the Mesh</strong>
+        <p>Repeaters on the Mesh (#ROTM) builds naturally on the spirit of Parks on the Air (POTA), Summits on the Air (SOTA), and FT8 - taking the same portable, exploratory, quick-contact ethos that hams love and applying it to mesh networks.</p>
+        <p>Just like activating a park or summit, you get out into the real world to test and extend coverage. And just like FT8's efficient, low-power digital exchanges, #ROTM uses short, structured messages on the dedicated #rotm channel to confirm contacts and "activate" repeaters.</p>
+        <p><strong>How it works (classic ham QSO flow adapted to mesh):</strong></p>
+        <p><strong>Initiate the call:</strong> Send a message on the #rotm channel that starts with CQ (e.g., "CQ ROTM via GB3STK @G5AIL testing" or simply "CQ via hill repeater"). This is your activation call - observers capture it with repeater path, hops, and confidence metadata.</p>
+        <p><strong>Respond:</strong> Another node replies within 5 minutes, making sure to include the CQ sender's @node handle in their message (e.g., "@G5AIL 5/9 solid copy via same repeater 73" or "@NodeA msg ack 73 de @YourNode"). No strict wording required - just acknowledge and mention their @handle to link the exchange.</p>
+        <p><strong>Confirmation & credit:</strong> When both messages are observed at high confidence (&gt;70% packets heard), MeshRank resolves the repeater hop using AI-assisted geo-intelligence from observer data. The repeater is then credited as "activated" for both nodes (added to unique claimed repeaters), and the QSO is logged. No credit for unheard paths - exactly like needing chasers to complete a POTA/SOTA activation.</p>
         <div class="modal-actions">
           <button class="btn" type="button" id="rotmInfoClose">Close</button>
         </div>
       </div>
+    </div>
     </div>
 
     <div class="modal admin-only" id="rotmSettingsModal">
@@ -4815,7 +4859,7 @@
                       <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}</div>
                       <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
                       <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
-                      ${o.lowPacketRate ? "<div class=\"rank-meta\" style=\"color:#f2c88b;\">Low packet rate — try moving observer closer to repeater.</div>" : ""}
+                      ${o.lowPacketRate ? "<div class=\"rank-meta\" style=\"color:#f2c88b;\">Low packet rate - try moving observer closer to repeater.</div>" : ""}
                       ${badgeHtml(buildObserverBadges(o))}
                     </div>
                   </div>
@@ -5131,8 +5175,12 @@
         const channelLabel = item.channel || "#rotm";
         const isCq = item.tone === "cq" && !item.confirmed;
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
+        const showDetails = !!item.confirmed;
         const responseTitle = item.responseSender ? "@"+item.responseSender : "Waiting";
-        const responseBody = item.responseBody || "—";
+        const responseBody = item.responseBody || "--";
+        const responseVia = item.responseViaRepeater ? `via ${item.responseViaRepeater}` : "via --";
+        const cqSenderLabel = showDetails ? `@${item.sender || "unknown"}` : "CQ call";
+        const cqBodyLabel = showDetails ? (item.body || "") : "CQ";
         return `
           <div class="rotm-feed-row">
             <div class="rotm-feed-col">
@@ -5140,19 +5188,20 @@
               <div class="rotm-feed-meta">
                 <span>${formatRotmTime(item.ts)}</span>
                 <span>${channelLabel}</span>
-                <span class="rotm-feed-sender">@${item.sender || "unknown"}</span>
+                <span class="rotm-feed-sender">${cqSenderLabel}</span>
                 <span>${via}</span>
               </div>
-              <div class="rotm-feed-body">${item.body || ""}</div>
+              <div class="rotm-feed-body">${cqBodyLabel}</div>
               <span class="${badgeClass}">${item.badge || "Message"}</span>
             </div>
             <div class="rotm-feed-col">
               <div class="rotm-feed-col-title">Response</div>
               <div class="rotm-feed-meta">
-                <span class="rotm-feed-sender">${responseTitle}</span>
+                <span class="rotm-feed-sender">${showDetails ? responseTitle : "Waiting"}</span>
                 <span>${item.confirmed ? "Confirmed QSO" : "Pending"}</span>
+                <span>${showDetails ? responseVia : "via --"}</span>
               </div>
-              <div class="rotm-feed-body">${responseBody}</div>
+              <div class="rotm-feed-body">${showDetails ? responseBody : "--"}</div>
             </div>
             <div class="rotm-feed-col">
               <div class="rotm-feed-col-title">Timer</div>
@@ -5250,25 +5299,50 @@
       if (!title || !log) return;
       if (!node) {
         title.textContent = "ROTM QSO log";
-        log.innerHTML = "<div class='rotm-qso-item'>No node selected.</div>";
+        log.innerHTML = "<div class='rotm-qso-msg'>No node selected.</div>";
         return;
       }
       title.textContent = `QSO log: ${node.node || node.nodeKey}`;
       const items = Array.isArray(node.qsoLog) ? node.qsoLog : [];
       if (!items.length) {
-        log.innerHTML = "<div class='rotm-qso-item'>No QSOs logged yet.</div>";
+        log.innerHTML = "<div class='rotm-qso-msg'>No QSOs logged yet.</div>";
         return;
       }
-      log.innerHTML = items.map((qso) => `
-        <div class="rotm-qso-item">
-          <div class="rotm-qso-meta">
-            <span>${formatDateTime(qso.ts)}</span>
-            <span>Repeater: ${qso.repeater || "Unknown"}</span>
-          </div>
-          <div><strong>@${qso.cqSender}</strong> — ${qso.cqBody || ""}</div>
-          <div><strong>@${qso.responseSender}</strong> — ${qso.responseBody || ""}</div>
-        </div>
+      const allowOverride = !!appData.authUser?.isAdmin;
+      const rows = items.map((qso) => `
+        <tr>
+          <td>${formatDateTime(qso.ts)}</td>
+          <td>
+            ${qso.repeater || "Unknown"}
+            ${allowOverride && Array.isArray(qso.repeaterOptions) && qso.repeaterOptions.length > 1 ? `
+              <div class="rotm-qso-override" data-cq-id="${qso.cqId}" data-hash="${qso.repeaterHash || ""}">
+                <select class="rotm-qso-select">
+                  ${qso.repeaterOptions.map((opt) => `
+                    <option value="${opt.pub}" ${opt.pub === qso.repeaterPub ? "selected" : ""}>${opt.name || opt.hash || opt.pub}</option>
+                  `).join("")}
+                </select>
+                <button class="btn btn-ghost rotm-qso-save" type="button">Save</button>
+                <span class="rotm-qso-note">Ambiguous hash</span>
+              </div>
+            ` : ""}
+          </td>
+          <td><strong>@${qso.cqSender || "unknown"}</strong><div class="rotm-qso-msg">${qso.cqBody || ""}</div></td>
+          <td><strong>@${qso.responseSender || "unknown"}</strong><div class="rotm-qso-msg">${qso.responseBody || ""}</div></td>
+        </tr>
       `).join("");
+      log.innerHTML = `
+        <table class="rotm-qso-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Repeater</th>
+              <th>CQ</th>
+              <th>Response</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
     }
 
     function selectRotmNode(nodeKey) {
@@ -6303,7 +6377,7 @@
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
       const isAdmin = !!appData.authUser?.isAdmin;
       const flaggedNote = r.gpsImplausible
-        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible${r.hiddenOnMap ? " — hidden from map" : ""}</div>`
+        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible${r.hiddenOnMap ? " - hidden from map" : ""}</div>`
         : "";
       const estimatedNote = r.gpsEstimated
         ? `<div style="font-size:12px;color:#356">Location estimated (${r.gpsEstimateNeighbors || "?"} neighbors)</div>`
@@ -7064,6 +7138,32 @@
         const node = (appData.rotmData?.leaderboard || []).find((n) => n.nodeKey === nodeKey) || null;
         renderRotmQsoLog(node);
         document.getElementById("rotmQsoModal")?.classList.add("open");
+      });
+    }
+
+    const rotmQsoLog = document.getElementById("rotmQsoLog");
+    if (rotmQsoLog) {
+      rotmQsoLog.addEventListener("click", async (event) => {
+        const btn = event.target.closest(".rotm-qso-save");
+        if (!btn) return;
+        if (!appData.authUser?.isAdmin) return;
+        event.preventDefault();
+        const wrap = btn.closest(".rotm-qso-override");
+        const select = wrap?.querySelector(".rotm-qso-select");
+        const cqId = Number(wrap?.getAttribute("data-cq-id"));
+        const hash = String(wrap?.getAttribute("data-hash") || "").toUpperCase();
+        const pub = String(select?.value || "").toUpperCase();
+        if (!Number.isFinite(cqId) || !hash || !pub) return;
+        try {
+          await fetch("/api/rotm-override", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ cqId, hash, pub })
+          });
+          await loadRotm();
+        } catch {
+          // ignore, UI will refresh on next poll
+        }
       });
     }
     const rotmChannelSave = document.getElementById("rotmChannelSave");

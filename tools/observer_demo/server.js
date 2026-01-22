@@ -18,6 +18,7 @@ const observersPath = path.join(dataDir, "observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const rotmConfigPath = path.join(dataDir, "rotm_config.json");
+const rotmOverridesPath = path.join(dataDir, "rotm_overrides.json");
 const indexPath = path.join(__dirname, "index.html");
 const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
@@ -852,6 +853,7 @@ function buildRotmCandidatesByHash(devices) {
     if (!hash) continue;
     if (!map.has(hash)) map.set(hash, []);
     map.get(hash).push({
+      hash,
       pub: String(pub).toUpperCase(),
       name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
       gps: d.gps
@@ -860,9 +862,76 @@ function buildRotmCandidatesByHash(devices) {
   return map;
 }
 
+function readRotmOverrides() {
+  const raw = readJsonSafe(rotmOverridesPath, {});
+  if (!raw || typeof raw !== "object") return {};
+  return raw;
+}
+
 function resolveRotmRepeaterFromPath(path, candidatesByHash) {
   if (!Array.isArray(path) || path.length === 0) return null;
   const SUPPORT_RADIUS_KM = 80;
+  const firstHash = path[0];
+  const firstCandidates = candidatesByHash.get(firstHash) || [];
+  if (firstCandidates.length === 1) {
+    const cand = firstCandidates[0];
+    return {
+      hash: firstHash,
+      name: cand.name || firstHash,
+      gps: cand.gps,
+      pub: cand.pub
+    };
+  }
+  if (firstCandidates.length > 1) {
+    const nextCandidates = path.length > 1 ? (candidatesByHash.get(path[1]) || []) : [];
+    const next2Candidates = path.length > 2 ? (candidatesByHash.get(path[2]) || []) : [];
+    if (!nextCandidates.length && !next2Candidates.length) {
+      const cand = firstCandidates[0];
+      return {
+        hash: firstHash,
+        name: cand.name || firstHash,
+        gps: cand.gps,
+        pub: cand.pub
+      };
+    }
+    let bestFirst = null;
+    let bestScore = Infinity;
+    const minDist = (cand, others) => {
+      if (!others.length) return Infinity;
+      let bestKm = Infinity;
+      others.forEach((o) => {
+        const km = haversineKm(cand.gps.lat, cand.gps.lon, o.gps.lat, o.gps.lon);
+        if (Number.isFinite(km) && km < bestKm) bestKm = km;
+      });
+      return bestKm;
+    };
+    firstCandidates.forEach((cand) => {
+      const dist1 = minDist(cand, nextCandidates);
+      const dist2 = minDist(cand, next2Candidates);
+      let score = 0;
+      if (Number.isFinite(dist1) && dist1 !== Infinity) {
+        score += dist1;
+        if (dist1 > SUPPORT_RADIUS_KM) score += 5000;
+      }
+      if (Number.isFinite(dist2) && dist2 !== Infinity) {
+        score += dist2 * 0.7;
+        if (dist2 > SUPPORT_RADIUS_KM) score += 2500;
+      }
+      if (!Number.isFinite(score) || score === 0) score = 9999;
+      if (score < bestScore) {
+        bestScore = score;
+        bestFirst = cand;
+      }
+    });
+    if (bestFirst) {
+      return {
+        hash: firstHash,
+        name: bestFirst.name || firstHash,
+        gps: bestFirst.gps,
+        pub: bestFirst.pub
+      };
+    }
+  }
   const neighbors = path.map((hash, idx) => ({
     hash,
     idx,
@@ -2905,6 +2974,7 @@ async function buildRotmData() {
     if (nodeName) entry.node = nodeName;
   };
 
+  const overrides = readRotmOverrides();
   for (const msg of messagesAsc) {
     const sender = String(msg.sender || "unknown");
     const senderKey = normalizeRotmHandle(sender);
@@ -2924,7 +2994,8 @@ async function buildRotmData() {
       repeater,
       ts,
       confirmed: false,
-      response: false
+      response: false,
+      repeaterOptions: repeater?.hash ? (rotmCandidatesByHash.get(repeater.hash) || []) : []
     });
 
     if (isCq && senderKey) {
@@ -2964,7 +3035,20 @@ async function buildRotmData() {
     if (!cqInfo) continue;
     if (!cqInfo.confidenceOk || !info.confidenceOk) continue;
 
-    const repeater = cqInfo.repeater || info.repeater || null;
+    let repeater = cqInfo.repeater || info.repeater || null;
+    if (overrides && overrides[cqMsg.id]) {
+      const override = overrides[cqMsg.id];
+      const options = override?.hash ? (rotmCandidatesByHash.get(override.hash) || []) : [];
+      const match = options.find((opt) => opt.pub === override.pub);
+      if (match) {
+        repeater = {
+          hash: override.hash,
+          name: match.name || override.hash,
+          gps: match.gps,
+          pub: match.pub
+        };
+      }
+    }
     if (!repeater || !repeater.gps) continue;
     const qso = {
       cqId: cqMsg.id,
@@ -2979,17 +3063,24 @@ async function buildRotmData() {
     cqInfo.confirmedAt = ts;
     cqInfo.responseSender = info.sender;
     cqInfo.responseBody = info.body;
+    cqInfo.responseViaRepeater = info.repeater?.name || null;
+    cqInfo.responseViaRepeaterHash = info.repeater?.hash || null;
+    cqInfo.responseViaRepeaterGps = info.repeater?.gps || null;
     info.confirmed = true;
     addClaim(cqInfo.sender, cqInfo.senderKey, repeater, ts, true);
     addClaim(info.sender, info.senderKey, repeater, ts, false);
 
     const logEntry = {
+      cqId: cqMsg.id,
       ts: ts.toISOString(),
       cqSender: cqInfo.sender,
       cqBody: cqInfo.body || "",
       responseSender: info.sender,
       responseBody: info.body || "",
-      repeater: repeater?.name || "Unknown"
+      repeater: repeater?.name || "Unknown",
+      repeaterHash: repeater?.hash || null,
+      repeaterPub: repeater?.pub || null,
+      repeaterOptions: repeater?.hash ? (rotmCandidatesByHash.get(repeater.hash) || []) : []
     };
     const cqLog = qsoLogByNode.get(cqInfo.senderKey) || [];
     cqLog.push(logEntry);
@@ -3021,10 +3112,14 @@ async function buildRotmData() {
       body: msg.body,
       responseSender: info.responseSender || null,
       responseBody: info.responseBody || null,
+      responseViaRepeater: info.responseViaRepeater || null,
+      responseViaRepeaterHash: info.responseViaRepeaterHash || null,
+      responseViaRepeaterGps: info.responseViaRepeaterGps || null,
       confirmed: !!info.confirmed,
       viaRepeater: info.repeater?.name || "Unknown",
       viaRepeaterHash: info.repeater?.hash || null,
       viaRepeaterGps: info.repeater?.gps || null,
+      viaRepeaterOptions: info.repeaterOptions || [],
       observerCount: msg.observerCount || 0,
       confidenceOk: (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS,
       badge: info.confirmed ? "Confirmed QSO!" : "CQ",
@@ -3902,6 +3997,33 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hidden }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/rotm-override") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+    }
+    if (req.method !== "POST") {
+      return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const cqId = Number(body.cqId);
+      const hash = String(body.hash || "").toUpperCase();
+      const pub = String(body.pub || "").toUpperCase();
+      if (!Number.isFinite(cqId) || !hash || !pub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid payload" }));
+      }
+      const overrides = readRotmOverrides();
+      overrides[cqId] = { hash, pub };
+      writeJsonSafe(rotmOverridesPath, overrides);
+      rotmCache = { builtAt: 0, payload: null };
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "override failed" }));
     }
   }
 
