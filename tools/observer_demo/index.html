@@ -903,7 +903,7 @@
     }
 
     .rotm-feed-body {
-      font-size: 14px;
+      font-size: 12px;
       line-height: 1.45;
     }
 
@@ -950,6 +950,39 @@
     .rotm-badge.response {
       background: #fff1da;
       color: #a86400;
+    }
+
+    .rotm-repeater-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #fff1da;
+      color: #a86400;
+    }
+
+    .rotm-repeater-badge.ok {
+      background: #d7f3e2;
+      color: #1f6d39;
+    }
+
+    body.theme-dark .rotm-repeater-badge {
+      background: rgba(255, 149, 0, 0.2);
+      color: #ffd08a;
+    }
+
+    body.theme-dark .rotm-repeater-badge.ok {
+      background: rgba(52, 199, 89, 0.2);
+      color: #7ae6a1;
+    }
+
+    .rotm-feed-stats {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
     }
 
     body.theme-dark .rotm-badge.ok { background: rgba(52, 199, 89, 0.2); color: #7ae6a1; }
@@ -5337,7 +5370,7 @@
       }
       el.innerHTML = feed.map((item) => {
         const badgeClass = item.tone ? `rotm-badge ${item.tone}` : "rotm-badge";
-        const via = item.viaRepeater ? `via ${item.viaRepeater}` : "via --";
+        const viaName = item.viaRepeater || "Unknown";
         const channelLabel = item.channel || "#rotm";
         const isCq = item.tone === "cq" && !item.confirmed;
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
@@ -5345,9 +5378,10 @@
         const responseTitle = item.responseSender ? "@"+item.responseSender : "Waiting";
         const responseBody = item.responseBody || "--";
         const responseVia = item.responseViaRepeater ? `via ${item.responseViaRepeater}` : "via --";
-        const cqSenderLabel = showDetails ? `@${item.sender || "unknown"}` : "CQ call";
-        const cqBodyLabel = showDetails ? (item.body || "") : "CQ";
+        const cqSenderLabel = showDetails ? `@${item.sender || "unknown"}` : "CQ";
+        const cqBodyLabel = showDetails ? (item.body || "") : "";
         const cqStats = `Observers: ${item.observerCount ?? 0} | Hops: ${item.hopCount ?? 0}`;
+        const repeaterBadgeClass = showDetails ? "rotm-repeater-badge ok" : "rotm-repeater-badge";
         return `
           <div class="rotm-feed-row">
             <div class="rotm-feed-col">
@@ -5356,10 +5390,10 @@
                 <span>${formatRotmTime(item.ts)}</span>
                 <span>${channelLabel}</span>
                 <span class="rotm-feed-sender">${cqSenderLabel}</span>
-                <span>${via}</span>
               </div>
-              <div class="rotm-feed-body">${cqBodyLabel}</div>
-              <div class="neighbor-meta">${cqStats}</div>
+              <span class="${repeaterBadgeClass}">${viaName}</span>
+              ${cqBodyLabel ? `<div class="rotm-feed-body">${cqBodyLabel}</div>` : ""}
+              <div class="rotm-feed-stats">${cqStats}</div>
               <span class="${badgeClass}">${item.badge || "Message"}</span>
             </div>
             <div class="rotm-feed-col">

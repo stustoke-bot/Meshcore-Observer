@@ -3132,7 +3132,7 @@ async function buildRotmData() {
       if (nowMs - createdAt > ROTM_QSO_WINDOW_MS) return;
     } else {
       const confirmedAt = info.confirmedAt ? new Date(info.confirmedAt).getTime() : nowMs;
-      if (nowMs - confirmedAt > 60 * 1000) return;
+      if (nowMs - confirmedAt > 30 * 1000) return;
     }
     const hopCount = Number.isFinite(msg.hopCount) ? msg.hopCount : (Array.isArray(msg.path) ? msg.path.length : 0);
     cqFeed.push({
