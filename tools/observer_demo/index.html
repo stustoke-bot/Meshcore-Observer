@@ -3534,14 +3534,9 @@
           })
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
-        const payload = await res.json().catch(() => ({}));
         await loadRankDefault();
         fetchRankSummary().then(renderRankSummary).catch(() => {});
         closeRepeaterLocationModal();
-        if (payload.implausible) {
-          const km = Number.isFinite(payload.distanceKm) ? payload.distanceKm.toFixed(1) : "unknown";
-          alert(`GPS implausible (${km}km from reported). Repeater hidden from map.`);
-        }
       } catch (err) {
         alert("Unable to save location: " + (err?.message || err));
       }
@@ -4472,6 +4467,8 @@
     function buildRepeaterBadges(r, nearestObserverSet) {
       const badges = [];
       if (r.stale) badges.push({ label: "Stale repeater", tone: "gray" });
+      if (r.gpsFlagged) badges.push({ label: "GPS flagged", tone: "amber" });
+      if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "blue" });
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
       if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
@@ -4495,7 +4492,9 @@
       const driftLabel = Number.isFinite(drift)
         ? formatDriftMinutes(drift)
         : "Clock drift data unavailable";
-      const gpsLabel = repeater.gpsImplausible ? "Implausible (hidden)" : "Confirmed";
+      const gpsLabel = repeater.gpsFlagged
+        ? "Flagged (hidden)"
+        : (repeater.gpsEstimated ? "Estimated" : "Confirmed");
       content.innerHTML = `
         <div class="rank-detail-close">
           <button type="button" onclick="closeRankDetail()">✕</button>
@@ -5242,7 +5241,7 @@
       visible.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
-          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : (r.stale ? "Stale repeater" : "GPS unreliable");
+          const hiddenLabel = r.gpsFlagged ? "GPS flagged" : (r.stale ? "Stale repeater" : "GPS unreliable");
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
@@ -5305,19 +5304,21 @@
     function buildRankPopupHtml(r) {
       const impact = Math.min(100, Math.max(0, r.score || 0));
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
-      const hasToken = !!loadAuthToken();
       const isAdmin = !!appData.authUser?.isAdmin;
-      const canEdit = isAdmin || hasToken;
-      const implausibleNote = r.gpsImplausible
-        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible — hidden from map</div>`
+      const flaggedNote = r.gpsFlagged
+        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS flagged — hidden from map</div>`
         : "";
-      const actionButtons = canEdit
-        ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn" type="button" data-repeater-correct="${r.pub}">Correct location</button>
-            ${r.gpsImplausible ? `<button class="btn" type="button" data-repeater-override="${r.pub}">Show on map</button>` : ""}
-          </div>`
-        : `<div style="margin-top:8px;font-size:12px;color:rgba(60,60,67,0.6);">Admin login required to edit location.</div>`;
-      const locationNote = `${implausibleNote}${actionButtons}`;
+      const estimatedNote = r.gpsEstimated
+        ? `<div style="font-size:12px;color:#356">Location estimated (${r.gpsEstimateNeighbors || "?"} neighbors)</div>`
+        : "";
+      const actionButtons = `
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn" type="button" data-repeater-flag="${r.pub}">Flag location</button>
+          ${isAdmin ? `<button class="btn" type="button" data-repeater-correct="${r.pub}">Correct location</button>` : ""}
+        </div>
+        ${isAdmin ? "" : `<div style="margin-top:6px;font-size:12px;color:rgba(60,60,67,0.6);">Admin login required to correct location.</div>`}
+      `;
+      const locationNote = `${flaggedNote}${estimatedNote}${actionButtons}`;
       return `
         <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
           <div style="font-weight:700;margin-bottom:6px;">${r.name}${code}</div>
@@ -6016,41 +6017,44 @@
     }
 
     document.addEventListener("click", async (event) => {
-      const correctBtn = event.target.closest("[data-repeater-correct]");
-      if (correctBtn) {
+      const flagBtn = event.target.closest("[data-repeater-flag]");
+      if (flagBtn) {
         event.preventDefault();
         event.stopPropagation();
-        const pub = String(correctBtn.getAttribute("data-repeater-correct") || "").trim().toUpperCase();
+        const pub = String(flagBtn.getAttribute("data-repeater-flag") || "").trim().toUpperCase();
         if (!pub) return;
-        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
-        if (!entry) return;
-        openRepeaterLocationModal(entry);
+        try {
+          const res = await fetch("/api/repeater-flag", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pub, flagged: true })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          await loadRankDefault();
+          fetchRankSummary().then(renderRankSummary).catch(() => {});
+        } catch (err) {
+          alert("Unable to flag location: " + (err?.message || err));
+        }
         return;
       }
-      const overrideBtn = event.target.closest("[data-repeater-override]");
-      if (!overrideBtn) return;
+      const correctBtn = event.target.closest("[data-repeater-correct]");
+      if (!correctBtn) return;
       event.preventDefault();
       event.stopPropagation();
-      const pub = String(overrideBtn.getAttribute("data-repeater-override") || "").trim().toUpperCase();
+      const pub = String(correctBtn.getAttribute("data-repeater-correct") || "").trim().toUpperCase();
       if (!pub) return;
       const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
-      const gps = entry?.gps;
-      if (!entry || !gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) {
-        alert("Repeater needs a valid GPS location first.");
-        return;
-      }
+      if (!entry) return;
       try {
-        const res = await fetch("/api/repeater-location", {
+        await fetch("/api/repeater-flag", {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ pub, lat: gps.lat, lon: gps.lon, override: true })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pub, flagged: true })
         });
-        if (!res.ok) throw new Error("HTTP " + res.status);
         await loadRankDefault();
         fetchRankSummary().then(renderRankSummary).catch(() => {});
-      } catch (err) {
-        alert("Unable to override: " + (err?.message || err));
-      }
+      } catch {}
+      openRepeaterLocationModal(entry);
     });
 
     const rfSearch = document.getElementById("rfSearch");

@@ -410,8 +410,24 @@ function updateDeviceFromAdvert(record) {
     : gps;
   if (nextGps && Number.isFinite(nextGps.lat) && Number.isFinite(nextGps.lon)) {
     if (!(nextGps.lat === 0 && nextGps.lon === 0)) {
+      const prev = entry.gpsReported || null;
+      const changed = !prev || prev.lat !== nextGps.lat || prev.lon !== nextGps.lon;
       entry.gpsReported = nextGps;
-      if (!entry.manualLocation) entry.gps = nextGps;
+      if (changed) {
+        entry.gps = nextGps;
+        entry.manualLocation = false;
+        entry.locSource = null;
+        entry.gpsFlagged = false;
+        entry.gpsFlaggedAt = null;
+        entry.gpsEstimated = false;
+        entry.gpsEstimateAt = null;
+        entry.gpsEstimateNeighbors = null;
+        entry.gpsEstimateReason = null;
+        entry.gpsImplausible = false;
+        entry.hiddenOnMap = false;
+      } else if (!entry.manualLocation) {
+        entry.gps = nextGps;
+      }
     }
   }
 
