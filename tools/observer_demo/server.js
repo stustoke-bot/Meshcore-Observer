@@ -1464,6 +1464,27 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
     : CONFIDENCE_HISTORY_MAX_ROWS;
   const cutoff = new Date(Date.now() - hoursNum * 3600000).toISOString();
   const nodeMap = buildNodeHashMap();
+  const devices = readDevices();
+  const byPub = devices.byPub || {};
+  const observers = readObservers();
+  const observerById = observers.byId || {};
+  const destinationRepeaterHashes = new Set();
+  const repeaters = Object.values(byPub).filter((d) =>
+    d && d.isRepeater && d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon) && !(d.gps.lat === 0 && d.gps.lon === 0)
+  );
+  for (const obs of Object.values(observerById)) {
+    const gps = obs?.gps;
+    if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) continue;
+    if (gps.lat === 0 && gps.lon === 0) continue;
+    for (const rpt of repeaters) {
+      const km = haversineKm(gps.lat, gps.lon, rpt.gps.lat, rpt.gps.lon);
+      if (km === 0) {
+        const pub = rpt.pub || rpt.publicKey || rpt.pubKey || rpt.raw?.lastAdvert?.publicKey || null;
+        const hash = nodeHashFromPub(pub);
+        if (hash) destinationRepeaterHashes.add(hash);
+      }
+    }
+  }
   let rows = [];
   if (channelName) {
     rows = db.prepare(`
@@ -1481,6 +1502,22 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
       ORDER BY ts DESC
       LIMIT ?
     `).all(senderName, cutoff, maxRows);
+  }
+
+  const observedMessages = new Set();
+  if (rows.length) {
+    const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+    if (hashes.length) {
+      const placeholders = hashes.map(() => "?").join(", ");
+      const seen = db.prepare(`
+        SELECT DISTINCT message_hash
+        FROM message_observers
+        WHERE message_hash IN (${placeholders})
+      `).all(...hashes);
+      seen.forEach((row) => {
+        if (row?.message_hash) observedMessages.add(String(row.message_hash).toUpperCase());
+      });
+    }
   }
 
   const paths = [];
@@ -1511,11 +1548,13 @@ function buildConfidenceHistory(sender, channel, hours, limit) {
       paths.push({
         ts: row.ts,
         hops: Number.isFinite(row.path_length) ? row.path_length : path.length,
-        pathPoints
+        pathPoints,
+        observed: observedMessages.has(String(row.message_hash || "").toUpperCase())
       });
     }
     const lastCode = path[path.length - 1];
     if (lastCode) {
+      if (destinationRepeaterHashes.has(String(lastCode).toUpperCase())) return;
       const hit = nodeMap.get(lastCode);
       const gps = hit?.gps || null;
       if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon) && gps.lat === 0 && gps.lon === 0) return;
@@ -1558,11 +1597,43 @@ async function buildRepeaterRank() {
     const entry = byPub[String(pub).toUpperCase()];
     return !!entry?.isRepeater;
   };
+  const repeatersByHash = new Map(); // hash -> [pub]
+  for (const d of Object.values(byPub)) {
+    if (!d?.isRepeater) continue;
+    const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || null;
+    if (!pub) continue;
+    const hash = nodeHashFromPub(pub);
+    if (!hash) continue;
+    if (!repeatersByHash.has(hash)) repeatersByHash.set(hash, []);
+    repeatersByHash.get(hash).push(pub);
+  }
 
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
 
   const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, clockDriftMs}
+  const ensureRepeaterStat = (pub) => {
+    if (!stats.has(pub)) {
+      stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
+    }
+    return stats.get(pub);
+  };
+  const addPathNeighbors = (path) => {
+    if (!Array.isArray(path) || path.length < 2) return;
+    for (let i = 0; i < path.length; i += 1) {
+      const hash = path[i];
+      const pubs = repeatersByHash.get(hash);
+      if (!pubs || pubs.length === 0) continue;
+      const neighbors = [];
+      if (i > 0 && path[i - 1]) neighbors.push(path[i - 1]);
+      if (i + 1 < path.length && path[i + 1]) neighbors.push(path[i + 1]);
+      if (neighbors.length === 0) continue;
+      for (const pub of pubs) {
+        const s = ensureRepeaterStat(pub);
+        for (const neighbor of neighbors) s.zeroHopNeighbors.add(neighbor);
+      }
+    }
+  };
 
   if (fs.existsSync(decodedPath)) {
     const rl = readline.createInterface({
@@ -1577,22 +1648,23 @@ async function buildRepeaterRank() {
       try { rec = JSON.parse(t); } catch { continue; }
       const decoded = rec.decoded || null;
       const payloadTypeName = rec.payloadType || (decoded ? Utils.getPayloadTypeName(decoded.payloadType) : null);
+      const ts = parseIso(rec.ts);
+      if (!ts) continue;
+      if (now - ts.getTime() > windowMs) continue;
+      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash).filter(Boolean) : [];
+      addPathNeighbors(path);
       if (payloadTypeName !== "Advert") continue;
         const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
         if (!adv || typeof adv !== "object") continue;
         const pub = adv.publicKey || adv.pub || adv.pubKey;
         if (!pub) continue;
         if (!isRepeaterPub(pub)) continue;
-        const ts = parseIso(rec.ts);
-        if (!ts) continue;
-        if (now - ts.getTime() > windowMs) continue;
         const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
         const driftMs = Number.isFinite(advTimestamp)
           ? (advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp) - ts.getTime()
           : null;
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
-      const s = stats.get(pub);
+      const s = ensureRepeaterStat(pub);
       if (Number.isFinite(driftMs)) s.clockDriftMs = driftMs;
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -1602,7 +1674,6 @@ async function buildRepeaterRank() {
       if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
       if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
-      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
       const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
         if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
       const msgKey = String(rec.messageHash || rec.hash || rec.id || "unknown");
@@ -1628,22 +1699,23 @@ async function buildRepeaterRank() {
         continue;
       }
       const payloadTypeName = Utils.getPayloadTypeName(decoded.payloadType);
+      const ts = parseIso(rec.archivedAt);
+      if (!ts) continue;
+      if (now - ts.getTime() > windowMs) continue;
+      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash).filter(Boolean) : [];
+      addPathNeighbors(path);
       if (payloadTypeName !== "Advert") continue;
         const adv = decoded?.payload?.decoded || decoded?.decoded || decoded;
         if (!adv || typeof adv !== "object") continue;
         const pub = adv.publicKey || adv.pub || adv.pubKey;
         if (!pub) continue;
         if (!isRepeaterPub(pub)) continue;
-        const ts = parseIso(rec.archivedAt);
-        if (!ts) continue;
-        if (now - ts.getTime() > windowMs) continue;
         const advTimestamp = Number.isFinite(adv.timestamp) ? Number(adv.timestamp) : null;
         const driftMs = Number.isFinite(advTimestamp)
           ? (advTimestamp < 1e12 ? advTimestamp * 1000 : advTimestamp) - ts.getTime()
           : null;
 
-      if (!stats.has(pub)) stats.set(pub, { total24h: 0, msgCounts: new Map(), lastSeenTs: null, zeroHopNeighbors: new Set(), clockDriftMs: null });
-      const s = stats.get(pub);
+      const s = ensureRepeaterStat(pub);
       if (Number.isFinite(driftMs)) s.clockDriftMs = driftMs;
       s.total24h += 1;
       if (!s.lastSeenTs || ts > s.lastSeenTs) s.lastSeenTs = ts;
@@ -1653,7 +1725,6 @@ async function buildRepeaterRank() {
       if (Number.isFinite(rec.snr)) s.snr.push(rec.snr);
       if (!Number.isFinite(s.bestRssi) || (Number.isFinite(rec.rssi) && rec.rssi > s.bestRssi)) s.bestRssi = rec.rssi;
       if (!Number.isFinite(s.bestSnr) || (Number.isFinite(rec.snr) && rec.snr > s.bestSnr)) s.bestSnr = rec.snr;
-      const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
       const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
         if (hopCount > 0 && path[0]) s.zeroHopNeighbors.add(path[0]);
       const msgKey = String(rec.frameHash || hex.slice(0, 16) || "unknown");

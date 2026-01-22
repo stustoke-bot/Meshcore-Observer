@@ -4502,7 +4502,6 @@
 
     function animateConfidencePaths(paths) {
       if (!confidenceMap) return;
-      const palette = ["#2f6fed", "#6ab0ff", "#2ecc71", "#f39c12", "#9b59b6"];
       let idx = 0;
       const list = Array.isArray(paths) ? paths : [];
       const total = list.length;
@@ -4513,8 +4512,9 @@
           .filter((pt) => Number.isFinite(pt.lat) && Number.isFinite(pt.lon))
           .map((pt) => [pt.lat, pt.lon]);
         if (points.length >= 2) {
+          const routeColor = entry.observed ? "#34c759" : "#ff3b30";
           const line = L.polyline(points, {
-            color: palette[idx % palette.length],
+            color: routeColor,
             weight: 2,
             opacity: 0.8
           }).addTo(confidenceMap);
