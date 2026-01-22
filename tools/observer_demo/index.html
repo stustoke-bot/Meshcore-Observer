@@ -2478,41 +2478,13 @@
     <section class="panel rotm-panel admin-only" id="rotm">
       <div class="title rotm-title">
         <span>#ROTM – Repeaters on the Mesh</span>
-        <span class="chip" id="rotmUpdated">--</span>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="rotm-info-link" type="button" id="rotmInfoBtn">What is this?</button>
+          <button class="rotm-info-link admin-only" type="button" id="rotmSettingsBtn">Change ROTM key</button>
+          <span class="chip" id="rotmUpdated">--</span>
+        </div>
       </div>
       <div class="rotm-body">
-        <div class="rotm-intro">
-          <h2>#ROTM – Repeaters on the Mesh</h2>
-          <p>Repeaters on the Mesh (#ROTM) gamifies your mesh activity! Send a "CQ" message on the #rotm channel to "activate" a repeater, get a reply from another node, and claim that repeater toward your personal score. It's inspired by POTA/SOTA activations and FT8-style quick QSOs — encouraging real-world exploration of mesh coverage while building community.</p>
-          <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to the CQ sender and both nodes log the QSO. Only high-confidence observer data counts!</p>
-          <p>MeshRank applies AI-inspired geo intelligence to resolve likely repeater hops before scoring a claim.</p>
-          <p>Leaderboards and maps update live. Expand the observer network to hear more repeaters and improve accuracy. Coming soon: badges, milestones, and public access once stable.</p>
-          <details class="rotm-tips">
-            <summary>Tips for Success</summary>
-            <ul>
-              <li>Send clear CQ calls and include your @node name.</li>
-              <li>Reply quickly when you hear a CQ to confirm the QSO.</li>
-              <li>Place observers strategically to boost confidence and coverage.</li>
-            </ul>
-          </details>
-        </div>
-        <div class="rotm-card rotm-settings">
-          <div class="rotm-card-title">ROTM admin settings</div>
-          <div class="rotm-settings-grid">
-            <label class="field">
-              <span>Channel name</span>
-              <input id="rotmChannelName" type="text" placeholder="#rotm"/>
-            </label>
-            <label class="field">
-              <span>Channel secret (32 hex chars)</span>
-              <input id="rotmChannelSecret" type="text" placeholder="0123456789abcdef0123456789abcdef"/>
-            </label>
-          </div>
-          <div class="rotm-settings-actions">
-            <button class="btn" type="button" id="rotmChannelSave">Save ROTM settings</button>
-          <span class="rotm-settings-note" id="rotmChannelStatus">Secret is stored until you update it.</span>
-          </div>
-        </div>
         <div class="rotm-grid">
           <div class="rotm-card">
             <div class="rotm-card-title">Live #rotm activity feed</div>
@@ -2937,6 +2909,41 @@
       </div>
     </div>
 
+    <div class="modal" id="rotmInfoModal">
+      <div class="modal-card">
+        <strong>#ROTM – Repeaters on the Mesh</strong>
+        <p>Repeaters on the Mesh (#ROTM) gamifies your mesh activity! Send a "CQ" message on the #rotm channel to activate a repeater, get a reply from another node, and claim that repeater toward your personal score. It's inspired by POTA/SOTA activations and FT8-style quick QSOs — encouraging real-world exploration of mesh coverage while building community.</p>
+        <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to the CQ sender and both nodes log the QSO. Only high-confidence observer data counts!</p>
+        <p>MeshRank applies AI-inspired geo intelligence to resolve likely repeater hops before scoring a claim.</p>
+        <p>Leaderboards and maps update live. Expand the observer network to hear more repeaters and improve accuracy. Coming soon: badges, milestones, and public access once stable.</p>
+        <p><strong>Tips for success:</strong> send clear CQ calls, reply quickly, and place observers strategically to boost confidence and coverage.</p>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="rotmInfoClose">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal admin-only" id="rotmSettingsModal">
+      <div class="modal-card rotm-settings">
+        <strong>ROTM channel settings</strong>
+        <div class="rotm-settings-grid">
+          <label class="field">
+            <span>Channel name</span>
+            <input id="rotmChannelName" type="text" placeholder="#rotm"/>
+          </label>
+          <label class="field">
+            <span>Channel secret (32 hex chars)</span>
+            <input id="rotmChannelSecret" type="text" placeholder="0123456789abcdef0123456789abcdef"/>
+          </label>
+        </div>
+        <div class="rotm-settings-actions">
+          <button class="btn" type="button" id="rotmChannelSave">Save ROTM settings</button>
+          <button class="btn" type="button" id="rotmSettingsClose">Close</button>
+          <span class="rotm-settings-note" id="rotmChannelStatus">Secret is stored until you update it.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="modal" id="routeOverrideModal">
       <div class="modal-card route-modal-card">
         <strong>Suggest route fixes</strong>
@@ -3021,6 +3028,7 @@
           authUser: null,
         rotmData: null,
         rotmConfigLoaded: false,
+        rotmChannelName: null,
         rotmSelectedNodeKey: null,
         rotmLastFetch: 0,
         latestByChannel: {},
@@ -3175,8 +3183,12 @@
           el.style.display = "none";
           return;
         }
-        if (el.classList.contains("repeater-location-controls") || el.classList.contains("panel")) {
+        if (el.classList.contains("repeater-location-controls")) {
           el.style.display = "flex";
+          return;
+        }
+        if (el.classList.contains("panel") || el.classList.contains("modal")) {
+          el.style.display = "";
           return;
         }
         el.style.display = "inline-flex";
@@ -3184,6 +3196,14 @@
       if (!isAdmin && document.body.classList.contains("view-rotm")) {
         document.body.classList.remove("view-rotm");
         document.body.classList.add("view-channels");
+      }
+      if (isAdmin) {
+        fetchRotmConfig()
+          .then((cfg) => {
+            if (cfg?.channel) appData.rotmChannelName = cfg.channel;
+            renderChannels();
+          })
+          .catch(() => {});
       }
       updateNodeRankVisibility();
       renderChannels();
@@ -3278,6 +3298,19 @@
         ...c,
         id: normalizeChannelId(c.id || c.name)
       }));
+      if (appData.authUser?.isAdmin) {
+        const rotmName = appData.rotmChannelName || "#rotm";
+        const rotmId = normalizeChannelId(rotmName);
+        const exists = appData.channels.some((c) => c.id === rotmId);
+        if (!exists) {
+          appData.channels.unshift({
+            id: rotmId,
+            name: rotmName,
+            snippet: "Admin-only ROTM feed",
+            time: "--"
+          });
+        }
+      }
       if (appData.channels.length) {
         const exists = appData.channels.some((c) => c.id === activeChannelId);
         if (!exists) activeChannelId = appData.channels[0].id;
@@ -4044,6 +4077,28 @@
       } catch (err) {
         alert("Failed to add channel: " + (err?.message || err));
       }
+    });
+
+    const rotmInfoModal = document.getElementById("rotmInfoModal");
+    const rotmInfoBtn = document.getElementById("rotmInfoBtn");
+    const rotmInfoClose = document.getElementById("rotmInfoClose");
+    rotmInfoBtn?.addEventListener("click", () => rotmInfoModal?.classList.add("open"));
+    rotmInfoClose?.addEventListener("click", () => rotmInfoModal?.classList.remove("open"));
+    rotmInfoModal?.addEventListener("click", (e) => {
+      if (e.target === rotmInfoModal) rotmInfoModal.classList.remove("open");
+    });
+
+    const rotmSettingsModal = document.getElementById("rotmSettingsModal");
+    const rotmSettingsBtn = document.getElementById("rotmSettingsBtn");
+    const rotmSettingsClose = document.getElementById("rotmSettingsClose");
+    rotmSettingsBtn?.addEventListener("click", async () => {
+      rotmSettingsModal?.classList.add("open");
+      appData.rotmConfigLoaded = false;
+      await loadRotm();
+    });
+    rotmSettingsClose?.addEventListener("click", () => rotmSettingsModal?.classList.remove("open"));
+    rotmSettingsModal?.addEventListener("click", (e) => {
+      if (e.target === rotmSettingsModal) rotmSettingsModal.classList.remove("open");
     });
 
     async function loadChannels() {
@@ -5115,6 +5170,7 @@
           const cfg = await fetchRotmConfig();
           const channelInput = document.getElementById("rotmChannelName");
           if (channelInput && cfg?.channel) channelInput.value = cfg.channel;
+          if (cfg?.channel) appData.rotmChannelName = cfg.channel;
           const status = document.getElementById("rotmChannelStatus");
           if (status) status.textContent = "Secret is stored until you update it.";
           appData.rotmConfigLoaded = true;
@@ -6918,6 +6974,7 @@
           if (status) status.textContent = `Saved: ${data.channel || channel}. Secret is stored until you update it.`;
           if (secretInput) secretInput.value = "";
           appData.rotmConfigLoaded = true;
+          if (data.channel) appData.rotmChannelName = data.channel;
           await loadRotm();
         } catch (err) {
           if (status) status.textContent = `Save failed: ${err?.message || err}`;
