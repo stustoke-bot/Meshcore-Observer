@@ -1798,7 +1798,7 @@ async function buildRepeaterRank() {
   let hadEstimateUpdates = false;
   const nowMs = Date.now();
   for (const d of Object.values(byPub)) {
-    if (!d?.pub || !d.gpsFlagged) continue;
+    if (!d?.pub || !d.gpsFlagged || d.gpsEstimated) continue;
     const flaggedAt = d.gpsFlaggedAt ? new Date(d.gpsFlaggedAt).getTime() : 0;
     if (flaggedAt && (nowMs - flaggedAt) < (REPEATER_FLAG_REVIEW_HOURS * 3600000)) continue;
     const s = stats.get(d.pub) || stats.get(d.publicKey) || stats.get(d.pubKey) || null;
@@ -1811,9 +1811,7 @@ async function buildRepeaterRank() {
     d.gpsEstimateAt = new Date().toISOString();
     d.gpsEstimateNeighbors = estimate.neighbors;
     d.gpsEstimateReason = estimate.reason;
-    d.gpsFlagged = false;
-    d.gpsFlaggedAt = null;
-    d.gpsImplausible = false;
+    d.gpsImplausible = true;
     d.hiddenOnMap = false;
     d.locSource = "estimated";
     hadEstimateUpdates = true;
@@ -3378,13 +3376,11 @@ const server = http.createServer(async (req, res) => {
       entry.gps = { lat, lon };
       entry.locSource = "manual";
       entry.manualLocation = true;
-      entry.gpsFlagged = false;
-      entry.gpsFlaggedAt = null;
       entry.gpsEstimated = false;
       entry.gpsEstimateAt = null;
       entry.gpsEstimateNeighbors = null;
       entry.gpsEstimateReason = null;
-      entry.gpsImplausible = false;
+      if (entry.gpsFlagged) entry.gpsImplausible = true;
       entry.hiddenOnMap = false;
       byPub[pub] = entry;
       devices.byPub = byPub;

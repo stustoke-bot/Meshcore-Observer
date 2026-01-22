@@ -4467,7 +4467,7 @@
     function buildRepeaterBadges(r, nearestObserverSet) {
       const badges = [];
       if (r.stale) badges.push({ label: "Stale repeater", tone: "gray" });
-      if (r.gpsFlagged) badges.push({ label: "GPS flagged", tone: "amber" });
+      if (r.gpsImplausible) badges.push({ label: "GPS implausible", tone: "amber" });
       if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "blue" });
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
       if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
@@ -4492,8 +4492,8 @@
       const driftLabel = Number.isFinite(drift)
         ? formatDriftMinutes(drift)
         : "Clock drift data unavailable";
-      const gpsLabel = repeater.gpsFlagged
-        ? "Flagged (hidden)"
+      const gpsLabel = repeater.gpsImplausible
+        ? (repeater.hiddenOnMap ? "Implausible (hidden)" : "Implausible")
         : (repeater.gpsEstimated ? "Estimated" : "Confirmed");
       content.innerHTML = `
         <div class="rank-detail-close">
@@ -5241,7 +5241,7 @@
       visible.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
-          const hiddenLabel = r.gpsFlagged ? "GPS flagged" : (r.stale ? "Stale repeater" : "GPS unreliable");
+          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : (r.stale ? "Stale repeater" : "GPS unreliable");
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
@@ -5305,8 +5305,8 @@
       const impact = Math.min(100, Math.max(0, r.score || 0));
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
       const isAdmin = !!appData.authUser?.isAdmin;
-      const flaggedNote = r.gpsFlagged
-        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS flagged — hidden from map</div>`
+      const flaggedNote = r.gpsImplausible
+        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible${r.hiddenOnMap ? " — hidden from map" : ""}</div>`
         : "";
       const estimatedNote = r.gpsEstimated
         ? `<div style="font-size:12px;color:#356">Location estimated (${r.gpsEstimateNeighbors || "?"} neighbors)</div>`
