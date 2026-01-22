@@ -2353,6 +2353,19 @@
       .rotm-card { min-height: 360px; }
       .rotm-feed { min-height: 260px; }
       .rotm-leaderboard { min-height: 260px; }
+      .rotm-leader-row {
+        grid-template-columns: 32px 1fr 1fr;
+        gap: 10px;
+      }
+      .rotm-leader-row .rotm-leader-meta {
+        text-align: left;
+      }
+      .rotm-leader-row .rotm-leader-rank {
+        grid-row: span 2;
+      }
+      .rotm-leader-row .rotm-leader-node {
+        font-size: 13px;
+      }
       .rotm-settings-grid { grid-template-columns: 1fr; }
       .rotm-feed-row { grid-template-columns: 1fr; }
       .rotm-leader-row {
