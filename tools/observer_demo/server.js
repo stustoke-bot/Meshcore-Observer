@@ -19,6 +19,7 @@ const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const rotmConfigPath = path.join(dataDir, "rotm_config.json");
 const rotmOverridesPath = path.join(dataDir, "rotm_overrides.json");
+const zeroHopOverridesPath = path.join(dataDir, "zero_hop_overrides.json");
 const indexPath = path.join(__dirname, "index.html");
 const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
@@ -864,6 +865,12 @@ function buildRotmCandidatesByHash(devices) {
 
 function readRotmOverrides() {
   const raw = readJsonSafe(rotmOverridesPath, {});
+  if (!raw || typeof raw !== "object") return {};
+  return raw;
+}
+
+function readZeroHopOverrides() {
+  const raw = readJsonSafe(zeroHopOverridesPath, {});
   if (!raw || typeof raw !== "object") return {};
   return raw;
 }
@@ -1913,6 +1920,7 @@ async function buildRepeaterRank() {
     ) {
       if (!repeaterCandidatesByHash.has(hash)) repeaterCandidatesByHash.set(hash, []);
       repeaterCandidatesByHash.get(hash).push({
+        hash,
         pub: String(pub).toUpperCase(),
         name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
         gps: d.gps
@@ -1964,8 +1972,8 @@ async function buildRepeaterRank() {
   };
 
   const NEIGHBOR_RADIUS_KM = 200;
-  const SUPPORT_RADIUS_KM = 80;
-  const resolveZeroHopNeighbors = (targetGps, neighborHashes) => {
+  const GREEN_RSSI_MIN = -75;
+  const resolveZeroHopNeighbors = (targetGps, neighborHashes, targetPub, overrides) => {
     if (!targetGps || !Number.isFinite(targetGps.lat) || !Number.isFinite(targetGps.lon)) return [];
     if (!Array.isArray(neighborHashes) || neighborHashes.length === 0) return [];
 
@@ -1979,34 +1987,31 @@ async function buildRepeaterRank() {
       if (local.length) localCandidatesByHash.set(hash, local);
     });
 
-    const localHashes = Array.from(localCandidatesByHash.keys());
-    if (!localHashes.length) return [];
+    const hashes = Array.from(new Set(neighborHashes));
     const results = [];
-    localHashes.forEach((hash) => {
+    hashes.forEach((hash) => {
+      const overrideKey = targetPub ? `${targetPub}:${hash}` : null;
+      const override = overrideKey ? overrides?.[overrideKey] : null;
+      if (override?.pub) {
+        const options = repeaterCandidatesByHash.get(hash) || [];
+        const match = options.find((opt) => opt.pub === override.pub);
+        if (match) {
+          results.push({ hash, ...match });
+          return;
+        }
+      }
       const candidates = localCandidatesByHash.get(hash) || [];
       if (candidates.length === 1) {
         results.push({ hash, ...candidates[0] });
         return;
       }
-      const otherHashes = localHashes.filter((h) => h !== hash);
-      const requireSupport = otherHashes.length > 0;
+      if (!candidates.length) return;
       let best = null;
-      let bestScore = -Infinity;
+      let bestDist = Infinity;
       candidates.forEach((cand) => {
-        let support = 0;
-        otherHashes.forEach((otherHash) => {
-          const others = localCandidatesByHash.get(otherHash) || [];
-          const hit = others.some((o) => {
-            const km = haversineKm(cand.gps.lat, cand.gps.lon, o.gps.lat, o.gps.lon);
-            return Number.isFinite(km) && km <= SUPPORT_RADIUS_KM;
-          });
-          if (hit) support += 1;
-        });
-        if (requireSupport && support === 0) return;
         const dist = haversineKm(targetGps.lat, targetGps.lon, cand.gps.lat, cand.gps.lon);
-        const score = support * 1000 - (Number.isFinite(dist) ? dist : 10000);
-        if (score > bestScore) {
-          bestScore = score;
+        if (Number.isFinite(dist) && dist < bestDist) {
+          bestDist = dist;
           best = { hash, ...cand };
         }
       });
@@ -2184,6 +2189,7 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
     devicesCache = { readAt: 0, data: null };
   }
 
+  const zeroHopOverrides = readZeroHopOverrides();
   const items = Object.entries(byPub)
     .filter(([, d]) => d && d.isRepeater)
     .map(([key, d]) => {
@@ -2197,22 +2203,33 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
         const uniqueMsgs = s.msgCounts.size || 0;
         const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
         const neighborHashes = s.zeroHopNeighbors ? Array.from(s.zeroHopNeighbors) : [];
-        const resolvedNeighbors = resolveZeroHopNeighbors(d.gps, neighborHashes);
+        const targetPub = String(pub || "").toUpperCase();
+        const resolvedNeighbors = resolveZeroHopNeighbors(d.gps, neighborHashes, targetPub, zeroHopOverrides);
         const zeroHopNeighborNames = resolvedNeighbors
           .map((n) => n.name || n.hash)
           .filter(Boolean);
         const zeroHopNeighborDetails = resolvedNeighbors.map((n) => {
           const rssiEntry = s.neighborRssi ? s.neighborRssi.get(n.hash) : null;
           const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+          const rssiAvg = Number.isFinite(avg) ? Number(avg.toFixed(1)) : null;
+          const rssiMax = rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null;
+          const rssiValue = Number.isFinite(rssiAvg) ? rssiAvg : (Number.isFinite(rssiMax) ? rssiMax : null);
+          const options = (repeaterCandidatesByHash.get(n.hash) || []).map((opt) => ({
+            pub: opt.pub,
+            name: opt.name || opt.hash,
+            hash: opt.hash
+          }));
           return {
             hash: n.hash,
             pub: n.pub,
             name: n.name || n.hash,
             gps: n.gps,
-            rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
-            rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
+            rssiAvg,
+            rssiMax,
+            options,
+            isGreen: Number.isFinite(rssiValue) && rssiValue >= GREEN_RSSI_MIN
           };
-        });
+        }).filter((n) => n.isGreen);
         const zeroHopNeighbors24h = zeroHopNeighborDetails.length;
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
@@ -3104,6 +3121,7 @@ async function buildRotmData() {
       const confirmedAt = info.confirmedAt ? new Date(info.confirmedAt).getTime() : nowMs;
       if (nowMs - confirmedAt > 60 * 1000) return;
     }
+    const hopCount = Number.isFinite(msg.hopCount) ? msg.hopCount : (Array.isArray(msg.path) ? msg.path.length : 0);
     cqFeed.push({
       id,
       ts: msg.ts,
@@ -3121,6 +3139,7 @@ async function buildRotmData() {
       viaRepeaterGps: info.repeater?.gps || null,
       viaRepeaterOptions: info.repeaterOptions || [],
       observerCount: msg.observerCount || 0,
+      hopCount,
       confidenceOk: (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS,
       badge: info.confirmed ? "Confirmed QSO!" : "CQ",
       tone: info.confirmed ? "ok" : "cq"
@@ -4021,6 +4040,32 @@ const server = http.createServer(async (req, res) => {
       overrides[cqId] = { hash, pub };
       writeJsonSafe(rotmOverridesPath, overrides);
       rotmCache = { builtAt: 0, payload: null };
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "override failed" }));
+    }
+  }
+
+  if (u.pathname === "/api/zero-hop-override") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+    }
+    if (req.method !== "POST") {
+      return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const targetPub = String(body.targetPub || "").toUpperCase();
+      const hash = String(body.hash || "").toUpperCase();
+      const pub = String(body.pub || "").toUpperCase();
+      if (!targetPub || !hash || !pub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid payload" }));
+      }
+      const overrides = readZeroHopOverrides();
+      overrides[`${targetPub}:${hash}`] = { pub };
+      writeJsonSafe(zeroHopOverridesPath, overrides);
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
     } catch (err) {
       return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "override failed" }));

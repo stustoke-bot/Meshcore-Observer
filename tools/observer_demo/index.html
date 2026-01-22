@@ -732,6 +732,33 @@
       overflow: hidden;
       border: 1px solid var(--line);
     }
+
+    .neighbor-map-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .neighbor-map-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.02);
+      font-size: 12px;
+    }
+
+    body.theme-dark .neighbor-map-item {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .neighbor-map-item .neighbor-meta {
+      color: var(--muted);
+      font-size: 11px;
+    }
     .neighbor-map-legend {
       display: flex;
       flex-wrap: wrap;
@@ -2916,7 +2943,21 @@
           <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ffcc00;"></span>Unknown/OK</div>
           <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ff3b30;"></span>Weak RSSI</div>
         </div>
-          <div class="confidence-meta" id="neighborMapMeta">Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.</div>
+        <div class="neighbor-map-list" id="neighborMapList"></div>
+        <div class="confidence-meta" id="neighborMapMeta">Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.</div>
+      </div>
+    </div>
+
+    <div class="modal admin-only" id="neighborOverrideModal">
+      <div class="modal-card">
+        <strong>Choose repeater</strong>
+        <div style="margin-top:10px;">
+          <select id="neighborOverrideSelect" class="rotm-qso-select"></select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="neighborOverrideSave">Save</button>
+          <button class="btn" type="button" id="neighborOverrideClose">Close</button>
+        </div>
       </div>
     </div>
 
@@ -4060,6 +4101,10 @@
     const repeaterLocationSave = document.getElementById("repeaterLocationSave");
     const neighborMapModal = document.getElementById("neighborMapModal");
     const neighborMapClose = document.getElementById("neighborMapClose");
+    const neighborOverrideModal = document.getElementById("neighborOverrideModal");
+    const neighborOverrideClose = document.getElementById("neighborOverrideClose");
+    const neighborOverrideSave = document.getElementById("neighborOverrideSave");
+    const neighborOverrideSelect = document.getElementById("neighborOverrideSelect");
 
     observerLocationClose?.addEventListener("click", closeObserverLocationModal);
     observerLocationModal?.addEventListener("click", (e) => {
@@ -4072,6 +4117,52 @@
     neighborMapClose?.addEventListener("click", closeNeighborMapModal);
     neighborMapModal?.addEventListener("click", (e) => {
       if (e.target === neighborMapModal) closeNeighborMapModal();
+    });
+    neighborOverrideClose?.addEventListener("click", () => neighborOverrideModal?.classList.remove("open"));
+    neighborOverrideModal?.addEventListener("click", (e) => {
+      if (e.target === neighborOverrideModal) neighborOverrideModal.classList.remove("open");
+    });
+    const neighborMapList = document.getElementById("neighborMapList");
+    if (neighborMapList) {
+      neighborMapList.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-neighbor-change]");
+        if (!btn) return;
+        if (!appData.authUser?.isAdmin) return;
+        event.preventDefault();
+        const hash = String(btn.getAttribute("data-neighbor-change") || "");
+        const currentPub = String(btn.getAttribute("data-neighbor-pub") || "");
+        const options = appData.neighborOverrideOptions?.get(hash) || [];
+        const targetPub = appData.neighborOverrideTargetPub;
+        if (!hash || !targetPub || !neighborOverrideSelect) return;
+        if (!Array.isArray(options) || !options.length) return;
+        neighborOverrideSelect.innerHTML = options.map((opt) => {
+          const label = opt.name || opt.hash || opt.pub;
+          const selected = opt.pub === currentPub ? "selected" : "";
+          return `<option value="${opt.pub}" ${selected}>${label}</option>`;
+        }).join("");
+        neighborOverrideSelect.setAttribute("data-target-pub", targetPub);
+        neighborOverrideSelect.setAttribute("data-hash", hash);
+        neighborOverrideModal?.classList.add("open");
+      });
+    }
+    neighborOverrideSave?.addEventListener("click", async () => {
+      if (!neighborOverrideSelect || !appData.authUser?.isAdmin) return;
+      const targetPub = neighborOverrideSelect.getAttribute("data-target-pub");
+      const hash = neighborOverrideSelect.getAttribute("data-hash");
+      const pub = neighborOverrideSelect.value;
+      if (!targetPub || !hash || !pub) return;
+      try {
+        await fetch("/api/zero-hop-override", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ targetPub, hash, pub })
+        });
+        neighborOverrideModal?.classList.remove("open");
+        await loadRankDefault();
+        fetchRankSummary().then(renderRankSummary).catch(() => {});
+      } catch {
+        neighborOverrideModal?.classList.remove("open");
+      }
     });
 
     observerListEl?.addEventListener("click", (e) => {
@@ -5074,6 +5165,9 @@
       const neighbors = Array.isArray(entry?.zeroHopNeighborDetails) ? entry.zeroHopNeighborDetails : [];
       const byHash = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
       const points = [];
+      const list = document.getElementById("neighborMapList");
+      appData.neighborOverrideOptions = new Map();
+      appData.neighborOverrideTargetPub = entry?.pub || entry?.publicKey || entry?.pubKey || null;
 
       if (repeaterGps && Number.isFinite(repeaterGps.lat) && Number.isFinite(repeaterGps.lon)) {
         const root = L.circleMarker([repeaterGps.lat, repeaterGps.lon], {
@@ -5110,6 +5204,29 @@
         }
         points.push([gps.lat, gps.lon]);
       });
+
+      if (list) {
+        if (!neighbors.length) {
+          list.innerHTML = "<div class='neighbor-map-item'>No strong zero-hop neighbours yet.</div>";
+        } else {
+          list.innerHTML = neighbors.map((n) => {
+            const rssi = Number.isFinite(n.rssiAvg) ? `${n.rssiAvg} dBm` : "--";
+            const canChange = !!appData.authUser?.isAdmin && Array.isArray(n.options) && n.options.length > 1;
+            if (Array.isArray(n.options) && n.options.length > 1) {
+              appData.neighborOverrideOptions.set(String(n.hash || ""), n.options);
+            }
+            return `
+              <div class="neighbor-map-item" data-neighbor-hash="${n.hash || ""}">
+                <div>
+                  <div><strong>${n.name || n.hash || "Neighbor"}</strong></div>
+                  <div class="neighbor-meta">Avg RSSI: ${rssi}</div>
+                </div>
+                ${canChange ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
+              </div>
+            `;
+          }).join("");
+        }
+      }
 
       if (points.length) {
         neighborMap.fitBounds(points, { padding: [20, 20] });
@@ -5181,6 +5298,7 @@
         const responseVia = item.responseViaRepeater ? `via ${item.responseViaRepeater}` : "via --";
         const cqSenderLabel = showDetails ? `@${item.sender || "unknown"}` : "CQ call";
         const cqBodyLabel = showDetails ? (item.body || "") : "CQ";
+        const cqStats = `Observers: ${item.observerCount ?? 0} | Hops: ${item.hopCount ?? 0}`;
         return `
           <div class="rotm-feed-row">
             <div class="rotm-feed-col">
@@ -5192,6 +5310,7 @@
                 <span>${via}</span>
               </div>
               <div class="rotm-feed-body">${cqBodyLabel}</div>
+              <div class="neighbor-meta">${cqStats}</div>
               <span class="${badgeClass}">${item.badge || "Message"}</span>
             </div>
             <div class="rotm-feed-col">
