@@ -1656,7 +1656,6 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     : CONFIDENCE_HISTORY_MAX_ROWS;
   const cutoff = new Date(Date.now() - hoursNum * 3600000).toISOString();
   const nodeMap = buildNodeHashMap();
-  const rotmCandidatesByHash = buildRotmCandidatesByHash(readDevices());
   const devices = readDevices();
   const byPub = devices.byPub || {};
   const flaggedHashes = new Set();
@@ -2863,6 +2862,7 @@ async function buildRotmData() {
   }
 
   const nodeMap = buildNodeHashMap();
+  const rotmCandidatesByHash = buildRotmCandidatesByHash(readDevices());
   const observerHitsMap = await getObserverHitsMap();
   const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
   const observerAggMap = readMessageObserverAgg(db, hashes);
