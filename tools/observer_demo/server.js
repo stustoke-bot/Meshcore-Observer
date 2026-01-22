@@ -11,6 +11,7 @@ const bcrypt = require("bcryptjs");
 const projectRoot = path.resolve(__dirname, "..", "..");
 const dataDir = path.join(projectRoot, "data");
 const devicesPath = path.join(dataDir, "devices.json");
+const repeaterGpsEstimatesPath = path.join(dataDir, "repeater_gps_estimates.json");
 const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
@@ -56,6 +57,8 @@ const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
 const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
 const RF_AGG_COOLDOWN_MS = 1500;
 const RF_AGG_LIMIT = 800;
+const REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS = 2;
+const REPEATER_GPS_ESTIMATE_MAX_KM = 300;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -737,6 +740,10 @@ function readObserversJson() {
   return readJsonSafe(observersPath, { byId: {} });
 }
 
+function readRepeaterGpsEstimates() {
+  return readJsonSafe(repeaterGpsEstimatesPath, { byPub: {}, updatedAt: null });
+}
+
 function readDevices() {
   const now = Date.now();
   if (devicesCache.data && (now - devicesCache.readAt) < DEVICES_CACHE_MS) {
@@ -779,6 +786,19 @@ function readDevices() {
       const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
       if (!updatedAt || ts > new Date(updatedAt).getTime()) updatedAt = row.updated_at;
     });
+    const estimates = readRepeaterGpsEstimates();
+    const estByPub = estimates.byPub || {};
+    for (const [pub, est] of Object.entries(estByPub)) {
+      const entry = byPub[String(pub || "").toUpperCase()];
+      if (!entry || !est?.gps) continue;
+      if (!Number.isFinite(est.gps.lat) || !Number.isFinite(est.gps.lon)) continue;
+      if (est.gps.lat === 0 && est.gps.lon === 0) continue;
+      entry.gpsReported = est.reportedGps || entry.gpsReported || entry.gps || null;
+      entry.gps = est.gps;
+      entry.gpsEstimated = true;
+      entry.gpsEstimateReason = est.reason || null;
+      entry.gpsEstimateNeighbors = est.neighbors || null;
+    }
     const payload = { byPub, updatedAt: updatedAt || new Date().toISOString() };
     devicesCache = { readAt: now, data: payload };
     return payload;
@@ -1649,6 +1669,34 @@ async function buildRepeaterRank() {
     return sum / slice.length;
   }
 
+  function estimateRepeaterGps(pub, entry, stat, nodeLookup) {
+    if (!stat?.zeroHopNeighbors || stat.zeroHopNeighbors.size < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
+    const points = [];
+    for (const hash of stat.zeroHopNeighbors) {
+      const neighbor = nodeLookup.get(hash);
+      const gps = neighbor?.gps;
+      if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) continue;
+      if (gps.lat === 0 && gps.lon === 0) continue;
+      points.push(gps);
+    }
+    if (points.length < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
+    const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+    const avgLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
+    const estimated = { lat: avgLat, lon: avgLon };
+    const reportedGps = entry?.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) && !(entry.gps.lat === 0 && entry.gps.lon === 0)
+      ? entry.gps
+      : null;
+    if (!reportedGps) {
+      return { gps: estimated, reportedGps: null, reason: "missing_gps", neighbors: points.length };
+    }
+    const km = haversineKm(reportedGps.lat, reportedGps.lon, estimated.lat, estimated.lon);
+    if (km > REPEATER_GPS_ESTIMATE_MAX_KM) {
+      return { gps: estimated, reportedGps, reason: "implausible_gps", neighbors: points.length };
+    }
+    return null;
+  }
+
+  const gpsEstimates = {};
   const items = Object.entries(byPub)
     .filter(([, d]) => d && d.isRepeater)
     .map(([key, d]) => {
@@ -1704,11 +1752,21 @@ async function buildRepeaterRank() {
         else color = "#ff9500";
       }
 
+        const estimate = estimateRepeaterGps(pub, d, s, nodeMap);
+        if (estimate) {
+          gpsEstimates[String(pub).toUpperCase()] = estimate;
+        }
+        const effectiveGps = estimate?.gps || d.gps || null;
+
         return {
           pub,
           hashByte: nodeHashFromPub(pub),
           name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
-          gps: d.gps || null,
+          gps: effectiveGps,
+          gpsEstimated: !!estimate,
+          gpsReported: estimate?.reportedGps || null,
+          gpsEstimateReason: estimate?.reason || null,
+          gpsEstimateNeighbors: estimate?.neighbors || null,
         lastSeen,
         isObserver: !!d.isObserver,
         bestRssi,
@@ -1729,6 +1787,11 @@ async function buildRepeaterRank() {
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
+
+  if (Object.keys(gpsEstimates).length) {
+    const payload = { updatedAt: new Date().toISOString(), byPub: gpsEstimates };
+    writeJsonSafe(repeaterGpsEstimatesPath, payload);
+  }
 
   return {
     updatedAt: new Date().toISOString(),
