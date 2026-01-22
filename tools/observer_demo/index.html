@@ -2349,9 +2349,9 @@
           <div class="observer-card">
             <div style="font-weight:700;">Current Observer Coverage</div>
             <div class="observer-legend">
-              <span><i></i> Active &lt; 1h</span>
-              <span><i class="warn"></i> Idle 1-24h</span>
-              <span><i class="bad"></i> Idle 24-48h</span>
+              <span><i></i> Active &lt; 24h</span>
+              <span><i class="warn"></i> Low packet rate (15m-24h)</span>
+              <span><i class="bad"></i> Offline 24h+</span>
             </div>
             <div style="font-size:12px;color:var(--muted);">Location pending observers stay off the map until validated.</div>
             <div id="observerMap" class="observer-map"></div>
@@ -2373,7 +2373,7 @@
           <strong id="observerRankTotal">0</strong>
         </div>
         <div class="summary-card">
-          <div>Active (&lt;1h)</div>
+          <div>Active (&lt;24h)</div>
           <strong id="observerRankActive">0</strong>
         </div>
         <div class="summary-card">
@@ -4198,6 +4198,7 @@
                       <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}</div>
                       <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
                       <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
+                      ${o.lowPacketRate ? "<div class=\"rank-meta\" style=\"color:#f2c88b;\">Low packet rate — try moving observer closer to repeater.</div>" : ""}
                       ${badgeHtml(buildObserverBadges(o))}
                     </div>
                   </div>
@@ -4211,7 +4212,7 @@
         ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : "--";
       document.getElementById("observerRankTotal").textContent = data.items.length;
-      document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 1).length;
+      document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 24).length;
       document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + o.packetsToday, 0);
     }
 
@@ -4589,8 +4590,13 @@
       const badges = [];
       if (Number.isFinite(o.ageHours)) {
         const ageMinutes = o.ageHours * 60;
-        if (ageMinutes <= 15) badges.push({ label: "Live", tone: "green" });
-        else badges.push({ label: "Offline", tone: "gray" });
+        if (ageMinutes <= 15) {
+          badges.push({ label: "Live", tone: "green" });
+        } else if (o.lowPacketRate || o.ageHours <= 24) {
+          badges.push({ label: "Low packet rate", tone: "amber" });
+        } else {
+          badges.push({ label: "Offline", tone: "gray" });
+        }
       }
       if (o.stale) badges.push({ label: "Stale observer", tone: "gray" });
       if (Number.isFinite(o.ageHours) && o.ageHours <= 1 && Number(o.uptimeHours || 0) >= 48) {

@@ -207,8 +207,10 @@ const RANK_REFRESH_MS = 15 * 60 * 1000;
 const NODE_RANK_REFRESH_MS = 5 * 60 * 1000;
 const OBSERVER_RANK_REFRESH_MS = 5 * 60 * 1000;
 const MESH_REFRESH_MS = 15 * 60 * 1000;
-const OBSERVER_OFFLINE_MINUTES = 15;
+const OBSERVER_OFFLINE_MINUTES = 24 * 60;
 const OBSERVER_OFFLINE_HOURS = OBSERVER_OFFLINE_MINUTES / 60;
+const OBSERVER_LOW_PACKET_MINUTES = 15;
+const OBSERVER_MAX_REPEATER_KM = 300;
 
 let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
 let rankRefreshInFlight = null;
@@ -1149,6 +1151,7 @@ async function buildObserverRank() {
     let coverageKm = 0;
     let nearestRepeaterName = null;
     let nearestRepeaterKm = null;
+    let coverageCount = 0;
     if (gps && s.repeaters.size) {
       let maxKm = 0;
       for (const pub of s.repeaters) {
@@ -1157,6 +1160,8 @@ async function buildObserverRank() {
         if (!rptGps || !Number.isFinite(rptGps.lat) || !Number.isFinite(rptGps.lon)) continue;
         if (rptGps.lat === 0 && rptGps.lon === 0) continue;
         const km = haversineKm(gps.lat, gps.lon, rptGps.lat, rptGps.lon);
+        if (km > OBSERVER_MAX_REPEATER_KM) continue;
+        coverageCount += 1;
         if (km > maxKm) maxKm = km;
       }
       coverageKm = Math.round(maxKm * 10) / 10;
@@ -1168,6 +1173,7 @@ async function buildObserverRank() {
         if (!rpt?.gps || !Number.isFinite(rpt.gps.lat) || !Number.isFinite(rpt.gps.lon)) continue;
         if (rpt.gps.lat === 0 && rpt.gps.lon === 0) continue;
         const km = haversineKm(gps.lat, gps.lon, rpt.gps.lat, rpt.gps.lon);
+        if (km > OBSERVER_MAX_REPEATER_KM) continue;
         if (km < bestKm) {
           bestKm = km;
           bestName = rpt.name || null;
@@ -1178,10 +1184,12 @@ async function buildObserverRank() {
         nearestRepeaterKm = Math.round(bestKm * 10) / 10;
       }
     }
-    const coverageCount = s.repeaters.size;
     const score = scoreFor({ uptimeHours, packetsToday: s.packetsToday });
     const scoreColor = colorForAge(ageHours);
-    const isStale = ageHours > 24;
+    const isStale = ageHours > OBSERVER_OFFLINE_HOURS;
+    const lowPacketRate = Number.isFinite(ageHours)
+      ? ageHours > (OBSERVER_LOW_PACKET_MINUTES / 60) && ageHours <= OBSERVER_OFFLINE_HOURS
+      : false;
     const lastSeenAgoMinutes = Number.isFinite(ageHours) ? Math.round(ageHours * 60) : null;
     items.push({
       id: s.id,
@@ -1192,6 +1200,7 @@ async function buildObserverRank() {
       firstSeen: s.firstSeen,
       ageHours,
       stale: isStale,
+      lowPacketRate,
       uptimeHours,
       packetsToday: s.packetsToday,
       coverageKm,
