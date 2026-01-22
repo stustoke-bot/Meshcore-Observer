@@ -37,6 +37,7 @@ let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, 
 let rfAggCache = { builtAt: 0, map: new Map(), limit: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
+let rotmCache = { builtAt: 0, payload: null };
 const DEVICES_CACHE_MS = 1000;
 const OBSERVERS_CACHE_MS = 1000;
 let devicesCache = { readAt: 0, data: null };
@@ -59,6 +60,12 @@ const RF_AGG_LIMIT = 800;
 const REPEATER_FLAG_REVIEW_HOURS = 24;
 const REPEATER_ESTIMATE_MIN_NEIGHBORS = 3;
 const REPEATER_ESTIMATE_SINGLE_OFFSET_KM = 4.8; // ~3 miles
+const ROTM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
+const ROTM_MIN_OBSERVER_HITS = 1;
+const ROTM_FEED_LIMIT = 200;
+const ROTM_DB_LIMIT = 2000;
+const ROTM_CACHE_MS = 15000;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -802,6 +809,36 @@ function normalizeGpsValue(value) {
   const lat = Number(value.lat ?? value.latitude);
   const lon = Number(value.lon ?? value.lng ?? value.longitude);
   return isValidGps(lat, lon) ? { lat, lon } : null;
+}
+
+function normalizeRotmHandle(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function extractRotmMentions(body) {
+  const text = String(body || "");
+  const out = new Set();
+  const re = /@([a-z0-9][a-z0-9_-]{1,31})/gi;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const norm = normalizeRotmHandle(match[1]);
+    if (norm) out.add(norm);
+  }
+  return Array.from(out);
+}
+
+function pickRotmRepeater(message) {
+  const points = Array.isArray(message?.pathPoints) ? message.pathPoints : [];
+  const withGps = points.find((p) => p?.gps && isValidGps(p.gps.lat, p.gps.lon));
+  const pick = withGps || points[0] || null;
+  if (!pick) return null;
+  return {
+    hash: pick.hash || null,
+    name: pick.name || pick.hash || "Unknown",
+    gps: pick.gps && isValidGps(pick.gps.lat, pick.gps.lon) ? pick.gps : null
+  };
 }
 
 function readDevices() {
@@ -2720,6 +2757,207 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
   return list;
 }
 
+async function buildRotmData() {
+  const now = Date.now();
+  if (rotmCache.payload && (now - rotmCache.builtAt) < ROTM_CACHE_MS) {
+    return rotmCache.payload;
+  }
+
+  const db = getDb();
+  if (!hasMessagesDb(db)) {
+    const payload = { updatedAt: new Date().toISOString(), feed: [], leaderboard: [], qsos: 0 };
+    rotmCache = { builtAt: now, payload };
+    return payload;
+  }
+
+  const cutoff = new Date(now - ROTM_WINDOW_MS).toISOString();
+  const rows = db.prepare(`
+    SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+    FROM messages
+    WHERE lower(channel_name) IN (lower(?), lower(?)) AND ts >= ?
+    ORDER BY ts DESC
+    LIMIT ?
+  `).all("#rotm", "rotm", cutoff, ROTM_DB_LIMIT);
+
+  if (!rows.length) {
+    const payload = { updatedAt: new Date().toISOString(), feed: [], leaderboard: [], qsos: 0 };
+    rotmCache = { builtAt: now, payload };
+    return payload;
+  }
+
+  const nodeMap = buildNodeHashMap();
+  const observerHitsMap = await getObserverHitsMap();
+  const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+  const observerAggMap = readMessageObserverAgg(db, hashes);
+  const observerPathsMap = readMessageObserverPaths(db, hashes);
+  const messagesAsc = rows
+    .map((row) => mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPathsMap))
+    .filter((m) => m && m.ts)
+    .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+
+  const cqBySender = new Map(); // senderNorm -> [{ msg, ts, confidenceOk, repeater }]
+  const infoById = new Map(); // msgId -> info
+  const qsos = [];
+  const claims = new Map(); // nodeKey -> entry
+
+  const addClaim = (nodeName, nodeKey, repeater, ts) => {
+    if (!nodeKey) return;
+    if (!claims.has(nodeKey)) {
+      claims.set(nodeKey, {
+        nodeKey,
+        node: nodeName || nodeKey,
+        qsos: 0,
+        lastActivity: null,
+        repeaters: new Map()
+      });
+    }
+    const entry = claims.get(nodeKey);
+    entry.qsos += 1;
+    if (!entry.lastActivity || ts > entry.lastActivity) entry.lastActivity = ts;
+    if (repeater?.hash || repeater?.name) {
+      const key = repeater.hash || repeater.name;
+      if (!entry.repeaters.has(key)) {
+        entry.repeaters.set(key, {
+          hash: repeater.hash || null,
+          name: repeater.name || key,
+          gps: repeater.gps || null
+        });
+      }
+    }
+    if (nodeName) entry.node = nodeName;
+  };
+
+  for (const msg of messagesAsc) {
+    const sender = String(msg.sender || "unknown");
+    const senderKey = normalizeRotmHandle(sender);
+    const body = String(msg.body || "");
+    const isCq = /^CQ\b/i.test(body.trim());
+    const mentions = extractRotmMentions(body);
+    const confidenceOk = (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS;
+    const repeater = pickRotmRepeater(msg);
+    const ts = new Date(msg.ts);
+    infoById.set(msg.id, {
+      sender,
+      senderKey,
+      body,
+      isCq,
+      mentions,
+      confidenceOk,
+      repeater,
+      ts,
+      confirmed: false,
+      response: false
+    });
+
+    if (isCq && senderKey) {
+      if (!cqBySender.has(senderKey)) cqBySender.set(senderKey, []);
+      cqBySender.get(senderKey).push({ msg, ts, confidenceOk, repeater });
+      continue;
+    }
+  }
+
+  for (const msg of messagesAsc) {
+    const info = infoById.get(msg.id);
+    if (!info || info.isCq) continue;
+    const ts = info.ts;
+    if (!info.mentions.length || !info.senderKey) continue;
+    info.response = true;
+
+    let matched = null;
+    let matchedSenderKey = null;
+    for (const mention of info.mentions) {
+      if (mention === info.senderKey) continue;
+      const cqList = cqBySender.get(mention) || [];
+      for (let i = cqList.length - 1; i >= 0; i -= 1) {
+        const candidate = cqList[i];
+        const diff = ts - candidate.ts;
+        if (diff < 0) continue;
+        if (diff > ROTM_QSO_WINDOW_MS) break;
+        matched = candidate;
+        matchedSenderKey = mention;
+        break;
+      }
+      if (matched) break;
+    }
+    if (!matched) continue;
+
+    const cqMsg = matched.msg;
+    const cqInfo = infoById.get(cqMsg.id);
+    if (!cqInfo) continue;
+    if (!cqInfo.confidenceOk || !info.confidenceOk) continue;
+
+    const repeater = cqInfo.repeater || info.repeater || null;
+    const qso = {
+      cqId: cqMsg.id,
+      responseId: msg.id,
+      senderA: cqInfo.sender,
+      senderB: info.sender,
+      repeater,
+      ts: ts.toISOString()
+    };
+    qsos.push(qso);
+    cqInfo.confirmed = true;
+    info.confirmed = true;
+    addClaim(cqInfo.sender, cqInfo.senderKey, repeater, ts);
+    addClaim(info.sender, info.senderKey, repeater, ts);
+  }
+
+  const feed = messagesAsc
+    .slice()
+    .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
+    .slice(0, ROTM_FEED_LIMIT)
+    .map((msg) => {
+      const info = infoById.get(msg.id) || {};
+      const repeater = info.repeater || pickRotmRepeater(msg);
+      let badge = "Message";
+      let tone = "muted";
+      if (info.confirmed) {
+        badge = "Confirmed QSO!";
+        tone = "ok";
+      } else if (info.isCq) {
+        badge = "CQ";
+        tone = "cq";
+      } else if (info.response) {
+        badge = "Response";
+        tone = "response";
+      }
+      return {
+        id: msg.id,
+        ts: msg.ts,
+        channel: msg.channelName,
+        sender: msg.sender,
+        body: msg.body,
+        viaRepeater: repeater?.name || "Unknown",
+        viaRepeaterHash: repeater?.hash || null,
+        viaRepeaterGps: repeater?.gps || null,
+        observerCount: msg.observerCount || 0,
+        confidenceOk: (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS,
+        badge,
+        tone
+      };
+    });
+
+  const leaderboard = Array.from(claims.values())
+    .map((entry) => ({
+      node: entry.node,
+      nodeKey: entry.nodeKey,
+      uniqueRepeaters: entry.repeaters.size,
+      qsos: entry.qsos,
+      lastActivity: entry.lastActivity ? entry.lastActivity.toISOString() : null,
+      repeaters: Array.from(entry.repeaters.values())
+    }))
+    .sort((a, b) => (b.uniqueRepeaters - a.uniqueRepeaters) || (b.qsos - a.qsos) || (new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0)));
+
+  const payload = {
+    updatedAt: new Date().toISOString(),
+    feed,
+    leaderboard,
+    qsos: qsos.length
+  };
+  rotmCache = { builtAt: now, payload };
+  return payload;
+}
+
 async function buildMeshScore() {
   const devices = readDevices();
   const byPub = devices.byPub || {};
@@ -3385,6 +3623,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels, messages: list }));
+  }
+
+  if (u.pathname === "/api/rotm") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+    }
+    const payload = await buildRotmData();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
   if (u.pathname === "/api/repeater-rank") {

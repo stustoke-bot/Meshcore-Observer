@@ -766,6 +766,235 @@
       min-height: 0;
     }
 
+    .rotm-panel {
+      grid-column: 1 / -1;
+      display: none;
+      min-height: 0;
+    }
+
+    .rotm-body {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+    }
+
+    .rotm-intro {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fafafa;
+      padding: 16px;
+    }
+
+    body.theme-dark .rotm-intro {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .rotm-intro h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .rotm-intro p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .rotm-tips {
+      margin-top: 10px;
+      border-top: 1px dashed var(--line);
+      padding-top: 10px;
+    }
+
+    .rotm-tips summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--blue-dark);
+      list-style: none;
+    }
+
+    .rotm-tips ul {
+      margin: 8px 0 0 18px;
+      color: var(--muted);
+    }
+
+    .rotm-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .rotm-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      background: var(--panel);
+    }
+
+    .rotm-card-title {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .rotm-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: auto;
+      padding-right: 6px;
+      min-height: 200px;
+    }
+
+    .rotm-feed-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    body.theme-dark .rotm-feed-row {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .rotm-feed-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rotm-feed-sender {
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .rotm-feed-body {
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .rotm-badge {
+      align-self: flex-start;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(60, 60, 67, 0.12);
+      color: var(--muted);
+    }
+
+    .rotm-badge.ok {
+      background: #d7f3e2;
+      color: #1f6d39;
+    }
+
+    .rotm-badge.cq {
+      background: #e0ecff;
+      color: #0a60d1;
+    }
+
+    .rotm-badge.response {
+      background: #fff1da;
+      color: #a86400;
+    }
+
+    body.theme-dark .rotm-badge.ok { background: rgba(52, 199, 89, 0.2); color: #7ae6a1; }
+    body.theme-dark .rotm-badge.cq { background: rgba(0, 122, 255, 0.2); color: #9dc1ff; }
+    body.theme-dark .rotm-badge.response { background: rgba(255, 149, 0, 0.2); color: #ffd08a; }
+
+    .rotm-leaderboard {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: auto;
+      min-height: 200px;
+    }
+
+    .rotm-leader-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 120px 70px 110px;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    .rotm-leader-header {
+      cursor: default;
+      background: rgba(0, 0, 0, 0.02);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    body.theme-dark .rotm-leader-header {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .rotm-leader-row.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.15);
+    }
+
+    .rotm-leader-rank {
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .rotm-leader-node {
+      font-weight: 700;
+    }
+
+    .rotm-leader-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rotm-map-title {
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    #rotmMap {
+      width: 100%;
+      height: 320px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .rotm-claim-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .rotm-claim-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    body.theme-dark .rotm-claim-chip {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
     .rank-body {
       display: grid;
       grid-template-columns: 1.2fr 0.8fr;
@@ -1519,6 +1748,19 @@
     body.view-node-rank .why-panel { display: none; }
     body.view-node-rank .node-rank-panel { display: flex; }
 
+    body.view-rotm .sidebar-panel,
+    body.view-rotm .content,
+    body.view-rotm .analysis-panel,
+    body.view-rotm .rank-panel,
+    body.view-rotm .meshscore-panel,
+    body.view-rotm .rf-panel,
+    body.view-rotm .observer-panel,
+    body.view-rotm .observer-rank-panel,
+    body.view-rotm .repeater-panel,
+    body.view-rotm .why-panel,
+    body.view-rotm .node-rank-panel { display: none; }
+    body.view-rotm .rotm-panel { display: flex; }
+
     .row {
       display: flex;
       justify-content: space-between;
@@ -1979,6 +2221,15 @@
       .analysis-panel .title .route-close {
         margin-left: auto;
       }
+      .rotm-grid { grid-template-columns: 1fr; }
+      .rotm-leader-row {
+        grid-template-columns: 28px 1fr;
+        grid-template-rows: auto auto;
+      }
+      .rotm-leader-row .rotm-leader-meta {
+        grid-column: 1 / -1;
+      }
+      #rotmMap { height: 260px; }
       body.view-channels .analysis-panel { display: none; }
       body.route-open.view-channels .analysis-panel { display: flex; }
       body.route-open .route-backdrop { display: block; }
@@ -2126,6 +2377,7 @@
         </div>
       <nav class="nav">
         <a href="#" class="active" data-view="channels">Channels</a>
+        <a href="#" class="admin-only" data-view="rotm">#ROTM</a>
         <a href="#" data-view="rank">Repeater Rank</a>
         <a href="#" data-view="node-rank">Node Rank</a>
         <a href="#" data-view="meshscore">MeshRank</a>
@@ -2147,6 +2399,7 @@
     <div class="menu-backdrop" id="menuBackdrop"></div>
     <div class="mobile-menu" id="mobileMenu">
       <a href="#" class="active" data-view="channels">Channels</a>
+      <a href="#" class="admin-only" data-view="rotm">#ROTM</a>
       <a href="#" data-view="rank">Repeater Rank</a>
       <a href="#" data-view="node-rank">Node Rank</a>
       <a href="#" data-view="meshscore">MeshRank</a>
@@ -2203,6 +2456,43 @@
           <div style="display:flex;align-items:center;gap:8px;">
             <button class="link-btn" id="routeOverrideBtn" type="button" onclick="window.openRouteOverride && window.openRouteOverride()">Route path wrong?</button>
             <span style="font-size:12px;color:var(--muted);">Suggest a correction for a 2-digit code.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel rotm-panel admin-only" id="rotm">
+      <div class="title rotm-title">
+        <span>#ROTM – Repeaters on the Mesh</span>
+        <span class="chip" id="rotmUpdated">--</span>
+      </div>
+      <div class="rotm-body">
+        <div class="rotm-intro">
+          <h2>#ROTM – Repeaters on the Mesh</h2>
+          <p>Repeaters on the Mesh (#ROTM) gamifies your mesh activity! Send a "CQ" message on the #rotm channel to "activate" a repeater, get a reply from another node, and claim that repeater toward your personal score. It's inspired by POTA/SOTA activations and FT8-style quick QSOs — encouraging real-world exploration of mesh coverage while building community.</p>
+          <p>How it works: 1. Send CQ on #rotm (e.g. "CQ ROTM testing from @YourNode via hill repeater"). 2. Another node replies mentioning your @node within 5 minutes. 3. If both messages are observed by the network, the repeater is credited to both nodes' unique claims. Only high-confidence observer data counts!</p>
+          <p>MeshRank applies AI-inspired geo intelligence to resolve likely repeater hops before scoring a claim.</p>
+          <p>Leaderboards and maps update live. Expand the observer network to hear more repeaters and improve accuracy. Coming soon: badges, milestones, and public access once stable.</p>
+          <details class="rotm-tips">
+            <summary>Tips for Success</summary>
+            <ul>
+              <li>Send clear CQ calls and include your @node name.</li>
+              <li>Reply quickly when you hear a CQ to confirm the QSO.</li>
+              <li>Place observers strategically to boost confidence and coverage.</li>
+            </ul>
+          </details>
+        </div>
+        <div class="rotm-grid">
+          <div class="rotm-card">
+            <div class="rotm-card-title">Live #rotm activity feed</div>
+            <div class="rotm-feed" id="rotmFeed"></div>
+          </div>
+          <div class="rotm-card">
+            <div class="rotm-card-title">Node claims leaderboard</div>
+            <div class="rotm-leaderboard" id="rotmLeaderboard"></div>
+            <div class="rotm-map-title" id="rotmMapTitle">Claimed repeaters map</div>
+            <div id="rotmMap"></div>
+            <div class="rotm-claim-list" id="rotmClaimList"></div>
           </div>
         </div>
       </div>
@@ -2698,6 +2988,9 @@
           routeActiveMsg: null,
           channelHistoryLimit: 10,
           authUser: null,
+        rotmData: null,
+        rotmSelectedNodeKey: null,
+        rotmLastFetch: 0,
         latestByChannel: {},
         recentStatsByChannel: {},
         livePulse: {
@@ -2850,8 +3143,16 @@
           el.style.display = "none";
           return;
         }
-        el.style.display = el.classList.contains("repeater-location-controls") ? "flex" : "inline-flex";
+        if (el.classList.contains("repeater-location-controls") || el.classList.contains("panel")) {
+          el.style.display = "flex";
+          return;
+        }
+        el.style.display = "inline-flex";
       });
+      if (!isAdmin && document.body.classList.contains("view-rotm")) {
+        document.body.classList.remove("view-rotm");
+        document.body.classList.add("view-channels");
+      }
       updateNodeRankVisibility();
       renderChannels();
     }
@@ -4618,6 +4919,218 @@
       modal.classList.remove("open");
     }
 
+    let rotmMap;
+    let rotmMapLayer;
+    let rotmRefreshTimer = null;
+    let rotmTimerTick = null;
+    const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
+
+    function formatRotmTime(ts) {
+      if (!ts) return "--";
+      const d = new Date(ts);
+      if (!Number.isFinite(d.getTime())) return "--";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    async function fetchRotmData() {
+      const res = await fetch(`/api/rotm?_ts=${Date.now()}`, { headers: authHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    function initRotmMap() {
+      if (rotmMap) return;
+      rotmMap = L.map("rotmMap", { zoomControl: true });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(rotmMap);
+      rotmMapLayer = L.layerGroup().addTo(rotmMap);
+      rotmMap.setView([54.0, -2.5], 6);
+    }
+
+    function renderRotmFeed(feed) {
+      const el = document.getElementById("rotmFeed");
+      if (!el) return;
+      if (!Array.isArray(feed) || feed.length === 0) {
+        el.innerHTML = "<div class='rotm-feed-row'>No #rotm activity yet.</div>";
+        return;
+      }
+      el.innerHTML = feed.map((item) => {
+        const badgeClass = item.tone ? `rotm-badge ${item.tone}` : "rotm-badge";
+        const via = item.viaRepeater ? `via ${item.viaRepeater}` : "via --";
+        const isCq = item.tone === "cq";
+        const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
+        return `
+          <div class="rotm-feed-row">
+            <div class="rotm-feed-meta">
+              <span>${formatRotmTime(item.ts)}</span>
+              <span>#rotm</span>
+              <span class="rotm-feed-sender">@${item.sender || "unknown"}</span>
+              <span>${via}</span>
+              ${timer}
+            </div>
+            <div class="rotm-feed-body">${item.body || ""}</div>
+            <span class="${badgeClass}">${item.badge || "Message"}</span>
+          </div>
+        `;
+      }).join("");
+      updateRotmTimers();
+    }
+
+    function renderRotmLeaderboard(leaderboard) {
+      const el = document.getElementById("rotmLeaderboard");
+      if (!el) return;
+      if (!Array.isArray(leaderboard) || leaderboard.length === 0) {
+        el.innerHTML = "<div class='rotm-feed-row'>No confirmed QSOs yet.</div>";
+        return;
+      }
+      const header = `
+        <div class="rotm-leader-row rotm-leader-header">
+          <div>Rank</div>
+          <div>Node</div>
+          <div>Unique</div>
+          <div>QSOs</div>
+          <div>Last activity</div>
+        </div>
+      `;
+      const rows = leaderboard.map((row, idx) => {
+        const last = row.lastActivity ? formatDateTime(row.lastActivity) : "--";
+        const isActive = appData.rotmSelectedNodeKey === row.nodeKey;
+        return `
+          <div class="rotm-leader-row${isActive ? " active" : ""}" data-rotm-node="${row.nodeKey}">
+            <div class="rotm-leader-rank">${idx + 1}</div>
+            <div>
+              <div class="rotm-leader-node">${row.node || row.nodeKey}</div>
+              <div class="rotm-leader-meta">${row.nodeKey || ""}</div>
+            </div>
+            <div>
+              <div class="rotm-leader-node">${row.uniqueRepeaters || 0}</div>
+              <div class="rotm-leader-meta">Unique</div>
+            </div>
+            <div>
+              <div class="rotm-leader-node">${row.qsos || 0}</div>
+              <div class="rotm-leader-meta">QSOs</div>
+            </div>
+            <div class="rotm-leader-meta">${last}</div>
+          </div>
+        `;
+      }).join("");
+      el.innerHTML = header + rows;
+    }
+
+    function renderRotmMap(node) {
+      const title = document.getElementById("rotmMapTitle");
+      const list = document.getElementById("rotmClaimList");
+      if (!title || !list) return;
+      if (!node) {
+        title.textContent = "Claimed repeaters map";
+        list.innerHTML = "";
+        if (rotmMapLayer) rotmMapLayer.clearLayers();
+        return;
+      }
+      title.textContent = `Claimed repeaters for ${node.node || node.nodeKey}`;
+      const repeaters = Array.isArray(node.repeaters) ? node.repeaters : [];
+      list.innerHTML = repeaters.length
+        ? repeaters.map((r) => `<span class="rotm-claim-chip">${r.name || r.hash || "Unknown"}</span>`).join("")
+        : "<span class='rotm-claim-chip'>No repeater claims yet.</span>";
+
+      if (!rotmMap) initRotmMap();
+      if (rotmMapLayer) rotmMapLayer.clearLayers();
+      const points = [];
+      repeaters.forEach((r) => {
+        if (!r.gps || !Number.isFinite(r.gps.lat) || !Number.isFinite(r.gps.lon)) return;
+        const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
+          radius: 7,
+          color: "#34c759",
+          fillColor: "#34c759",
+          fillOpacity: 0.85,
+          weight: 2
+        }).bindPopup(r.name || r.hash || "Repeater");
+        rotmMapLayer.addLayer(marker);
+        points.push([r.gps.lat, r.gps.lon]);
+      });
+      if (points.length) {
+        rotmMap.fitBounds(points, { padding: [20, 20] });
+      } else {
+        rotmMap.setView([54.0, -2.5], 6);
+      }
+      setTimeout(() => rotmMap.invalidateSize(), 80);
+    }
+
+    function selectRotmNode(nodeKey) {
+      appData.rotmSelectedNodeKey = nodeKey;
+      const node = (appData.rotmData?.leaderboard || []).find((n) => n.nodeKey === nodeKey) || null;
+      renderRotmLeaderboard(appData.rotmData?.leaderboard || []);
+      renderRotmMap(node);
+    }
+
+    async function loadRotm() {
+      if (!appData.authUser?.isAdmin) return;
+      try {
+        const data = await fetchRotmData();
+        appData.rotmData = data;
+        const updated = document.getElementById("rotmUpdated");
+        if (updated) updated.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--";
+        renderRotmFeed(data.feed || []);
+        renderRotmLeaderboard(data.leaderboard || []);
+        if (!appData.rotmSelectedNodeKey && data.leaderboard?.length) {
+          appData.rotmSelectedNodeKey = data.leaderboard[0].nodeKey;
+        }
+        if (appData.rotmSelectedNodeKey) {
+          selectRotmNode(appData.rotmSelectedNodeKey);
+        } else {
+          renderRotmMap(null);
+        }
+      } catch (err) {
+        const el = document.getElementById("rotmFeed");
+        if (el) el.innerHTML = "<div class='rotm-feed-row'>Unable to load #rotm data.</div>";
+      }
+    }
+
+    function startRotmRefresh() {
+      if (rotmRefreshTimer) clearInterval(rotmRefreshTimer);
+      rotmRefreshTimer = setInterval(() => {
+        if (document.body.classList.contains("view-rotm")) loadRotm();
+      }, 15000);
+    }
+
+    function stopRotmRefresh() {
+      if (!rotmRefreshTimer) return;
+      clearInterval(rotmRefreshTimer);
+      rotmRefreshTimer = null;
+    }
+
+    function updateRotmTimers() {
+      const timers = document.querySelectorAll(".rotm-cq-timer");
+      if (!timers.length) return;
+      const now = Date.now();
+      timers.forEach((el) => {
+        const ts = new Date(el.getAttribute("data-ts") || "").getTime();
+        if (!Number.isFinite(ts)) {
+          el.textContent = "--";
+          return;
+        }
+        const remaining = Math.max(0, ROTM_QSO_WINDOW_MS - (now - ts));
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        el.textContent = `QSO window: ${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+      });
+    }
+
+    function startRotmTimers() {
+      if (rotmTimerTick) clearInterval(rotmTimerTick);
+      rotmTimerTick = setInterval(() => {
+        if (document.body.classList.contains("view-rotm")) updateRotmTimers();
+      }, 1000);
+    }
+
+    function stopRotmTimers() {
+      if (!rotmTimerTick) return;
+      clearInterval(rotmTimerTick);
+      rotmTimerTick = null;
+    }
+
     function formatDateTime(value) {
       const d = new Date(value);
       if (!Number.isFinite(d.getTime())) return "unknown";
@@ -5658,12 +6171,16 @@
           e.preventDefault();
           document.body.classList.remove("route-open");
           navLinks.forEach((l) => l.classList.remove("active"));
+          let view = link.dataset.view;
+          if (view === "rotm" && !appData.authUser?.isAdmin) {
+            view = "channels";
+          }
           navLinks.forEach((l) => {
-            if (l.dataset.view === link.dataset.view) l.classList.add("active");
+            if (l.dataset.view === view) l.classList.add("active");
           });
           closeMenu();
-          const view = link.dataset.view;
           document.body.classList.toggle("view-channels", view === "channels");
+          document.body.classList.toggle("view-rotm", view === "rotm");
           document.body.classList.toggle("view-rank", view === "rank");
           document.body.classList.toggle("view-node-rank", view === "node-rank");
           document.body.classList.toggle("view-meshscore", view === "meshscore");
@@ -5744,6 +6261,17 @@
             setTimeout(() => observerMap.invalidateSize(), 80);
           }
         }
+        if (view === "rotm") {
+          if (!appData.authUser?.isAdmin) return;
+          if (!rotmMap) initRotmMap();
+          await loadRotm();
+          startRotmRefresh();
+          startRotmTimers();
+        } else {
+          stopRotmRefresh();
+          stopRotmTimers();
+        }
+
         if (view === "observer-rank") {
           if (!observerRankMap) initObserverRankMap();
           if (observerRankMap) {
@@ -6295,6 +6823,19 @@
         const pub = String(btn.getAttribute("data-repeater-pub") || "").trim().toUpperCase();
         if (!pub) return;
         window.prompt("Public key", pub);
+      });
+    }
+
+    const rotmLeaderboard = document.getElementById("rotmLeaderboard");
+    if (rotmLeaderboard) {
+      rotmLeaderboard.addEventListener("click", (event) => {
+        const row = event.target.closest("[data-rotm-node]");
+        if (!row) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const nodeKey = row.getAttribute("data-rotm-node");
+        if (!nodeKey) return;
+        selectRotmNode(nodeKey);
       });
     }
 
