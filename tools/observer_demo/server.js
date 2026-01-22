@@ -3709,10 +3709,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/rotm") {
-    const user = getSessionUser(req);
-    if (!user || !user.isAdmin) {
-      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
-    }
     const payload = await buildRotmData();
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
