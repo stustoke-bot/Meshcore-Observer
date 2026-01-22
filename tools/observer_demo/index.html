@@ -2534,7 +2534,7 @@
           <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ffcc00;"></span>Unknown/OK</div>
           <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ff3b30;"></span>Weak RSSI</div>
         </div>
-        <div class="confidence-meta" id="neighborMapMeta">Lines show zero-hop repeaters linked to this node.</div>
+          <div class="confidence-meta" id="neighborMapMeta">Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.</div>
       </div>
     </div>
 
@@ -4550,7 +4550,7 @@
       if (!modal) return;
       const repeaterName = entry?.name || entry?.pub || "Repeater";
       if (title) title.textContent = `Zero-hop neighbours: ${repeaterName}`;
-      if (meta) meta.textContent = "Lines show zero-hop repeaters linked to this node.";
+      if (meta) meta.textContent = "Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.";
       modal.classList.add("open");
 
       if (!neighborMap) {
@@ -4582,7 +4582,7 @@
       neighbors.forEach((n) => {
         const candidates = byHash.get(String(n.hash || "").toUpperCase()) || [];
         const target = candidates.find((c) => c?.gps && Number.isFinite(c.gps.lat) && Number.isFinite(c.gps.lon)) || null;
-        const gps = target?.gps || null;
+        const gps = n.gps || target?.gps || null;
         if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
         const tone = rssiTone(n.rssiAvg);
         const label = n.name || n.hash || "Neighbor";

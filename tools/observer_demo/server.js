@@ -1719,6 +1719,7 @@ async function buildRepeaterRank() {
     return !!entry?.isRepeater;
   };
   const repeatersByHash = new Map(); // hash -> [pub]
+  const repeaterCandidatesByHash = new Map(); // hash -> [{pub, name, gps}]
   for (const d of Object.values(byPub)) {
     if (!d?.isRepeater) continue;
     const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || null;
@@ -1727,6 +1728,17 @@ async function buildRepeaterRank() {
     if (!hash) continue;
     if (!repeatersByHash.has(hash)) repeatersByHash.set(hash, []);
     repeatersByHash.get(hash).push(pub);
+    if (
+      d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon) &&
+      !d.hiddenOnMap && !d.gpsImplausible && !d.gpsFlagged
+    ) {
+      if (!repeaterCandidatesByHash.has(hash)) repeaterCandidatesByHash.set(hash, []);
+      repeaterCandidatesByHash.get(hash).push({
+        pub: String(pub).toUpperCase(),
+        name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
+        gps: d.gps
+      });
+    }
   }
 
   const now = Date.now();
@@ -1770,6 +1782,59 @@ async function buildRepeaterRank() {
         }
       }
     }
+  };
+
+  const NEIGHBOR_RADIUS_KM = 200;
+  const SUPPORT_RADIUS_KM = 80;
+  const resolveZeroHopNeighbors = (targetGps, neighborHashes) => {
+    if (!targetGps || !Number.isFinite(targetGps.lat) || !Number.isFinite(targetGps.lon)) return [];
+    if (!Array.isArray(neighborHashes) || neighborHashes.length === 0) return [];
+
+    const localCandidatesByHash = new Map();
+    neighborHashes.forEach((hash) => {
+      const candidates = repeaterCandidatesByHash.get(hash) || [];
+      const local = candidates.filter((c) => {
+        const km = haversineKm(targetGps.lat, targetGps.lon, c.gps.lat, c.gps.lon);
+        return Number.isFinite(km) && km <= NEIGHBOR_RADIUS_KM;
+      });
+      if (local.length) localCandidatesByHash.set(hash, local);
+    });
+
+    const localHashes = Array.from(localCandidatesByHash.keys());
+    if (!localHashes.length) return [];
+    const results = [];
+    localHashes.forEach((hash) => {
+      const candidates = localCandidatesByHash.get(hash) || [];
+      if (candidates.length === 1) {
+        results.push({ hash, ...candidates[0] });
+        return;
+      }
+      const otherHashes = localHashes.filter((h) => h !== hash);
+      const requireSupport = otherHashes.length > 0;
+      let best = null;
+      let bestScore = -Infinity;
+      candidates.forEach((cand) => {
+        let support = 0;
+        otherHashes.forEach((otherHash) => {
+          const others = localCandidatesByHash.get(otherHash) || [];
+          const hit = others.some((o) => {
+            const km = haversineKm(cand.gps.lat, cand.gps.lon, o.gps.lat, o.gps.lon);
+            return Number.isFinite(km) && km <= SUPPORT_RADIUS_KM;
+          });
+          if (hit) support += 1;
+        });
+        if (requireSupport && support === 0) return;
+        const dist = haversineKm(targetGps.lat, targetGps.lon, cand.gps.lat, cand.gps.lon);
+        const score = support * 1000 - (Number.isFinite(dist) ? dist : 10000);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { hash, ...cand };
+        }
+      });
+      if (best) results.push(best);
+    });
+
+    return results;
   };
 
   if (fs.existsSync(decodedPath)) {
@@ -1952,33 +2017,23 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
         // Keep stale repeaters visible even if lastSeen is old.
         const uniqueMsgs = s.msgCounts.size || 0;
         const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
-        const zeroHopNeighborNames = s.zeroHopNeighbors
-          ? Array.from(s.zeroHopNeighbors)
-            .filter((hash) => {
-              const node = nodeMap.get(hash);
-              return !node?.hiddenOnMap && !node?.gpsImplausible && !node?.gpsFlagged;
-            })
-            .map((hash) => nodeMap.get(hash)?.name || hash)
-            .filter(Boolean)
-          : [];
-        const zeroHopNeighborDetails = s.zeroHopNeighbors
-          ? Array.from(s.zeroHopNeighbors)
-            .filter((hash) => {
-              const node = nodeMap.get(hash);
-              return !node?.hiddenOnMap && !node?.gpsImplausible && !node?.gpsFlagged;
-            })
-            .map((hash) => {
-              const node = nodeMap.get(hash);
-              const rssiEntry = s.neighborRssi ? s.neighborRssi.get(hash) : null;
-              const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
-              return {
-                hash,
-                name: node?.name || hash,
-                rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
-                rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
-              };
-            })
-          : [];
+        const neighborHashes = s.zeroHopNeighbors ? Array.from(s.zeroHopNeighbors) : [];
+        const resolvedNeighbors = resolveZeroHopNeighbors(d.gps, neighborHashes);
+        const zeroHopNeighborNames = resolvedNeighbors
+          .map((n) => n.name || n.hash)
+          .filter(Boolean);
+        const zeroHopNeighborDetails = resolvedNeighbors.map((n) => {
+          const rssiEntry = s.neighborRssi ? s.neighborRssi.get(n.hash) : null;
+          const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+          return {
+            hash: n.hash,
+            pub: n.pub,
+            name: n.name || n.hash,
+            gps: n.gps,
+            rssiAvg: Number.isFinite(avg) ? Number(avg.toFixed(1)) : null,
+            rssiMax: rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null
+          };
+        });
         const zeroHopNeighbors24h = zeroHopNeighborDetails.length;
 
       const avgRssi = trimmedMean(s.rssi, 0.1);
