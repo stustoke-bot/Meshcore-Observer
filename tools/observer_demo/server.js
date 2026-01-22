@@ -17,6 +17,7 @@ const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
+const rotmConfigPath = path.join(dataDir, "rotm_config.json");
 const indexPath = path.join(__dirname, "index.html");
 const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
@@ -795,6 +796,16 @@ function readDevicesJson() {
 
 function readObserversJson() {
   return readJsonSafe(observersPath, { byId: {} });
+}
+
+function readRotmConfig() {
+  return readJsonSafe(rotmConfigPath, { channel: "#rotm" });
+}
+
+function normalizeRotmChannel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "#rotm";
+  return raw.startsWith("#") ? raw : `#${raw}`;
 }
 
 function isValidGps(lat, lon) {
@@ -2771,13 +2782,16 @@ async function buildRotmData() {
   }
 
   const cutoff = new Date(now - ROTM_WINDOW_MS).toISOString();
+  const cfg = readRotmConfig();
+  const channelName = normalizeRotmChannel(cfg.channel || "#rotm");
+  const channelPlain = channelName.replace(/^#/, "");
   const rows = db.prepare(`
     SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
     FROM messages
     WHERE lower(channel_name) IN (lower(?), lower(?)) AND ts >= ?
     ORDER BY ts DESC
     LIMIT ?
-  `).all("#rotm", "rotm", cutoff, ROTM_DB_LIMIT);
+  `).all(channelName, channelPlain, cutoff, ROTM_DB_LIMIT);
 
   if (!rows.length) {
     const payload = { updatedAt: new Date().toISOString(), feed: [], leaderboard: [], qsos: 0 };
@@ -3632,6 +3646,55 @@ const server = http.createServer(async (req, res) => {
     }
     const payload = await buildRotmData();
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/rotm-config") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+    }
+    if (req.method === "GET") {
+      const cfg = readRotmConfig();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channel: normalizeRotmChannel(cfg.channel || "#rotm") }));
+    }
+    if (req.method === "POST") {
+      if (!ChannelCrypto) {
+        return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel crypto unavailable" }));
+      }
+      try {
+        const raw = await readBody(req);
+        const body = JSON.parse(raw || "{}");
+        const nameRaw = String(body.channel || "").trim();
+        const secretHex = String(body.secretHex || "").trim();
+        if (!nameRaw) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+        }
+        const name = normalizeRotmChannel(nameRaw);
+        let hashByte = null;
+        if (secretHex) {
+          if (!/^[0-9a-fA-F]{32}$/.test(secretHex)) {
+            return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "secret must be 32 hex chars" }));
+          }
+          hashByte = ChannelCrypto.calculateChannelHash(secretHex).toUpperCase();
+          const cfg = loadKeys();
+          const exists = (cfg.channels || []).some((c) =>
+            String(c.secretHex || "").toUpperCase() === secretHex.toUpperCase() ||
+            (String(c.name || "") === name && String(c.hashByte || "").toUpperCase() === hashByte)
+          );
+          if (!exists) {
+            cfg.channels = cfg.channels || [];
+            cfg.channels.push({ hashByte, name, secretHex });
+            saveKeys(cfg);
+          }
+        }
+        writeJsonSafe(rotmConfigPath, { channel: name });
+        rotmCache = { builtAt: 0, payload: null };
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channel: name, hashByte }));
+      } catch (err) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      }
+    }
+    return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
   }
 
   if (u.pathname === "/api/repeater-rank") {

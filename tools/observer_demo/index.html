@@ -843,6 +843,29 @@
       font-size: 14px;
     }
 
+    .rotm-settings {
+      display: grid;
+      gap: 10px;
+    }
+
+    .rotm-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .rotm-settings-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .rotm-settings-note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
     .rotm-feed {
       display: flex;
       flex-direction: column;
@@ -2222,6 +2245,7 @@
         margin-left: auto;
       }
       .rotm-grid { grid-template-columns: 1fr; }
+      .rotm-settings-grid { grid-template-columns: 1fr; }
       .rotm-leader-row {
         grid-template-columns: 28px 1fr;
         grid-template-rows: auto auto;
@@ -2481,6 +2505,23 @@
               <li>Place observers strategically to boost confidence and coverage.</li>
             </ul>
           </details>
+        </div>
+        <div class="rotm-card rotm-settings">
+          <div class="rotm-card-title">ROTM admin settings</div>
+          <div class="rotm-settings-grid">
+            <label class="field">
+              <span>Channel name</span>
+              <input id="rotmChannelName" type="text" placeholder="#rotm"/>
+            </label>
+            <label class="field">
+              <span>Channel secret (32 hex chars)</span>
+              <input id="rotmChannelSecret" type="text" placeholder="0123456789abcdef0123456789abcdef"/>
+            </label>
+          </div>
+          <div class="rotm-settings-actions">
+            <button class="btn" type="button" id="rotmChannelSave">Save ROTM settings</button>
+            <span class="rotm-settings-note" id="rotmChannelStatus">Admin only.</span>
+          </div>
         </div>
         <div class="rotm-grid">
           <div class="rotm-card">
@@ -2989,6 +3030,7 @@
           channelHistoryLimit: 10,
           authUser: null,
         rotmData: null,
+        rotmConfigLoaded: false,
         rotmSelectedNodeKey: null,
         rotmLastFetch: 0,
         latestByChannel: {},
@@ -4938,6 +4980,12 @@
       return res.json();
     }
 
+    async function fetchRotmConfig() {
+      const res = await fetch("/api/rotm-config", { headers: authHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
     function initRotmMap() {
       if (rotmMap) return;
       rotmMap = L.map("rotmMap", { zoomControl: true });
@@ -4959,13 +5007,14 @@
       el.innerHTML = feed.map((item) => {
         const badgeClass = item.tone ? `rotm-badge ${item.tone}` : "rotm-badge";
         const via = item.viaRepeater ? `via ${item.viaRepeater}` : "via --";
+        const channelLabel = item.channel || "#rotm";
         const isCq = item.tone === "cq";
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
         return `
           <div class="rotm-feed-row">
             <div class="rotm-feed-meta">
               <span>${formatRotmTime(item.ts)}</span>
-              <span>#rotm</span>
+              <span>${channelLabel}</span>
               <span class="rotm-feed-sender">@${item.sender || "unknown"}</span>
               <span>${via}</span>
               ${timer}
@@ -5067,6 +5116,19 @@
 
     async function loadRotm() {
       if (!appData.authUser?.isAdmin) return;
+      if (!appData.rotmConfigLoaded) {
+        try {
+          const cfg = await fetchRotmConfig();
+          const channelInput = document.getElementById("rotmChannelName");
+          if (channelInput && cfg?.channel) channelInput.value = cfg.channel;
+          const status = document.getElementById("rotmChannelStatus");
+          if (status) status.textContent = "Ready.";
+          appData.rotmConfigLoaded = true;
+        } catch {
+          const status = document.getElementById("rotmChannelStatus");
+          if (status) status.textContent = "Unable to load channel settings.";
+        }
+      }
       try {
         const data = await fetchRotmData();
         appData.rotmData = data;
@@ -6836,6 +6898,36 @@
         const nodeKey = row.getAttribute("data-rotm-node");
         if (!nodeKey) return;
         selectRotmNode(nodeKey);
+      });
+    }
+    const rotmChannelSave = document.getElementById("rotmChannelSave");
+    if (rotmChannelSave) {
+      rotmChannelSave.addEventListener("click", async () => {
+        const channelInput = document.getElementById("rotmChannelName");
+        const secretInput = document.getElementById("rotmChannelSecret");
+        const status = document.getElementById("rotmChannelStatus");
+        const channel = channelInput?.value?.trim() || "";
+        const secretHex = secretInput?.value?.trim() || "";
+        if (!channel) {
+          if (status) status.textContent = "Channel name is required.";
+          return;
+        }
+        if (status) status.textContent = "Saving...";
+        try {
+          const res = await fetch("/api/rotm-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ channel, secretHex })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          if (status) status.textContent = `Saved: ${data.channel || channel}`;
+          if (secretInput) secretInput.value = "";
+          appData.rotmConfigLoaded = true;
+          await loadRotm();
+        } catch (err) {
+          if (status) status.textContent = `Save failed: ${err?.message || err}`;
+        }
       });
     }
 
