@@ -1495,6 +1495,14 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
   const nodeMap = buildNodeHashMap();
   const devices = readDevices();
   const byPub = devices.byPub || {};
+  const flaggedHashes = new Set();
+  for (const d of Object.values(byPub)) {
+    if (!d?.isRepeater) continue;
+    if (!d.gpsImplausible && !d.hiddenOnMap) continue;
+    const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || null;
+    const hash = nodeHashFromPub(pub);
+    if (hash) flaggedHashes.add(String(hash).toUpperCase());
+  }
   const observers = readObservers();
   const observerById = observers.byId || {};
   const destinationRepeaterHashes = new Set();
@@ -1591,6 +1599,7 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     const path = parsed.map(normalizePathHash).filter(Boolean);
     if (!path.length) return;
     const pathPoints = path.map((code) => {
+      if (flaggedHashes.has(String(code).toUpperCase())) return null;
       const hit = nodeMap.get(code);
       if (!hit?.gps || !Number.isFinite(hit.gps.lat) || !Number.isFinite(hit.gps.lon)) return null;
       if (hit.gps.lat === 0 && hit.gps.lon === 0) return null;
@@ -1611,6 +1620,7 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     }
     const lastCode = path[path.length - 1];
     if (lastCode) {
+      if (flaggedHashes.has(String(lastCode).toUpperCase())) return;
       if (observerLinkedRepeaterHashes.has(String(lastCode).toUpperCase())) return;
       if (destinationRepeaterHashes.has(String(lastCode).toUpperCase())) return;
       const hit = nodeMap.get(lastCode);
