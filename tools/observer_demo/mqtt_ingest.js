@@ -404,15 +404,22 @@ function updateDeviceFromAdvert(record) {
   if (!entry.name && adv.appData?.name) entry.name = String(adv.appData.name);
 
   const gps = adv.gps || null;
-  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
-    if (!(gps.lat === 0 && gps.lon === 0)) {
-      entry.gps = gps;
+  const appLoc = adv.appData?.location
+    ? { lat: adv.appData.location.latitude, lon: adv.appData.location.longitude }
+    : null;
+  const nextGps = (appLoc && Number.isFinite(appLoc.lat) && Number.isFinite(appLoc.lon))
+    ? appLoc
+    : gps;
+  if (nextGps && Number.isFinite(nextGps.lat) && Number.isFinite(nextGps.lon)) {
+    if (!(nextGps.lat === 0 && nextGps.lon === 0)) {
+      entry.gps = nextGps;
     }
   }
 
   const isRepeater =
     adv.isRepeater ||
     adv.appData?.isRepeater ||
+    adv.appData?.deviceRole === 2 ||
     adv.appData?.nodeType === "repeater" ||
     adv.appData?.type === "repeater";
   if (isRepeater) entry.isRepeater = true;
