@@ -997,15 +997,17 @@ function buildNodeHashMap() {
     const name = d.name || d.raw?.lastAdvert?.appData?.name || "Unknown";
     const lastSeen = d.lastSeen || null;
     const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? d.gps : null;
+    const hiddenOnMap = !!d.hiddenOnMap;
+    const gpsImplausible = !!d.gpsImplausible;
     const prev = map.get(hash);
     if (!prev) {
-      map.set(hash, { name, lastSeen, gps });
+      map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible });
       continue;
     }
     const prevTs = prev.lastSeen ? new Date(prev.lastSeen).getTime() : 0;
     const nextTs = lastSeen ? new Date(lastSeen).getTime() : 0;
     const prefer = (gps && !prev.gps) || (nextTs >= prevTs);
-    if (prefer) map.set(hash, { name, lastSeen, gps });
+    if (prefer) map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible });
   }
 
   return map;
