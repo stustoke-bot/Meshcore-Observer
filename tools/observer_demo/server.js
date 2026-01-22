@@ -831,7 +831,7 @@ function normalizeRotmHandle(value) {
 function extractRotmMentions(body) {
   const text = String(body || "");
   const out = new Set();
-  const re = /@([a-z0-9][a-z0-9_-]{1,31})/gi;
+  const re = /@\[?([a-z0-9][a-z0-9_\/-]{1,31})\]?/gi;
   let match;
   while ((match = re.exec(text)) !== null) {
     const norm = normalizeRotmHandle(match[1]);
