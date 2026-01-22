@@ -6030,6 +6030,7 @@
             body: JSON.stringify({ pub, flagged: true })
           });
           if (!res.ok) throw new Error("HTTP " + res.status);
+          if (rankMap) rankMap.closePopup();
           await loadRankDefault();
           fetchRankSummary().then(renderRankSummary).catch(() => {});
         } catch (err) {
