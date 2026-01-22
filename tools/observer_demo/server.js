@@ -999,15 +999,16 @@ function buildNodeHashMap() {
     const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? d.gps : null;
     const hiddenOnMap = !!d.hiddenOnMap;
     const gpsImplausible = !!d.gpsImplausible;
+    const gpsFlagged = !!d.gpsFlagged;
     const prev = map.get(hash);
     if (!prev) {
-      map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible });
+      map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged });
       continue;
     }
     const prevTs = prev.lastSeen ? new Date(prev.lastSeen).getTime() : 0;
     const nextTs = lastSeen ? new Date(lastSeen).getTime() : 0;
     const prefer = (gps && !prev.gps) || (nextTs >= prevTs);
-    if (prefer) map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible });
+    if (prefer) map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged });
   }
 
   return map;
@@ -1877,11 +1878,12 @@ async function buildRepeaterRank() {
     return sum / slice.length;
   }
 
-  function neighborEstimate(stat, nodeLookup, pubKey) {
-    const points = [];
-    for (const hash of stat.zeroHopNeighbors || []) {
-      const neighbor = nodeLookup.get(hash);
-      const gps = neighbor?.gps;
+function neighborEstimate(stat, nodeLookup, pubKey) {
+  const points = [];
+  for (const hash of stat.zeroHopNeighbors || []) {
+    const neighbor = nodeLookup.get(hash);
+    if (neighbor?.hiddenOnMap || neighbor?.gpsImplausible || neighbor?.gpsFlagged) continue;
+    const gps = neighbor?.gps;
       if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) continue;
       if (gps.lat === 0 && gps.lon === 0) continue;
       points.push(gps);
@@ -1954,7 +1956,7 @@ async function buildRepeaterRank() {
           ? Array.from(s.zeroHopNeighbors)
             .filter((hash) => {
               const node = nodeMap.get(hash);
-              return !node?.hiddenOnMap && !node?.gpsImplausible;
+              return !node?.hiddenOnMap && !node?.gpsImplausible && !node?.gpsFlagged;
             })
             .map((hash) => nodeMap.get(hash)?.name || hash)
             .filter(Boolean)
@@ -1963,7 +1965,7 @@ async function buildRepeaterRank() {
           ? Array.from(s.zeroHopNeighbors)
             .filter((hash) => {
               const node = nodeMap.get(hash);
-              return !node?.hiddenOnMap && !node?.gpsImplausible;
+              return !node?.hiddenOnMap && !node?.gpsImplausible && !node?.gpsFlagged;
             })
             .map((hash) => {
               const node = nodeMap.get(hash);

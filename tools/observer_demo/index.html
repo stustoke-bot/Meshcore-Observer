@@ -5512,7 +5512,11 @@
               </div>
             <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
             <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-            <div class="row"><a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</a></div>
+            <div class="row">
+              <a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</a>
+              <span style="color:var(--muted);">|</span>
+              <a class="link-btn" href="#" data-repeater-pub="${r.pub || ""}">Public key</a>
+            </div>
             <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
             <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
             ${badgeHtml(badges)}
@@ -6279,6 +6283,18 @@
         const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
         if (!entry) return;
         openNeighborMapModal(entry);
+      });
+    }
+
+    if (rankList) {
+      rankList.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-repeater-pub]");
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const pub = String(btn.getAttribute("data-repeater-pub") || "").trim().toUpperCase();
+        if (!pub) return;
+        window.prompt("Public key", pub);
       });
     }
 
