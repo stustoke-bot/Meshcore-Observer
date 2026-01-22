@@ -3263,19 +3263,18 @@
           }
 
           const latlngs = [];
-          const COVERAGE_RADIUS_M = 16093; // 10 miles in meters
           normalized.forEach((p) => {
             if (!hasGps(p)) return;
             const gps = p.gps;
             const latlng = [gps.lat, gps.lon];
             latlngs.push(latlng);
             const color = "#007aff";
-            L.circle(latlng, {
-              radius: COVERAGE_RADIUS_M,
+            L.circleMarker(latlng, {
+              radius: 5,
               color,
               fillColor: color,
-              fillOpacity: 0.15,
-              weight: 1
+              fillOpacity: 0.9,
+              weight: 2
             }).bindPopup(p.name || "#unknown").addTo(routeLayer);
           });
 
