@@ -4568,6 +4568,10 @@
             msg.pathLength = update.pathLength;
             changed = true;
           }
+          if (Number.isFinite(update.repeats) && (msg.repeats || 0) < update.repeats) {
+            msg.repeats = update.repeats;
+            changed = true;
+          }
         });
       });
       if (changed) renderMessages(false, { preserveScroll: true });

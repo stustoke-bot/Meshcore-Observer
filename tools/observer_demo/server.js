@@ -479,10 +479,16 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
   if (!hasMessageObserversDb(db)) return { updates: [], lastRowId };
   const max = Number.isFinite(limit) ? limit : MESSAGE_OBSERVER_STREAM_MAX_ROWS;
   const rows = db.prepare(`
-    SELECT rowid, message_hash, observer_id, observer_name, path_length
-    FROM message_observers
-    WHERE rowid > ?
-    ORDER BY rowid ASC
+    SELECT mo.rowid,
+           mo.message_hash,
+           mo.observer_id,
+           mo.observer_name,
+           COALESCE(m.path_length, mo.path_length) AS path_length,
+           m.repeats AS repeats
+    FROM message_observers mo
+    LEFT JOIN messages m ON m.message_hash = mo.message_hash
+    WHERE mo.rowid > ?
+    ORDER BY mo.rowid ASC
     LIMIT ?
   `).all(lastRowId || 0, max);
   let nextRowId = lastRowId || 0;
@@ -501,11 +507,15 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
     if (Number.isFinite(row.path_length)) {
       entry.pathLength = Math.max(entry.pathLength, row.path_length || 0);
     }
+    if (Number.isFinite(row.repeats)) {
+      entry.repeats = Math.max(entry.repeats || 0, row.repeats || 0);
+    }
   });
   const updates = Array.from(map.values()).map((entry) => ({
     messageHash: entry.messageHash,
     observerHits: Array.from(entry.observerHits),
-    pathLength: entry.pathLength || null
+    pathLength: entry.pathLength || null,
+    repeats: Number.isFinite(entry.repeats) ? entry.repeats : null
   }));
   return { updates, lastRowId: nextRowId };
 }
