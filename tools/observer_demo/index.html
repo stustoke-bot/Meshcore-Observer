@@ -5313,7 +5313,7 @@
         : "";
       const actionButtons = `
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn" type="button" data-repeater-flag="${r.pub}">Flag location</button>
+          <button class="btn" type="button" data-repeater-flag="${r.pub}">Flag wrong location</button>
           ${isAdmin ? `<button class="btn" type="button" data-repeater-correct="${r.pub}">Correct location</button>` : ""}
         </div>
         ${isAdmin ? "" : `<div style="margin-top:6px;font-size:12px;color:rgba(60,60,67,0.6);">Admin login required to correct location.</div>`}
@@ -6023,6 +6023,8 @@
         event.stopPropagation();
         const pub = String(flagBtn.getAttribute("data-repeater-flag") || "").trim().toUpperCase();
         if (!pub) return;
+        const confirmed = window.confirm("Flag this repeater as wrong location?\n\nIt will be removed from the map and reviewed over the next 24 hours.");
+        if (!confirmed) return;
         try {
           const res = await fetch("/api/repeater-flag", {
             method: "POST",
