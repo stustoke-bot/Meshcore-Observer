@@ -4583,11 +4583,18 @@
       if (appData.messageStream?.es) return;
       const es = new EventSource("/api/message-stream");
       appData.messageStream.es = es;
+      let lastChannelRefresh = 0;
       es.addEventListener("updates", (event) => {
-        if (!document.body.classList.contains("view-channels")) return;
         try {
           const data = JSON.parse(event.data);
           applyMessageObserverUpdates(data);
+          if (document.body.classList.contains("view-channels")) {
+            const now = Date.now();
+            if (now - lastChannelRefresh > 2000) {
+              lastChannelRefresh = now;
+              loadMessages(false, { channel: activeChannelId, limit: appData.channelHistoryLimit }).catch(() => {});
+            }
+          }
         } catch {}
       });
       es.addEventListener("stats", () => {
