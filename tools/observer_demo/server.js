@@ -3350,6 +3350,8 @@ const server = http.createServer(async (req, res) => {
         `).run(pub, flagged ? 1 : 0, devices.updatedAt);
       } catch {}
       devicesCache = { readAt: 0, data: null };
+      rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+      rankSummaryCache = { updatedAt: null, totals: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, flagged }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
