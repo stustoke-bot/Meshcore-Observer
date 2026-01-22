@@ -4553,11 +4553,12 @@
       let changed = false;
       payload.updates.forEach((update) => {
         const key = String(update.messageHash || "").toUpperCase();
-        if (!key) return;
+        const altKey = String(update.frameHash || "").toUpperCase();
+        if (!key && !altKey) return;
         const nextHits = Array.isArray(update.observerHits) ? update.observerHits : [];
         appData.messages.forEach((msg) => {
-          const msgKey = String(msg.messageHash || msg.frameHash || "").toUpperCase();
-          if (msgKey !== key) return;
+          const msgKey = String(msg.messageHash || msg.frameHash || msg.id || "").toUpperCase();
+          if (msgKey !== key && msgKey !== altKey) return;
           const merged = new Set([...(msg.observerHits || []), ...nextHits]);
           if (merged.size !== (msg.observerHits || []).length) {
             msg.observerHits = Array.from(merged);

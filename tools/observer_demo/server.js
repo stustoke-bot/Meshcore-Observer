@@ -481,6 +481,7 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
   const rows = db.prepare(`
     SELECT mo.rowid,
            mo.message_hash,
+           m.frame_hash,
            mo.observer_id,
            mo.observer_name,
            COALESCE(m.path_length, mo.path_length) AS path_length,
@@ -499,9 +500,10 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
     if (!key) return;
     let entry = map.get(key);
     if (!entry) {
-      entry = { messageHash: key, observerHits: new Set(), pathLength: 0 };
+      entry = { messageHash: key, frameHash: row.frame_hash || null, observerHits: new Set(), pathLength: 0 };
       map.set(key, entry);
     }
+    if (!entry.frameHash && row.frame_hash) entry.frameHash = row.frame_hash;
     const label = row.observer_name || row.observer_id;
     if (label) entry.observerHits.add(label);
     if (Number.isFinite(row.path_length)) {
@@ -513,6 +515,7 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
   });
   const updates = Array.from(map.values()).map((entry) => ({
     messageHash: entry.messageHash,
+    frameHash: entry.frameHash || null,
     observerHits: Array.from(entry.observerHits),
     pathLength: entry.pathLength || null,
     repeats: Number.isFinite(entry.repeats) ? entry.repeats : null
