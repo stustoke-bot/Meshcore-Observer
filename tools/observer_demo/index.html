@@ -684,6 +684,28 @@
       color: var(--ink);
       font-weight: 600;
     }
+    .route-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .route-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .route-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
 
     .rank-panel {
       grid-column: 1 / -1;
@@ -2121,6 +2143,7 @@
       <div class="title">Route Path <span class="chip" id="routeKey">none</span><button class="route-close" id="routeClose" type="button">Close</button></div>
       <div class="analysis">
         <div id="routeMap"></div>
+        <div id="routeLegend" class="route-legend"></div>
         <div class="analysis-body">
           <div class="row"><span>Message key</span><span id="routeMessage">-</span></div>
           <div class="row"><span>Source</span><span id="routeSource">-</span></div>
@@ -3115,6 +3138,8 @@
       document.getElementById("routeDepth").textContent = maxDepth + " hops";
 
       routeLayer.clearLayers();
+      const routeLegend = document.getElementById("routeLegend");
+      if (routeLegend) routeLegend.innerHTML = "";
 
       const list = document.getElementById("routeList");
       list.innerHTML = "";
@@ -3190,6 +3215,37 @@
               weight: 1
             }).bindPopup(p.name || "#unknown").addTo(routeLayer);
           });
+
+        const observerPaths = Array.isArray(msg.observerPaths) ? msg.observerPaths : [];
+        const branchPalette = ["#34c759", "#007aff", "#ff9500", "#ff2d55", "#5856d6", "#8e8e93"];
+        const branchEntries = observerPaths.map((entry) => {
+          const points = (entry.pathPoints || [])
+            .filter((pt) => pt?.gps && Number.isFinite(pt.gps.lat) && Number.isFinite(pt.gps.lon) && !(pt.gps.lat === 0 && pt.gps.lon === 0))
+            .map((pt) => [pt.gps.lat, pt.gps.lon]);
+          return {
+            label: entry.observerName || entry.observerId || "Observer",
+            points
+          };
+        }).filter((entry) => entry.points.length >= 2);
+        branchEntries.sort((a, b) => b.points.length - a.points.length);
+        if (branchEntries.length && routeLegend) {
+          routeLegend.innerHTML = "";
+        }
+        branchEntries.forEach((entry, idx) => {
+          const color = branchPalette[idx % branchPalette.length];
+          const line = L.polyline(entry.points, {
+            color,
+            weight: idx === 0 ? 3 : 2,
+            opacity: 0.9
+          }).addTo(routeLayer);
+          entry.points.forEach((pt) => latlngs.push(pt));
+          if (routeLegend) {
+            const label = idx === 0 ? `${entry.label} (longest)` : entry.label;
+            routeLegend.insertAdjacentHTML("beforeend",
+              `<div class="route-legend-item"><span class="route-legend-swatch" style="background:${color}"></span>${label}</div>`
+            );
+          }
+        });
 
         if (observerHits.length) {
           const byId = appData.observersById || {};

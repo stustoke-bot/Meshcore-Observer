@@ -285,7 +285,7 @@ function hasMessageObserversDb(db) {
   }
 }
 
-function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
+function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPathsMap) {
   let path = [];
   if (row.path_json) {
     try {
@@ -315,6 +315,23 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
     });
   }
   const observerHits = Array.from(observerSet);
+  const observerPathsRaw = observerPathsMap ? (observerPathsMap.get(String(row.message_hash || "").toUpperCase()) || []) : [];
+  const observerPaths = observerPathsRaw.map((entry) => {
+    const pathPoints = (entry.path || []).map((h) => {
+      const hit = nodeMap.get(h);
+      return {
+        hash: h,
+        name: hit ? hit.name : h,
+        gps: hit?.gps || null
+      };
+    });
+    return {
+      observerId: entry.observerId || null,
+      observerName: entry.observerName || entry.observerId || null,
+      path: entry.path || [],
+      pathPoints
+    };
+  });
   const observerCount = observerHits.length;
   const baseRepeats = Number.isFinite(row.repeats) ? row.repeats : (path.length || 0);
   const repeats = Math.max(baseRepeats, observerCount);
@@ -341,6 +358,8 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap) {
     pathLength: Number.isFinite(row.path_length) ? row.path_length : path.length,
     observerHits,
     observerCount
+    ,
+    observerPaths
   };
 }
 
@@ -411,6 +430,37 @@ function readMessageObserverAgg(db, hashes) {
         }
       } catch {}
     }
+  });
+  return map;
+}
+
+function readMessageObserverPaths(db, hashes) {
+  if (!hasMessageObserversDb(db)) return new Map();
+  const list = Array.isArray(hashes) ? hashes.filter(Boolean) : [];
+  if (!list.length) return new Map();
+  const placeholders = list.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT message_hash, observer_id, observer_name, path_json
+    FROM message_observers
+    WHERE message_hash IN (${placeholders})
+  `).all(...list);
+  const map = new Map();
+  rows.forEach((row) => {
+    const key = String(row.message_hash || "").toUpperCase();
+    if (!key) return;
+    if (!row.path_json) return;
+    let parsed;
+    try { parsed = JSON.parse(row.path_json); } catch { parsed = null; }
+    if (!Array.isArray(parsed) || !parsed.length) return;
+    const path = parsed.map(normalizePathHash).filter(Boolean);
+    if (!path.length) return;
+    const listEntry = map.get(key) || [];
+    listEntry.push({
+      observerId: row.observer_id || null,
+      observerName: row.observer_name || null,
+      path
+    });
+    map.set(key, listEntry);
   });
   return map;
 }
@@ -2168,7 +2218,8 @@ async function buildChannelMessages() {
         const rows = readMessagesFromDb(row.channel_name, limit, null) || [];
         const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
         const observerAggMap = readMessageObserverAgg(db, hashes);
-        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap)).reverse();
+        const observerPathsMap = readMessageObserverPaths(db, hashes);
+        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap, observerPathsMap)).reverse();
         mapped.forEach((msg) => messages.push(msg));
       }
       return { channels, messages };
@@ -2409,7 +2460,8 @@ async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
       const observerHitsMap = await getObserverHitsMap();
       const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
       const observerAggMap = readMessageObserverAgg(db, hashes);
-      return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap)).reverse();
+      const observerPathsMap = readMessageObserverPaths(db, hashes);
+      return rows.map((row) => mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPathsMap)).reverse();
     }
   }
   const sourcePath = getRfSourcePath();
