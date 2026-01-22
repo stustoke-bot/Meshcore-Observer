@@ -3193,10 +3193,6 @@
         }
         el.style.display = "inline-flex";
       });
-      if (!isAdmin && document.body.classList.contains("view-rotm")) {
-        document.body.classList.remove("view-rotm");
-        document.body.classList.add("view-channels");
-      }
       if (isAdmin) {
         fetchRotmConfig()
           .then((cfg) => {
@@ -5164,8 +5160,7 @@
     }
 
     async function loadRotm() {
-      if (!appData.authUser?.isAdmin) return;
-      if (!appData.rotmConfigLoaded) {
+      if (!appData.rotmConfigLoaded && appData.authUser?.isAdmin) {
         try {
           const cfg = await fetchRotmConfig();
           const channelInput = document.getElementById("rotmChannelName");
@@ -6284,9 +6279,6 @@
           document.body.classList.remove("route-open");
           navLinks.forEach((l) => l.classList.remove("active"));
           let view = link.dataset.view;
-          if (view === "rotm" && !appData.authUser?.isAdmin) {
-            view = "channels";
-          }
           navLinks.forEach((l) => {
             if (l.dataset.view === view) l.classList.add("active");
           });
