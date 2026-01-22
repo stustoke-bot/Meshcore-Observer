@@ -2875,6 +2875,7 @@ async function buildRotmData() {
   const cqBySender = new Map(); // senderNorm -> [{ msg, ts, confidenceOk, repeater }]
   const infoById = new Map(); // msgId -> info
   const qsos = [];
+  const qsoLogByNode = new Map(); // nodeKey -> [{ts, cq, response, repeater}]
   const claims = new Map(); // nodeKey -> entry
 
   const addClaim = (nodeName, nodeKey, repeater, ts, countRepeater) => {
@@ -2981,6 +2982,21 @@ async function buildRotmData() {
     info.confirmed = true;
     addClaim(cqInfo.sender, cqInfo.senderKey, repeater, ts, true);
     addClaim(info.sender, info.senderKey, repeater, ts, false);
+
+    const logEntry = {
+      ts: ts.toISOString(),
+      cqSender: cqInfo.sender,
+      cqBody: cqInfo.body || "",
+      responseSender: info.sender,
+      responseBody: info.body || "",
+      repeater: repeater?.name || "Unknown"
+    };
+    const cqLog = qsoLogByNode.get(cqInfo.senderKey) || [];
+    cqLog.push(logEntry);
+    qsoLogByNode.set(cqInfo.senderKey, cqLog);
+    const respLog = qsoLogByNode.get(info.senderKey) || [];
+    respLog.push(logEntry);
+    qsoLogByNode.set(info.senderKey, respLog);
   }
 
   const cqFeed = [];
@@ -3027,7 +3043,8 @@ async function buildRotmData() {
       uniqueRepeaters: entry.repeaters.size,
       qsos: entry.qsos,
       lastActivity: entry.lastActivity ? entry.lastActivity.toISOString() : null,
-      repeaters: Array.from(entry.repeaters.values())
+      repeaters: Array.from(entry.repeaters.values()),
+      qsoLog: (qsoLogByNode.get(entry.nodeKey) || []).slice(-50).reverse()
     }))
     .sort((a, b) => (b.uniqueRepeaters - a.uniqueRepeaters) || (b.qsos - a.qsos) || (new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0)));
 

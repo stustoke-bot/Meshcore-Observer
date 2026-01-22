@@ -963,7 +963,7 @@
       font-size: 13px;
     }
 
-    #rotmMap {
+    #rotmQsoMap {
       width: 100%;
       height: 320px;
       border-radius: 14px;
@@ -988,6 +988,34 @@
 
     body.theme-dark .rotm-claim-chip {
       background: rgba(255, 255, 255, 0.05);
+    }
+
+    .rotm-qso-log {
+      display: grid;
+      gap: 10px;
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .rotm-qso-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 6px;
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    body.theme-dark .rotm-qso-item {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .rotm-qso-meta {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .rank-body {
@@ -2243,7 +2271,7 @@
       .rotm-leader-row .rotm-leader-meta {
         grid-column: 1 / -1;
       }
-      #rotmMap { height: 260px; }
+      #rotmQsoMap { height: 260px; }
       body.view-channels .analysis-panel { display: none; }
       body.route-open.view-channels .analysis-panel { display: flex; }
       body.route-open .route-backdrop { display: block; }
@@ -2491,11 +2519,8 @@
             <div class="rotm-feed" id="rotmFeed"></div>
           </div>
           <div class="rotm-card">
-            <div class="rotm-card-title">Node claims leaderboard</div>
+            <div class="rotm-card-title">Repeater activations</div>
             <div class="rotm-leaderboard" id="rotmLeaderboard"></div>
-            <div class="rotm-map-title" id="rotmMapTitle">Claimed repeaters map</div>
-            <div id="rotmMap"></div>
-            <div class="rotm-claim-list" id="rotmClaimList"></div>
           </div>
         </div>
       </div>
@@ -2940,6 +2965,19 @@
           <button class="btn" type="button" id="rotmChannelSave">Save ROTM settings</button>
           <button class="btn" type="button" id="rotmSettingsClose">Close</button>
           <span class="rotm-settings-note" id="rotmChannelStatus">Secret is stored until you update it.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="rotmQsoModal">
+      <div class="modal-card">
+        <strong id="rotmQsoTitle">ROTM QSO log</strong>
+        <div class="rotm-map-title" id="rotmQsoMapTitle">Activated repeaters</div>
+        <div id="rotmQsoMap"></div>
+        <div class="rotm-claim-list" id="rotmQsoClaimList"></div>
+        <div class="rotm-qso-log" id="rotmQsoLog"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="rotmQsoClose">Close</button>
         </div>
       </div>
     </div>
@@ -4097,6 +4135,13 @@
       if (e.target === rotmSettingsModal) rotmSettingsModal.classList.remove("open");
     });
 
+    const rotmQsoModal = document.getElementById("rotmQsoModal");
+    const rotmQsoClose = document.getElementById("rotmQsoClose");
+    rotmQsoClose?.addEventListener("click", () => rotmQsoModal?.classList.remove("open"));
+    rotmQsoModal?.addEventListener("click", (e) => {
+      if (e.target === rotmQsoModal) rotmQsoModal.classList.remove("open");
+    });
+
     async function loadChannels() {
       const res = await fetch("/api/channels", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -4424,6 +4469,9 @@
         await loadChannels();
         await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
         initMessageStream();
+        loadRotm();
+        startRotmRefresh();
+        startRotmTimers();
         try {
           const mesh = await fetchMeshScore();
           renderMeshScore(mesh, meshRangeDays);
@@ -5007,6 +5055,7 @@
     let rotmRefreshTimer = null;
     let rotmTimerTick = null;
     const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
+    const ROTM_REFRESH_MS = 5000;
 
     function formatRotmTime(ts) {
       if (!ts) return "--";
@@ -5029,7 +5078,7 @@
 
     function initRotmMap() {
       if (rotmMap) return;
-      rotmMap = L.map("rotmMap", { zoomControl: true });
+      rotmMap = L.map("rotmQsoMap", { zoomControl: true });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
         attribution: "&copy; OpenStreetMap contributors"
@@ -5114,16 +5163,16 @@
     }
 
     function renderRotmMap(node) {
-      const title = document.getElementById("rotmMapTitle");
-      const list = document.getElementById("rotmClaimList");
+      const title = document.getElementById("rotmQsoMapTitle");
+      const list = document.getElementById("rotmQsoClaimList");
       if (!title || !list) return;
       if (!node) {
-        title.textContent = "Claimed repeaters map";
+        title.textContent = "Activated repeaters";
         list.innerHTML = "";
         if (rotmMapLayer) rotmMapLayer.clearLayers();
         return;
       }
-      title.textContent = `Claimed repeaters for ${node.node || node.nodeKey}`;
+      title.textContent = `Activated repeaters for ${node.node || node.nodeKey}`;
       const repeaters = Array.isArray(node.repeaters) ? node.repeaters : [];
       list.innerHTML = repeaters.length
         ? repeaters.map((r) => `<span class="rotm-claim-chip">${r.name || r.hash || "Unknown"}</span>`).join("")
@@ -5150,6 +5199,33 @@
         rotmMap.setView([54.0, -2.5], 6);
       }
       setTimeout(() => rotmMap.invalidateSize(), 80);
+    }
+
+    function renderRotmQsoLog(node) {
+      const title = document.getElementById("rotmQsoTitle");
+      const log = document.getElementById("rotmQsoLog");
+      if (!title || !log) return;
+      if (!node) {
+        title.textContent = "ROTM QSO log";
+        log.innerHTML = "<div class='rotm-qso-item'>No node selected.</div>";
+        return;
+      }
+      title.textContent = `QSO log: ${node.node || node.nodeKey}`;
+      const items = Array.isArray(node.qsoLog) ? node.qsoLog : [];
+      if (!items.length) {
+        log.innerHTML = "<div class='rotm-qso-item'>No QSOs logged yet.</div>";
+        return;
+      }
+      log.innerHTML = items.map((qso) => `
+        <div class="rotm-qso-item">
+          <div class="rotm-qso-meta">
+            <span>${formatDateTime(qso.ts)}</span>
+            <span>Repeater: ${qso.repeater || "Unknown"}</span>
+          </div>
+          <div><strong>@${qso.cqSender}</strong> — ${qso.cqBody || ""}</div>
+          <div><strong>@${qso.responseSender}</strong> — ${qso.responseBody || ""}</div>
+        </div>
+      `).join("");
     }
 
     function selectRotmNode(nodeKey) {
@@ -5198,8 +5274,9 @@
     function startRotmRefresh() {
       if (rotmRefreshTimer) clearInterval(rotmRefreshTimer);
       rotmRefreshTimer = setInterval(() => {
-        if (document.body.classList.contains("view-rotm")) loadRotm();
-      }, 15000);
+        if (document.hidden) return;
+        loadRotm();
+      }, ROTM_REFRESH_MS);
     }
 
     function stopRotmRefresh() {
@@ -5228,7 +5305,8 @@
     function startRotmTimers() {
       if (rotmTimerTick) clearInterval(rotmTimerTick);
       rotmTimerTick = setInterval(() => {
-        if (document.body.classList.contains("view-rotm")) updateRotmTimers();
+        if (document.hidden) return;
+        updateRotmTimers();
       }, 1000);
     }
 
@@ -6940,6 +7018,9 @@
         const nodeKey = row.getAttribute("data-rotm-node");
         if (!nodeKey) return;
         selectRotmNode(nodeKey);
+        const node = (appData.rotmData?.leaderboard || []).find((n) => n.nodeKey === nodeKey) || null;
+        renderRotmQsoLog(node);
+        document.getElementById("rotmQsoModal")?.classList.add("open");
       });
     }
     const rotmChannelSave = document.getElementById("rotmChannelSave");
