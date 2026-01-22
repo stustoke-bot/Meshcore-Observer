@@ -311,6 +311,50 @@ function storeMessage(record) {
   }
 }
 
+function updateDeviceFromAdvert(record) {
+  if (!record?.payloadHex) return;
+  let decoded;
+  try {
+    decoded = MeshCoreDecoder.decode(String(record.payloadHex).toUpperCase());
+  } catch {
+    return;
+  }
+  const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+  if (payloadType !== "Advert") return;
+  const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
+  if (!adv) return;
+  const pub = adv.publicKey || adv.pub || adv.pubKey || null;
+  if (!pub) return;
+  const key = String(pub).toUpperCase();
+
+  const devices = readJsonSafe(devicesPath, { byPub: {} });
+  const byPub = devices.byPub || {};
+  const entry = byPub[key] || { pub: key };
+  entry.lastSeen = record.archivedAt || entry.lastSeen || null;
+  entry.raw = entry.raw || {};
+  entry.raw.lastAdvert = adv;
+  if (!entry.name && adv.appData?.name) entry.name = String(adv.appData.name);
+
+  const gps = adv.gps || null;
+  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
+    if (!(gps.lat === 0 && gps.lon === 0)) {
+      entry.gps = gps;
+    }
+  }
+
+  const isRepeater =
+    adv.isRepeater ||
+    adv.appData?.isRepeater ||
+    adv.appData?.nodeType === "repeater" ||
+    adv.appData?.type === "repeater";
+  if (isRepeater) entry.isRepeater = true;
+
+  byPub[key] = entry;
+  devices.byPub = byPub;
+  devices.updatedAt = new Date().toISOString();
+  writeJsonSafe(devicesPath, devices);
+}
+
 function logIngest(level, message) {
   ensureDataDir();
   const line = `${new Date().toISOString()} ${level} ${message}`;
@@ -508,6 +552,7 @@ client.on("message", (topic, payload) => {
   };
 
   appendObserver(record);
+  updateDeviceFromAdvert(record);
   updateObserverStatus(record);
   storeRfPacket(record);
   storeMessage(record);
