@@ -17,8 +17,6 @@ const ingestLogPath = path.join(dataDir, "ingest.log");
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const dbPath = path.join(dataDir, "meshrank.db");
 const GPS_WARN_KM = 50;
-const ESTIMATE_MIN_HOURS = 4;
-const ESTIMATE_MIN_RSSI = -75;
 const RF_MAX_ROWS = 50000;
 const RF_CLEAN_INTERVAL = 500;
 
@@ -412,7 +410,8 @@ function updateDeviceFromAdvert(record) {
     : gps;
   if (nextGps && Number.isFinite(nextGps.lat) && Number.isFinite(nextGps.lon)) {
     if (!(nextGps.lat === 0 && nextGps.lon === 0)) {
-      entry.gps = nextGps;
+      entry.gpsReported = nextGps;
+      if (!entry.manualLocation) entry.gps = nextGps;
     }
   }
 
@@ -487,10 +486,6 @@ function updateObserverStatus(record) {
   }
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
-  const manualLoc = entry.locSource === "manual" || entry.manualLocation;
-  if (!manualLoc) {
-    updateEstimatedLocation(record, entry, byPub);
-  }
   if (entry.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon)) {
     const repeaters = Object.values(byPub).filter((d) =>
       d && d.isRepeater && d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)
@@ -553,59 +548,6 @@ function updateObserverStatus(record) {
   }
 }
 
-function updateEstimatedLocation(record, entry, byPub) {
-  if (!record.payloadHex || !Number.isFinite(record.rssi)) return;
-  let decoded;
-  try {
-    decoded = MeshCoreDecoder.decode(String(record.payloadHex).toUpperCase());
-  } catch {
-    return;
-  }
-  const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
-  if (payloadType !== "Advert") return;
-  const pathRaw = Array.isArray(decoded.path) ? decoded.path : [];
-  const hopCount = pathRaw.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
-  if (hopCount > 1) return;
-  const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
-  const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
-  if (!pub) return;
-  const key = String(pub).toUpperCase();
-  const rpt = byPub[key];
-  if (!rpt || !rpt.gps || !Number.isFinite(rpt.gps.lat) || !Number.isFinite(rpt.gps.lon)) return;
-  if (rpt.gps.lat === 0 && rpt.gps.lon === 0) return;
-
-  if (!entry.locValidated) {
-    entry.approxLatSum = (entry.approxLatSum || 0) + rpt.gps.lat;
-    entry.approxLonSum = (entry.approxLonSum || 0) + rpt.gps.lon;
-    entry.approxCount = (entry.approxCount || 0) + 1;
-    entry.gpsApprox = {
-      lat: entry.approxLatSum / entry.approxCount,
-      lon: entry.approxLonSum / entry.approxCount
-    };
-    entry.locApprox = true;
-    entry.locApproxAt = new Date().toISOString();
-  }
-
-  const best = Number.isFinite(entry.bestRssi) ? entry.bestRssi : -999;
-  const bestHop = Number.isFinite(entry.bestHopCount) ? entry.bestHopCount : 99;
-  const isBetterHop = hopCount < bestHop;
-  const isBetterRssi = record.rssi > best;
-  if (isBetterHop || (hopCount === bestHop && isBetterRssi)) {
-    entry.bestRssi = record.rssi;
-    entry.bestHopCount = hopCount;
-    entry.bestRepeaterPub = key;
-    entry.bestRepeaterName = rpt.name || key;
-    entry.gps = rpt.gps;
-    entry.locSource = rpt.name ? `${rpt.name} (direct)` : `${key} (direct)`;
-  }
-
-  const firstSeen = entry.firstSeen ? new Date(entry.firstSeen).getTime() : 0;
-  const ageHours = firstSeen ? (Date.now() - firstSeen) / 3600000 : 0;
-  if (entry.bestRssi >= ESTIMATE_MIN_RSSI && ageHours >= ESTIMATE_MIN_HOURS && entry.gps) {
-    entry.locValidated = true;
-    entry.locValidatedAt = new Date().toISOString();
-  }
-}
 
 function haversineKm(lat1, lon1, lat2, lon2) {
   const toRad = (v) => (v * Math.PI) / 180;

@@ -1511,7 +1511,6 @@
       display: none;
     }
     .repeater-location-controls {
-      display: flex;
       gap: 6px;
       flex-wrap: wrap;
       margin-top: 6px;
@@ -2435,6 +2434,23 @@
       </div>
     </div>
 
+    <div class="observer-location-modal" id="repeaterLocationModal">
+      <div class="observer-location-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>Set Repeater Location</strong>
+          <button class="observer-location-button" type="button" id="repeaterLocationClose">Close</button>
+        </div>
+        <div class="observer-location-map" id="repeaterLocationMap"></div>
+        <div class="observer-location-meta">
+          <span id="repeaterLocationLabel">Repeater: --</span>
+          <span id="repeaterLocationCoords">Lat/Lon: --</span>
+        </div>
+        <div class="observer-location-actions">
+          <button class="btn" type="button" id="repeaterLocationSave">Save location</button>
+        </div>
+      </div>
+    </div>
+
     <section class="panel why-panel">
       <div class="title">Why MeshRank?</div>
       <div class="why-body">
@@ -2743,7 +2759,11 @@
       }
       const isAdmin = !!user?.isAdmin;
       document.querySelectorAll(".admin-only").forEach((el) => {
-        el.style.display = isAdmin ? "inline-flex" : "none";
+        if (!isAdmin) {
+          el.style.display = "none";
+          return;
+        }
+        el.style.display = el.classList.contains("repeater-location-controls") ? "flex" : "inline-flex";
       });
       updateNodeRankVisibility();
       renderChannels();
@@ -3148,62 +3168,28 @@
           return true;
         }
 
-        function estimateFromNeighbors(idx) {
-          let prev = null;
-          for (let i = idx - 1; i >= 0; i -= 1) {
-            const p = normalized[i];
-            if (p && hasGps(p)) { prev = p; break; }
+          for (let i = 0; i < pathLen; i += 1) {
+            const base = rawPoints[i] || { hash: path[i], name: msg.pathNames?.[i] || path[i] || "#unknown" };
+            const resolvedName = resolveRouteName(base.hash || path[i], base.name);
+            normalized.push({ ...base, name: resolvedName });
           }
-          let next = null;
-          for (let i = idx + 1; i < normalized.length; i += 1) {
-            const p = normalized[i];
-            if (p && hasGps(p)) { next = p; break; }
-          }
-          if (prev && next) {
-            return {
-              lat: (prev.gps.lat + next.gps.lat) / 2,
-              lon: (prev.gps.lon + next.gps.lon) / 2
-            };
-          }
-          if (prev) {
-            return { lat: prev.gps.lat + 0.05, lon: prev.gps.lon - 0.05 };
-          }
-          if (next) {
-            return { lat: next.gps.lat - 0.05, lon: next.gps.lon + 0.05 };
-          }
-          return null;
-        }
 
-        for (let i = 0; i < pathLen; i += 1) {
-          const base = rawPoints[i] || { hash: path[i], name: msg.pathNames?.[i] || path[i] || "#unknown" };
-          const resolvedName = resolveRouteName(base.hash || path[i], base.name);
-          normalized.push({ ...base, name: resolvedName });
-        }
-
-        const latlngs = [];
-        const COVERAGE_RADIUS_M = 16093; // 10 miles in meters
-        normalized.forEach((p, idx) => {
-          let gps = hasGps(p) ? p.gps : null;
-          let estimated = false;
-          if (!gps) {
-            const guess = estimateFromNeighbors(idx);
-            if (guess) {
-              gps = guess;
-              estimated = true;
-            }
-          }
-          if (!gps) return;
-          const latlng = [gps.lat, gps.lon];
-          latlngs.push(latlng);
-          const color = estimated ? "#ffcc00" : "#007aff";
-          L.circle(latlng, {
-            radius: COVERAGE_RADIUS_M,
-            color,
-            fillColor: color,
-            fillOpacity: 0.15,
-            weight: 1
-          }).bindPopup(estimated ? `${p.name || "#unknown"} (estimated)` : (p.name || "#unknown")).addTo(routeLayer);
-        });
+          const latlngs = [];
+          const COVERAGE_RADIUS_M = 16093; // 10 miles in meters
+          normalized.forEach((p) => {
+            if (!hasGps(p)) return;
+            const gps = p.gps;
+            const latlng = [gps.lat, gps.lon];
+            latlngs.push(latlng);
+            const color = "#007aff";
+            L.circle(latlng, {
+              radius: COVERAGE_RADIUS_M,
+              color,
+              fillColor: color,
+              fillOpacity: 0.15,
+              weight: 1
+            }).bindPopup(p.name || "#unknown").addTo(routeLayer);
+          });
 
         if (observerHits.length) {
           const byId = appData.observersById || {};
@@ -3212,22 +3198,20 @@
             const key = String(raw || "").trim();
             if (!key) return;
             const entry = byId[key] || byName[key] || null;
-            const gps = entry?.manualLocation && entry?.gpsApprox
-              ? entry.gpsApprox
-              : (entry?.gps || entry?.gpsApprox);
-            if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
-            const latlng = [gps.lat, gps.lon];
-            latlngs.push(latlng);
-            const label = entry?.name || entry?.id || key;
-            L.circleMarker(latlng, {
-              radius: 6,
-              color: entry?.locValidated ? "#00c853" : "#8fd3ff",
-              fillColor: entry?.locValidated ? "#00c853" : "#8fd3ff",
-              fillOpacity: 0.9,
-              weight: 2
-            }).bindPopup(`Observer: ${label}${entry?.locValidated ? "" : " (approx)"}`).addTo(routeLayer);
-          });
-        }
+              const gps = entry?.gps || null;
+              if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+              const latlng = [gps.lat, gps.lon];
+              latlngs.push(latlng);
+              const label = entry?.name || entry?.id || key;
+              L.circleMarker(latlng, {
+                radius: 6,
+                color: "#00c853",
+                fillColor: "#00c853",
+                fillOpacity: 0.9,
+                weight: 2
+              }).bindPopup(`Observer: ${label}`).addTo(routeLayer);
+            });
+          }
 
         if (latlngs.length >= 2) {
           map.fitBounds(latlngs, { padding: [20, 20] });
@@ -3486,10 +3470,17 @@
     const observerLocationClose = document.getElementById("observerLocationClose");
     const observerLocationSave = document.getElementById("observerLocationSave");
     const observerListEl = document.getElementById("observerList");
+    const repeaterLocationModal = document.getElementById("repeaterLocationModal");
+    const repeaterLocationClose = document.getElementById("repeaterLocationClose");
+    const repeaterLocationSave = document.getElementById("repeaterLocationSave");
 
     observerLocationClose?.addEventListener("click", closeObserverLocationModal);
     observerLocationModal?.addEventListener("click", (e) => {
       if (e.target === observerLocationModal) closeObserverLocationModal();
+    });
+    repeaterLocationClose?.addEventListener("click", closeRepeaterLocationModal);
+    repeaterLocationModal?.addEventListener("click", (e) => {
+      if (e.target === repeaterLocationModal) closeRepeaterLocationModal();
     });
 
     observerListEl?.addEventListener("click", (e) => {
@@ -3522,6 +3513,35 @@
         renderObserverMap(data);
         renderObserverList(data);
         closeObserverLocationModal();
+      } catch (err) {
+        alert("Unable to save location: " + (err?.message || err));
+      }
+    });
+
+    repeaterLocationSave?.addEventListener("click", async () => {
+      if (!repeaterLocationTarget || !repeaterLocationCoords) {
+        alert("Click a location on the map first.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/repeater-location", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...authHeaders() },
+          body: JSON.stringify({
+            pub: repeaterLocationTarget.pub,
+            lat: repeaterLocationCoords.lat,
+            lon: repeaterLocationCoords.lng
+          })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const payload = await res.json().catch(() => ({}));
+        await loadRankDefault();
+        fetchRankSummary().then(renderRankSummary).catch(() => {});
+        closeRepeaterLocationModal();
+        if (payload.implausible) {
+          const km = Number.isFinite(payload.distanceKm) ? payload.distanceKm.toFixed(1) : "unknown";
+          alert(`GPS implausible (${km}km from reported). Repeater hidden from map.`);
+        }
       } catch (err) {
         alert("Unable to save location: " + (err?.message || err));
       }
@@ -4134,30 +4154,26 @@
       const entries = Object.values(data.byId || {});
       const now = Date.now();
       const points = [];
-      entries.forEach((entry) => {
-        const gps = entry.manualLocation && entry.gpsApprox
-          ? entry.gpsApprox
-          : (entry.locValidated ? entry.gps : (entry.gpsApprox || null));
-        if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
-        if (gps.lat === 0 && gps.lon === 0) return;
-        const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
-        const ageHours = ts ? (now - ts) / 3600000 : 999;
-        const color = observerColor(ageHours);
-        if (!color) return;
-        const circle = L.circle([gps.lat, gps.lon], {
-          radius: 5000,
-          color,
-          fillColor: color,
-          fillOpacity: entry.locValidated ? 0.35 : 0.12,
-          weight: entry.locValidated ? 2 : 1,
-          dashArray: entry.locValidated ? null : "4 6"
+        entries.forEach((entry) => {
+          const gps = entry.gps || null;
+          if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
+          if (gps.lat === 0 && gps.lon === 0) return;
+          const ts = entry.lastSeen ? new Date(entry.lastSeen).getTime() : 0;
+          const ageHours = ts ? (now - ts) / 3600000 : 999;
+          const color = observerColor(ageHours);
+          if (!color) return;
+          const circle = L.circle([gps.lat, gps.lon], {
+            radius: 5000,
+            color,
+            fillColor: color,
+            fillOpacity: 0.35,
+            weight: 2
+          });
+          const name = entry.name || entry.id || "Observer";
+          circle.bindTooltip(name, { direction: "top", opacity: 0.9 });
+          circle.addTo(observerLayer);
+          points.push([gps.lat, gps.lon]);
         });
-      const name = entry.name || entry.id || "Observer";
-      const tag = entry.locValidated ? "" : " (approx)";
-      circle.bindTooltip(name + tag, { direction: "top", opacity: 0.9 });
-        circle.addTo(observerLayer);
-        points.push([gps.lat, gps.lon]);
-      });
       if (points.length) {
         observerMap.fitBounds(points, { padding: [20, 20], maxZoom: 6 });
       } else {
@@ -4171,11 +4187,11 @@
     function renderObserverList(data) {
       const list = document.getElementById("observerList");
       if (!list || !data) return;
-      const entries = Object.values(data.byId || {}).filter((entry) => {
-        if (entry.locValidated) return false;
-        if (entry.manualLocation || entry.locSource === "manual" || entry.gpsApprox) return false;
-        return true;
-      });
+        const entries = Object.values(data.byId || {}).filter((entry) => {
+          const gps = entry?.gps;
+          if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return true;
+          return gps.lat === 0 && gps.lon === 0;
+        });
       if (!entries.length) {
         list.innerHTML = "<div class='rf-row'>No pending observers.</div>";
         return;
@@ -4189,9 +4205,7 @@
         let status = "Active";
         if (ageHours > 24) status = "Idle 24h+";
         else if (ageHours > 1) status = "Idle 1h+";
-        const location = entry.locValidated
-          ? (entry.gps ? `${entry.gps.lat.toFixed(4)}, ${entry.gps.lon.toFixed(4)}` : "Estimated")
-          : "Location pending";
+          const location = "Location pending";
         const source = entry.locSource ? ` | ${entry.locSource}` : "";
         return `<div class="rf-row">
           <div class="rf-head">${name}</div>
@@ -4283,6 +4297,10 @@
     let observerLocationMarker;
     let observerLocationTarget = null;
     let observerLocationCoords = null;
+    let repeaterLocationMap;
+    let repeaterLocationMarker;
+    let repeaterLocationTarget = null;
+    let repeaterLocationCoords = null;
 
     function openObserverLocationModal(entry) {
       const modal = document.getElementById("observerLocationModal");
@@ -4315,9 +4333,7 @@
         });
       }
 
-      const gps = entry?.manualLocation && entry?.gpsApprox
-        ? entry.gpsApprox
-        : (entry?.gps || entry?.gpsApprox || null);
+      const gps = entry?.gps || null;
       if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
         observerLocationMap.setView([gps.lat, gps.lon], 10);
         observerLocationCoords = { lat: gps.lat, lng: gps.lon };
@@ -4338,6 +4354,62 @@
 
     function closeObserverLocationModal() {
       const modal = document.getElementById("observerLocationModal");
+      if (!modal) return;
+      modal.classList.remove("open");
+    }
+
+    function openRepeaterLocationModal(entry) {
+      const modal = document.getElementById("repeaterLocationModal");
+      const label = document.getElementById("repeaterLocationLabel");
+      const coords = document.getElementById("repeaterLocationCoords");
+      if (!modal) return;
+      repeaterLocationTarget = entry;
+      repeaterLocationCoords = null;
+      label.textContent = `Repeater: ${entry?.name || entry?.pub || "--"}`;
+      coords.textContent = "Lat/Lon: --";
+      modal.classList.add("open");
+
+      if (!repeaterLocationMap) {
+        repeaterLocationMap = L.map("repeaterLocationMap", { zoomControl: true });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 18,
+          attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(repeaterLocationMap);
+        repeaterLocationMap.on("click", (ev) => {
+          repeaterLocationCoords = ev.latlng;
+          coords.textContent = `Lat/Lon: ${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)}`;
+          if (repeaterLocationMarker) repeaterLocationMarker.remove();
+          repeaterLocationMarker = L.circleMarker(ev.latlng, {
+            radius: 6,
+            color: "#007aff",
+            fillColor: "#007aff",
+            fillOpacity: 0.9,
+            weight: 2
+          }).addTo(repeaterLocationMap);
+        });
+      }
+
+      const gps = entry?.gps || null;
+      if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
+        repeaterLocationMap.setView([gps.lat, gps.lon], 10);
+        repeaterLocationCoords = { lat: gps.lat, lng: gps.lon };
+        coords.textContent = `Lat/Lon: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`;
+        if (repeaterLocationMarker) repeaterLocationMarker.remove();
+        repeaterLocationMarker = L.circleMarker([gps.lat, gps.lon], {
+          radius: 6,
+          color: "#007aff",
+          fillColor: "#007aff",
+          fillOpacity: 0.9,
+          weight: 2
+        }).addTo(repeaterLocationMap);
+      } else {
+        repeaterLocationMap.setView([54.0, -2.5], 6);
+      }
+      setTimeout(() => repeaterLocationMap.invalidateSize(), 80);
+    }
+
+    function closeRepeaterLocationModal() {
+      const modal = document.getElementById("repeaterLocationModal");
       if (!modal) return;
       modal.classList.remove("open");
     }
@@ -4400,7 +4472,6 @@
     function buildRepeaterBadges(r, nearestObserverSet) {
       const badges = [];
       if (r.stale) badges.push({ label: "Stale repeater", tone: "gray" });
-      if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "amber" });
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
       if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
@@ -4424,9 +4495,7 @@
       const driftLabel = Number.isFinite(drift)
         ? formatDriftMinutes(drift)
         : "Clock drift data unavailable";
-      const gpsLabel = repeater.gpsEstimated
-        ? "Estimated (GPS implausible)"
-        : "Reported";
+      const gpsLabel = repeater.gpsImplausible ? "Implausible (hidden)" : "Confirmed";
       content.innerHTML = `
         <div class="rank-detail-close">
           <button type="button" onclick="closeRankDetail()">✕</button>
@@ -5173,16 +5242,14 @@
       visible.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
-          const hiddenLabel = r.stale ? "Stale repeater" : "GPS unreliable";
+          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : (r.stale ? "Stale repeater" : "GPS unreliable");
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
           const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
           const adminControls = `
             <div class="row admin-only repeater-location-controls" data-repeater-controls="${r.pub || ""}">
-              <input type="text" inputmode="decimal" placeholder="Lat" data-repeater-lat="${r.pub || ""}">
-              <input type="text" inputmode="decimal" placeholder="Lon" data-repeater-lon="${r.pub || ""}">
-              <button class="btn" type="button" data-repeater-loc-save="${r.pub || ""}">Set location</button>
+              <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
             </div>
           `;
           const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
@@ -5238,9 +5305,17 @@
     function buildRankPopupHtml(r) {
       const impact = Math.min(100, Math.max(0, r.score || 0));
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
-      const locationNote = r.gpsEstimated
-        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">Location estimated (GPS implausible)</div>`
+      const isAdmin = !!appData.authUser?.isAdmin;
+      const implausibleNote = r.gpsImplausible
+        ? `<div style="font-size:12px;color:#9a5b00;margin-top:4px;">GPS implausible — hidden from map</div>`
         : "";
+      const actionButtons = isAdmin
+        ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" type="button" data-repeater-correct="${r.pub}">Correct location</button>
+            ${r.gpsImplausible ? `<button class="btn" type="button" data-repeater-override="${r.pub}">Show on map</button>` : ""}
+          </div>`
+        : "";
+      const locationNote = `${implausibleNote}${actionButtons}`;
       return `
         <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
           <div style="font-weight:700;margin-bottom:6px;">${r.name}${code}</div>
@@ -5926,36 +6001,55 @@
     const rankList = document.getElementById("rankList");
     if (rankList) {
       rankList.addEventListener("click", async (event) => {
-        const btn = event.target.closest("[data-repeater-loc-save]");
+        const btn = event.target.closest("[data-repeater-locate]");
         if (!btn) return;
         event.preventDefault();
         event.stopPropagation();
-        const pub = String(btn.getAttribute("data-repeater-loc-save") || "").trim();
+        const pub = String(btn.getAttribute("data-repeater-locate") || "").trim().toUpperCase();
         if (!pub) return;
-        const latInput = document.querySelector(`[data-repeater-lat="${pub}"]`);
-        const lonInput = document.querySelector(`[data-repeater-lon="${pub}"]`);
-        const lat = latInput ? Number(latInput.value) : NaN;
-        const lon = lonInput ? Number(lonInput.value) : NaN;
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-          alert("Please enter a valid lat/lon.");
-          return;
-        }
+        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
+        if (!entry) return;
+        openRepeaterLocationModal(entry);
+      });
+    }
+
+    document.addEventListener("click", async (event) => {
+      const correctBtn = event.target.closest("[data-repeater-correct]");
+      if (correctBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pub = String(correctBtn.getAttribute("data-repeater-correct") || "").trim().toUpperCase();
+        if (!pub) return;
+        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
+        if (!entry) return;
+        openRepeaterLocationModal(entry);
+        return;
+      }
+      const overrideBtn = event.target.closest("[data-repeater-override]");
+      if (!overrideBtn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const pub = String(overrideBtn.getAttribute("data-repeater-override") || "").trim().toUpperCase();
+      if (!pub) return;
+      const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
+      const gps = entry?.gps;
+      if (!entry || !gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) {
+        alert("Repeater needs a valid GPS location first.");
+        return;
+      }
+      try {
         const res = await fetch("/api/repeater-location", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ pub, lat, lon })
+          body: JSON.stringify({ pub, lat: gps.lat, lon: gps.lon, override: true })
         });
-        if (!res.ok) {
-          const err = await res.text();
-          alert(err || "Failed to set repeater location.");
-          return;
-        }
-        if (latInput) latInput.value = "";
-        if (lonInput) lonInput.value = "";
-        loadRankDefault();
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await loadRankDefault();
         fetchRankSummary().then(renderRankSummary).catch(() => {});
-      });
-    }
+      } catch (err) {
+        alert("Unable to override: " + (err?.message || err));
+      }
+    });
 
     const rfSearch = document.getElementById("rfSearch");
     const rfTypeFilter = document.getElementById("rfTypeFilter");

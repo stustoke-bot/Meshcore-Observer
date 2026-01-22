@@ -11,7 +11,6 @@ const bcrypt = require("bcryptjs");
 const projectRoot = path.resolve(__dirname, "..", "..");
 const dataDir = path.join(projectRoot, "data");
 const devicesPath = path.join(dataDir, "devices.json");
-const repeaterGpsEstimatesPath = path.join(dataDir, "repeater_gps_estimates.json");
 const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
@@ -57,9 +56,7 @@ const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
 const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
 const RF_AGG_COOLDOWN_MS = 1500;
 const RF_AGG_LIMIT = 800;
-const REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS = 2;
-const REPEATER_GPS_ESTIMATE_MAX_KM = 300;
-const REPEATER_GPS_ESTIMATE_REFRESH_MS = 60 * 60 * 1000;
+const REPEATER_GPS_IMPLAUSIBLE_KM = 100;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -741,8 +738,18 @@ function readObserversJson() {
   return readJsonSafe(observersPath, { byId: {} });
 }
 
-function readRepeaterGpsEstimates() {
-  return readJsonSafe(repeaterGpsEstimatesPath, { byPub: {}, updatedAt: null });
+function isValidGps(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat === 0 && lon === 0) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+  return true;
+}
+
+function normalizeGpsValue(value) {
+  if (!value || typeof value !== "object") return null;
+  const lat = Number(value.lat ?? value.latitude);
+  const lon = Number(value.lon ?? value.lng ?? value.longitude);
+  return isValidGps(lat, lon) ? { lat, lon } : null;
 }
 
 function readDevices() {
@@ -763,44 +770,51 @@ function readDevices() {
     if (!rows.length) return fallback;
     const byPub = {};
     let updatedAt = null;
-    rows.forEach((row) => {
-      const pub = String(row.pub || "").toUpperCase();
-      if (!pub) return;
-      let raw = null;
-      if (row.raw_json) {
-        try { raw = JSON.parse(row.raw_json); } catch {}
-      }
-      const gps = (Number.isFinite(row.gps_lat) && Number.isFinite(row.gps_lon))
-        ? { lat: row.gps_lat, lon: row.gps_lon }
-        : null;
-      byPub[pub] = {
-        pub,
-        name: row.name || null,
-        isRepeater: !!row.is_repeater,
-        isObserver: !!row.is_observer,
-        lastSeen: row.last_seen || null,
-        observerLastSeen: row.observer_last_seen || null,
-        gps,
-        raw: raw ? { lastAdvert: raw } : null,
-        hiddenOnMap: row.hidden_on_map ? true : false
-      };
-      const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
-      if (!updatedAt || ts > new Date(updatedAt).getTime()) updatedAt = row.updated_at;
-    });
-    const estimates = readRepeaterGpsEstimates();
-    const estByPub = estimates.byPub || {};
-    for (const [pub, est] of Object.entries(estByPub)) {
-      const entry = byPub[String(pub || "").toUpperCase()];
-      if (!entry || !est?.gps) continue;
-      if (!Number.isFinite(est.gps.lat) || !Number.isFinite(est.gps.lon)) continue;
-      if (est.gps.lat === 0 && est.gps.lon === 0) continue;
-      entry.gpsReported = est.reportedGps || entry.gpsReported || entry.gps || null;
-      entry.gps = est.gps;
-      entry.gpsEstimated = true;
-      entry.gpsEstimateReason = est.reason || null;
-      entry.gpsEstimateNeighbors = est.neighbors || null;
-    }
-    const payload = { byPub, updatedAt: updatedAt || new Date().toISOString() };
+      rows.forEach((row) => {
+        const pub = String(row.pub || "").toUpperCase();
+        if (!pub) return;
+        let raw = null;
+        if (row.raw_json) {
+          try { raw = JSON.parse(row.raw_json); } catch {}
+        }
+        const entryRaw = raw
+          ? (raw.lastAdvert ? raw : { lastAdvert: raw })
+          : null;
+        const gps = isValidGps(row.gps_lat, row.gps_lon)
+          ? { lat: row.gps_lat, lon: row.gps_lon }
+          : null;
+        const entry = {
+          pub,
+          name: row.name || null,
+          isRepeater: !!row.is_repeater,
+          isObserver: !!row.is_observer,
+          lastSeen: row.last_seen || null,
+          observerLastSeen: row.observer_last_seen || null,
+          gps,
+          raw: entryRaw,
+          hiddenOnMap: row.hidden_on_map ? true : false
+        };
+        if (entryRaw?.lastAdvert) {
+          entry.gpsReported = normalizeGpsValue(
+            entryRaw.lastAdvert.gps ||
+            entryRaw.lastAdvert.appData?.location ||
+            null
+          );
+        }
+        const manual = fallback.byPub?.[pub];
+        if (manual) {
+          if (manual.gpsReported && !entry.gpsReported) entry.gpsReported = manual.gpsReported;
+          if (typeof manual.gpsImplausible === "boolean") entry.gpsImplausible = manual.gpsImplausible;
+          if (typeof manual.manualLocation === "boolean") entry.manualLocation = manual.manualLocation;
+          if (manual.locSource && !entry.locSource) entry.locSource = manual.locSource;
+          if (typeof manual.hiddenOnMap === "boolean") entry.hiddenOnMap = manual.hiddenOnMap;
+          if (!entry.raw && manual.raw) entry.raw = manual.raw;
+        }
+        byPub[pub] = entry;
+        const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        if (!updatedAt || ts > new Date(updatedAt).getTime()) updatedAt = row.updated_at;
+      });
+      const payload = { byPub, updatedAt: updatedAt || new Date().toISOString() };
     devicesCache = { readAt: now, data: payload };
     return payload;
   } catch {
@@ -1070,14 +1084,13 @@ async function buildObserverRank() {
 
   for (const entry of Object.values(byId)) {
     if (!entry?.id) continue;
-    const manualGps = entry.manualLocation ? (entry.gpsApprox || entry.gps) : null;
     stats.set(entry.id, {
       id: entry.id,
       name: entry.name || entry.id,
       firstSeen: entry.firstSeen || null,
       lastSeen: entry.lastSeen || null,
-      gps: manualGps || entry.gps || null,
-      locSource: entry.locSource || (manualGps ? "manual" : null),
+      gps: entry.gps || null,
+      locSource: entry.locSource || null,
       bestRepeaterPub: entry.bestRepeaterPub || null,
       packetsToday: 0,
       repeaters: new Set()
@@ -1741,52 +1754,6 @@ async function buildRepeaterRank() {
     return sum / slice.length;
   }
 
-  function getNeighborCentroid(stat, nodeLookup) {
-    if (!stat?.zeroHopNeighbors || stat.zeroHopNeighbors.size < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
-    const points = [];
-    for (const hash of stat.zeroHopNeighbors) {
-      const neighbor = nodeLookup.get(hash);
-      const gps = neighbor?.gps;
-      if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) continue;
-      if (gps.lat === 0 && gps.lon === 0) continue;
-      points.push(gps);
-    }
-    if (points.length < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
-    const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
-    const avgLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
-    return { lat: avgLat, lon: avgLon, count: points.length };
-  }
-
-  function estimateRepeaterGps(entry, centroid) {
-    if (!centroid) return null;
-    const reportedGps = entry?.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) && !(entry.gps.lat === 0 && entry.gps.lon === 0)
-      ? entry.gps
-      : null;
-    if (!reportedGps) {
-      return { gps: { lat: centroid.lat, lon: centroid.lon }, reportedGps: null, reason: "missing_gps", neighbors: centroid.count };
-    }
-    const km = haversineKm(reportedGps.lat, reportedGps.lon, centroid.lat, centroid.lon);
-    if (km > REPEATER_GPS_ESTIMATE_MAX_KM) {
-      return { gps: { lat: centroid.lat, lon: centroid.lon }, reportedGps, reason: "implausible_gps", neighbors: centroid.count };
-    }
-    return null;
-  }
-
-  function shouldClearEstimate(existing, entry, centroid) {
-    if (!existing || existing.reason === "manual") return false;
-    if (!centroid) return false;
-    const reportedGps = entry?.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) && !(entry.gps.lat === 0 && entry.gps.lon === 0)
-      ? entry.gps
-      : null;
-    if (!reportedGps) return false;
-    const km = haversineKm(reportedGps.lat, reportedGps.lon, centroid.lat, centroid.lon);
-    return km <= REPEATER_GPS_ESTIMATE_MAX_KM;
-  }
-
-  const estimatesDoc = readRepeaterGpsEstimates();
-  const existingEstimates = estimatesDoc.byPub || {};
-  const gpsEstimates = {};
-  const estimateRefreshAt = Date.now();
   const items = Object.entries(byPub)
     .filter(([, d]) => d && d.isRepeater)
     .map(([key, d]) => {
@@ -1842,42 +1809,13 @@ async function buildRepeaterRank() {
         else color = "#ff9500";
       }
 
-        const pubKey = String(pub).toUpperCase();
-        const existing = existingEstimates[pubKey] || null;
-        const centroid = getNeighborCentroid(s, nodeMap);
-        const estimate = estimateRepeaterGps(d, centroid);
-        let finalEstimate = null;
-        const existingUpdatedAt = existing?.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-        const shouldRefresh = !existing || (!existing?.reason || existing.reason !== "manual") && (!existingUpdatedAt || (estimateRefreshAt - existingUpdatedAt) >= REPEATER_GPS_ESTIMATE_REFRESH_MS);
-        if (estimate) {
-          if (existing?.reason === "manual") {
-            finalEstimate = existing;
-          } else if (shouldRefresh) {
-            finalEstimate = { ...estimate, updatedAt: new Date().toISOString() };
-          } else {
-            finalEstimate = existing;
-          }
-        } else if (existing) {
-          if (shouldClearEstimate(existing, d, centroid)) {
-            finalEstimate = null;
-          } else {
-            finalEstimate = existing;
-          }
-        }
-        if (finalEstimate) {
-          gpsEstimates[pubKey] = finalEstimate;
-        }
-        const effectiveGps = finalEstimate?.gps || d.gps || null;
+      const effectiveGps = d.gps || null;
 
-        return {
-          pub,
-          hashByte: nodeHashFromPub(pub),
-          name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
-          gps: effectiveGps,
-          gpsEstimated: !!finalEstimate,
-          gpsReported: finalEstimate?.reportedGps || null,
-          gpsEstimateReason: finalEstimate?.reason || null,
-          gpsEstimateNeighbors: finalEstimate?.neighbors || null,
+      return {
+        pub,
+        hashByte: nodeHashFromPub(pub),
+        name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
+        gps: effectiveGps,
         lastSeen,
         isObserver: !!d.isObserver,
         bestRssi,
@@ -1893,16 +1831,12 @@ async function buildRepeaterRank() {
         stale: isStale,
         color,
         hiddenOnMap: !!d.hiddenOnMap,
+        gpsImplausible: !!d.gpsImplausible,
         clockDriftMinutes: driftMinutes
       };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score);
-
-  if (Object.keys(gpsEstimates).length || Object.keys(existingEstimates).length) {
-    const payload = { updatedAt: new Date().toISOString(), byPub: gpsEstimates };
-    writeJsonSafe(repeaterGpsEstimatesPath, payload);
-  }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
 
   return {
     updatedAt: new Date().toISOString(),
@@ -3316,31 +3250,61 @@ const server = http.createServer(async (req, res) => {
       const pub = String(body.pub || "").trim().toUpperCase();
       const lat = Number(body.lat);
       const lon = Number(body.lon);
+      const override = !!body.override;
       if (!pub || !Number.isFinite(lat) || !Number.isFinite(lon)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub, lat, lon required" }));
       }
       const devices = readDevices();
       const byPub = devices.byPub || {};
-      const reported = byPub[pub]?.gps || null;
-      const reportedGps = (reported && Number.isFinite(reported.lat) && Number.isFinite(reported.lon) && !(reported.lat === 0 && reported.lon === 0))
-        ? { lat: reported.lat, lon: reported.lon }
-        : null;
-      const estimates = readRepeaterGpsEstimates();
-      const byPubEst = estimates.byPub || {};
-      byPubEst[pub] = {
-        gps: { lat, lon },
-        reportedGps,
-        reason: "manual",
-        neighbors: null,
-        updatedAt: new Date().toISOString()
-      };
-      estimates.byPub = byPubEst;
-      estimates.updatedAt = new Date().toISOString();
-      writeJsonSafe(repeaterGpsEstimatesPath, estimates);
+      const entry = byPub[pub] || { pub };
+      const reported = normalizeGpsValue(entry.gpsReported) || normalizeGpsValue(entry.raw?.lastAdvert?.gps) || normalizeGpsValue(entry.raw?.lastAdvert?.appData?.location);
+      const distanceKm = reported ? haversineKm(reported.lat, reported.lon, lat, lon) : null;
+      const isImplausible = !override && Number.isFinite(distanceKm) && distanceKm > REPEATER_GPS_IMPLAUSIBLE_KM;
+      const wasImplausible = !!entry.gpsImplausible;
+      if (reported && !entry.gpsReported) entry.gpsReported = reported;
+      entry.gps = { lat, lon };
+      entry.locSource = "manual";
+      entry.manualLocation = true;
+      if (isImplausible) {
+        entry.gpsImplausible = true;
+        entry.hiddenOnMap = true;
+      } else {
+        entry.gpsImplausible = false;
+        if (override || wasImplausible) entry.hiddenOnMap = false;
+      }
+      byPub[pub] = entry;
+      devices.byPub = byPub;
+      devices.updatedAt = new Date().toISOString();
+      writeJsonSafe(devicesPath, devices);
+      try {
+        const db = getDb();
+        db.prepare(`
+          INSERT INTO devices (
+            pub, name, is_repeater, is_observer, last_seen, observer_last_seen,
+            gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(pub) DO UPDATE SET
+            gps_lat = excluded.gps_lat,
+            gps_lon = excluded.gps_lon,
+            updated_at = excluded.updated_at
+        `).run(
+          pub,
+          entry.name || null,
+          entry.isRepeater ? 1 : 0,
+          entry.isObserver ? 1 : 0,
+          entry.lastSeen || null,
+          entry.observerLastSeen || null,
+          lat,
+          lon,
+          entry.raw ? JSON.stringify(entry.raw) : null,
+          entry.hiddenOnMap ? 1 : 0,
+          devices.updatedAt
+        );
+      } catch {}
       devicesCache = { readAt: 0, data: null };
       rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
       rankSummaryCache = { updatedAt: null, totals: null };
-      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, implausible: isImplausible, distanceKm }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
     }
@@ -3377,11 +3341,14 @@ const server = http.createServer(async (req, res) => {
       const data = readObservers();
       const byId = data.byId || {};
       const entry = byId[id] || { id, firstSeen: new Date().toISOString(), count: 0 };
-      entry.gpsApprox = { lat, lon };
-      entry.locApprox = true;
-      entry.locApproxAt = new Date().toISOString();
+      entry.gps = { lat, lon };
       entry.locSource = "manual";
       entry.manualLocation = true;
+      entry.locValidated = true;
+      entry.locValidatedAt = new Date().toISOString();
+      entry.gpsApprox = null;
+      entry.locApprox = false;
+      entry.locApproxAt = null;
       byId[id] = entry;
       const updatedAt = new Date().toISOString();
       data.byId = byId;
