@@ -1510,6 +1510,26 @@
     .admin-only {
       display: none;
     }
+    .repeater-location-controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .repeater-location-controls input {
+      width: 92px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .repeater-location-controls .btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 999px;
+    }
     .channel-history-control {
       display: inline-flex;
       align-items: center;
@@ -5030,6 +5050,7 @@
     function renderRank(data) {
       if (!data?.items) return;
       appData.rankData = data.items.slice();
+      appData.rankPayload = data;
       renderRankWithOptions({ ...data, items: appData.rankData }, { preserveView: true });
     }
 
@@ -5157,6 +5178,13 @@
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
           const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
+          const adminControls = `
+            <div class="row admin-only repeater-location-controls" data-repeater-controls="${r.pub || ""}">
+              <input type="text" inputmode="decimal" placeholder="Lat" data-repeater-lat="${r.pub || ""}">
+              <input type="text" inputmode="decimal" placeholder="Lon" data-repeater-lon="${r.pub || ""}">
+              <button class="btn" type="button" data-repeater-loc-save="${r.pub || ""}">Set location</button>
+            </div>
+          `;
           const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
             const scoreBadge = String(Math.round(r.score || 0)).padStart(2, "0");
             item.innerHTML = `
@@ -5172,6 +5200,7 @@
             ${badgeHtml(badges)}
               ${isHidden ? `<div class="row"><span class="badge">${hiddenLabel}</span></div>` : ""}
             ${observerBadge}
+            ${adminControls}
           `;
         item.addEventListener("click", () => {
           openRankPopup(r, false);
@@ -5888,12 +5917,45 @@
       rankSearch.addEventListener("input", () => {
         appData.rankFilter = rankSearch.value.trim();
         if (appData.rankData) {
-          renderRankWithOptions(appData.rankData, { preserveView: true });
+          const payload = appData.rankPayload || { items: appData.rankData };
+          renderRankWithOptions({ ...payload, items: appData.rankData }, { preserveView: true });
         }
       });
     }
 
     const rankList = document.getElementById("rankList");
+    if (rankList) {
+      rankList.addEventListener("click", async (event) => {
+        const btn = event.target.closest("[data-repeater-loc-save]");
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const pub = String(btn.getAttribute("data-repeater-loc-save") || "").trim();
+        if (!pub) return;
+        const latInput = document.querySelector(`[data-repeater-lat="${pub}"]`);
+        const lonInput = document.querySelector(`[data-repeater-lon="${pub}"]`);
+        const lat = latInput ? Number(latInput.value) : NaN;
+        const lon = lonInput ? Number(lonInput.value) : NaN;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          alert("Please enter a valid lat/lon.");
+          return;
+        }
+        const res = await fetch("/api/repeater-location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ pub, lat, lon })
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          alert(err || "Failed to set repeater location.");
+          return;
+        }
+        if (latInput) latInput.value = "";
+        if (lonInput) lonInput.value = "";
+        loadRankDefault();
+        fetchRankSummary().then(renderRankSummary).catch(() => {});
+      });
+    }
 
     const rfSearch = document.getElementById("rfSearch");
     const rfTypeFilter = document.getElementById("rfTypeFilter");

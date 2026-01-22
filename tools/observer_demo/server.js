@@ -59,6 +59,7 @@ const RF_AGG_COOLDOWN_MS = 1500;
 const RF_AGG_LIMIT = 800;
 const REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS = 2;
 const REPEATER_GPS_ESTIMATE_MAX_KM = 300;
+const REPEATER_GPS_ESTIMATE_REFRESH_MS = 60 * 60 * 1000;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -1669,7 +1670,7 @@ async function buildRepeaterRank() {
     return sum / slice.length;
   }
 
-  function estimateRepeaterGps(pub, entry, stat, nodeLookup) {
+  function getNeighborCentroid(stat, nodeLookup) {
     if (!stat?.zeroHopNeighbors || stat.zeroHopNeighbors.size < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
     const points = [];
     for (const hash of stat.zeroHopNeighbors) {
@@ -1682,21 +1683,39 @@ async function buildRepeaterRank() {
     if (points.length < REPEATER_GPS_ESTIMATE_MIN_NEIGHBORS) return null;
     const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
     const avgLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
-    const estimated = { lat: avgLat, lon: avgLon };
+    return { lat: avgLat, lon: avgLon, count: points.length };
+  }
+
+  function estimateRepeaterGps(entry, centroid) {
+    if (!centroid) return null;
     const reportedGps = entry?.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) && !(entry.gps.lat === 0 && entry.gps.lon === 0)
       ? entry.gps
       : null;
     if (!reportedGps) {
-      return { gps: estimated, reportedGps: null, reason: "missing_gps", neighbors: points.length };
+      return { gps: { lat: centroid.lat, lon: centroid.lon }, reportedGps: null, reason: "missing_gps", neighbors: centroid.count };
     }
-    const km = haversineKm(reportedGps.lat, reportedGps.lon, estimated.lat, estimated.lon);
+    const km = haversineKm(reportedGps.lat, reportedGps.lon, centroid.lat, centroid.lon);
     if (km > REPEATER_GPS_ESTIMATE_MAX_KM) {
-      return { gps: estimated, reportedGps, reason: "implausible_gps", neighbors: points.length };
+      return { gps: { lat: centroid.lat, lon: centroid.lon }, reportedGps, reason: "implausible_gps", neighbors: centroid.count };
     }
     return null;
   }
 
+  function shouldClearEstimate(existing, entry, centroid) {
+    if (!existing || existing.reason === "manual") return false;
+    if (!centroid) return false;
+    const reportedGps = entry?.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) && !(entry.gps.lat === 0 && entry.gps.lon === 0)
+      ? entry.gps
+      : null;
+    if (!reportedGps) return false;
+    const km = haversineKm(reportedGps.lat, reportedGps.lon, centroid.lat, centroid.lon);
+    return km <= REPEATER_GPS_ESTIMATE_MAX_KM;
+  }
+
+  const estimatesDoc = readRepeaterGpsEstimates();
+  const existingEstimates = estimatesDoc.byPub || {};
   const gpsEstimates = {};
+  const estimateRefreshAt = Date.now();
   const items = Object.entries(byPub)
     .filter(([, d]) => d && d.isRepeater)
     .map(([key, d]) => {
@@ -1752,21 +1771,42 @@ async function buildRepeaterRank() {
         else color = "#ff9500";
       }
 
-        const estimate = estimateRepeaterGps(pub, d, s, nodeMap);
+        const pubKey = String(pub).toUpperCase();
+        const existing = existingEstimates[pubKey] || null;
+        const centroid = getNeighborCentroid(s, nodeMap);
+        const estimate = estimateRepeaterGps(d, centroid);
+        let finalEstimate = null;
+        const existingUpdatedAt = existing?.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const shouldRefresh = !existing || (!existing?.reason || existing.reason !== "manual") && (!existingUpdatedAt || (estimateRefreshAt - existingUpdatedAt) >= REPEATER_GPS_ESTIMATE_REFRESH_MS);
         if (estimate) {
-          gpsEstimates[String(pub).toUpperCase()] = estimate;
+          if (existing?.reason === "manual") {
+            finalEstimate = existing;
+          } else if (shouldRefresh) {
+            finalEstimate = { ...estimate, updatedAt: new Date().toISOString() };
+          } else {
+            finalEstimate = existing;
+          }
+        } else if (existing) {
+          if (shouldClearEstimate(existing, d, centroid)) {
+            finalEstimate = null;
+          } else {
+            finalEstimate = existing;
+          }
         }
-        const effectiveGps = estimate?.gps || d.gps || null;
+        if (finalEstimate) {
+          gpsEstimates[pubKey] = finalEstimate;
+        }
+        const effectiveGps = finalEstimate?.gps || d.gps || null;
 
         return {
           pub,
           hashByte: nodeHashFromPub(pub),
           name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
           gps: effectiveGps,
-          gpsEstimated: !!estimate,
-          gpsReported: estimate?.reportedGps || null,
-          gpsEstimateReason: estimate?.reason || null,
-          gpsEstimateNeighbors: estimate?.neighbors || null,
+          gpsEstimated: !!finalEstimate,
+          gpsReported: finalEstimate?.reportedGps || null,
+          gpsEstimateReason: finalEstimate?.reason || null,
+          gpsEstimateNeighbors: finalEstimate?.neighbors || null,
         lastSeen,
         isObserver: !!d.isObserver,
         bestRssi,
@@ -1788,7 +1828,7 @@ async function buildRepeaterRank() {
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
 
-  if (Object.keys(gpsEstimates).length) {
+  if (Object.keys(gpsEstimates).length || Object.keys(existingEstimates).length) {
     const payload = { updatedAt: new Date().toISOString(), byPub: gpsEstimates };
     writeJsonSafe(repeaterGpsEstimatesPath, payload);
   }
@@ -3189,6 +3229,47 @@ const server = http.createServer(async (req, res) => {
       } catch {}
       devicesCache = { readAt: 0, data: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, hidden }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/repeater-location" && req.method === "POST") {
+    try {
+      const user = getSessionUser(req);
+      if (!user || !user.isAdmin) {
+        return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+      }
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const pub = String(body.pub || "").trim().toUpperCase();
+      const lat = Number(body.lat);
+      const lon = Number(body.lon);
+      if (!pub || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "pub, lat, lon required" }));
+      }
+      const devices = readDevices();
+      const byPub = devices.byPub || {};
+      const reported = byPub[pub]?.gps || null;
+      const reportedGps = (reported && Number.isFinite(reported.lat) && Number.isFinite(reported.lon) && !(reported.lat === 0 && reported.lon === 0))
+        ? { lat: reported.lat, lon: reported.lon }
+        : null;
+      const estimates = readRepeaterGpsEstimates();
+      const byPubEst = estimates.byPub || {};
+      byPubEst[pub] = {
+        gps: { lat, lon },
+        reportedGps,
+        reason: "manual",
+        neighbors: null,
+        updatedAt: new Date().toISOString()
+      };
+      estimates.byPub = byPubEst;
+      estimates.updatedAt = new Date().toISOString();
+      writeJsonSafe(repeaterGpsEstimatesPath, estimates);
+      devicesCache = { readAt: 0, data: null };
+      rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+      rankSummaryCache = { updatedAt: null, totals: null };
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
     }
