@@ -5426,8 +5426,8 @@
         <div class="rotm-leader-row rotm-leader-header">
           <div>Rank</div>
           <div>Node</div>
-          <div>Unique</div>
           <div>QSOs</div>
+          <div>Activations</div>
           <div>Last activity</div>
         </div>
       `;
@@ -5442,12 +5442,12 @@
               <div class="rotm-leader-meta">${row.nodeKey || ""}</div>
             </div>
             <div>
-              <div class="rotm-leader-node">${row.uniqueRepeaters || 0}</div>
-              <div class="rotm-leader-meta">Unique</div>
-            </div>
-            <div>
               <div class="rotm-leader-node">${row.qsos || 0}</div>
               <div class="rotm-leader-meta">QSOs</div>
+            </div>
+            <div>
+              <div class="rotm-leader-node">${row.uniqueRepeaters || 0}</div>
+              <div class="rotm-leader-meta">Activations</div>
             </div>
             <div class="rotm-leader-meta">${last}</div>
           </div>
