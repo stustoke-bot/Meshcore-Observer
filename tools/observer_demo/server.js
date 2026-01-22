@@ -840,16 +840,78 @@ function extractRotmMentions(body) {
   return Array.from(out);
 }
 
-function pickRotmRepeater(message) {
-  const points = Array.isArray(message?.pathPoints) ? message.pathPoints : [];
-  const withGps = points.find((p) => p?.gps && isValidGps(p.gps.lat, p.gps.lon));
-  const pick = withGps || points[0] || null;
-  if (!pick) return null;
-  return {
-    hash: pick.hash || null,
-    name: pick.name || pick.hash || "Unknown",
-    gps: pick.gps && isValidGps(pick.gps.lat, pick.gps.lon) ? pick.gps : null
-  };
+function buildRotmCandidatesByHash(devices) {
+  const byPub = devices.byPub || {};
+  const map = new Map(); // hash -> [{pub, name, gps}]
+  for (const d of Object.values(byPub)) {
+    if (!d?.isRepeater) continue;
+    if (d.hiddenOnMap || d.gpsImplausible || d.gpsFlagged) continue;
+    if (!d.gps || !isValidGps(d.gps.lat, d.gps.lon)) continue;
+    const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || null;
+    const hash = nodeHashFromPub(pub);
+    if (!hash) continue;
+    if (!map.has(hash)) map.set(hash, []);
+    map.get(hash).push({
+      pub: String(pub).toUpperCase(),
+      name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
+      gps: d.gps
+    });
+  }
+  return map;
+}
+
+function resolveRotmRepeaterFromPath(path, candidatesByHash) {
+  if (!Array.isArray(path) || path.length === 0) return null;
+  const SUPPORT_RADIUS_KM = 80;
+  const neighbors = path.map((hash, idx) => ({
+    hash,
+    idx,
+    candidates: candidatesByHash.get(hash) || []
+  })).filter((entry) => entry.candidates.length);
+  if (!neighbors.length) return null;
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const entry of neighbors) {
+    const prev = path[entry.idx - 1];
+    const next = path[entry.idx + 1];
+    const prevCandidates = prev ? (candidatesByHash.get(prev) || []) : [];
+    const nextCandidates = next ? (candidatesByHash.get(next) || []) : [];
+    for (const cand of entry.candidates) {
+      let support = 0;
+      let distSum = 0;
+      let distCount = 0;
+      const measure = (others) => {
+        if (!others.length) return false;
+        let bestKm = Infinity;
+        others.forEach((o) => {
+          const km = haversineKm(cand.gps.lat, cand.gps.lon, o.gps.lat, o.gps.lon);
+          if (Number.isFinite(km) && km < bestKm) bestKm = km;
+        });
+        if (Number.isFinite(bestKm)) {
+          distSum += bestKm;
+          distCount += 1;
+        }
+        return bestKm <= SUPPORT_RADIUS_KM;
+      };
+      if (measure(prevCandidates)) support += 1;
+      if (measure(nextCandidates)) support += 1;
+      const hasChain = path.length > 1;
+      if (hasChain && support === 0) continue;
+      const avgDist = distCount ? distSum / distCount : 9999;
+      const score = support * 1000 - avgDist;
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          hash: entry.hash,
+          name: cand.name || entry.hash,
+          gps: cand.gps,
+          pub: cand.pub
+        };
+      }
+    }
+  }
+  return best;
 }
 
 function readDevices() {
@@ -1594,6 +1656,7 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     : CONFIDENCE_HISTORY_MAX_ROWS;
   const cutoff = new Date(Date.now() - hoursNum * 3600000).toISOString();
   const nodeMap = buildNodeHashMap();
+  const rotmCandidatesByHash = buildRotmCandidatesByHash(readDevices());
   const devices = readDevices();
   const byPub = devices.byPub || {};
   const flaggedHashes = new Set();
@@ -2848,7 +2911,7 @@ async function buildRotmData() {
     const isCq = /^CQ\b/i.test(body.trim());
     const mentions = extractRotmMentions(body);
     const confidenceOk = (msg.observerCount || 0) >= ROTM_MIN_OBSERVER_HITS;
-    const repeater = pickRotmRepeater(msg);
+    const repeater = resolveRotmRepeaterFromPath(msg.path, rotmCandidatesByHash);
     const ts = new Date(msg.ts);
     infoById.set(msg.id, {
       sender,
@@ -2901,6 +2964,7 @@ async function buildRotmData() {
     if (!cqInfo.confidenceOk || !info.confidenceOk) continue;
 
     const repeater = cqInfo.repeater || info.repeater || null;
+    if (!repeater || !repeater.gps) continue;
     const qso = {
       cqId: cqMsg.id,
       responseId: msg.id,
