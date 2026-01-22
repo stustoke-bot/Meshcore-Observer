@@ -1589,6 +1589,7 @@
 
     body.view-rotm {
       overflow: auto;
+      height: auto;
     }
 
     body.view-rotm .app {
@@ -1599,6 +1600,7 @@
     body.view-rotm .rotm-panel,
     body.view-rotm .rotm-body {
       overflow: visible;
+      height: auto;
     }
     body.theme-dark .rf-controls,
     body.theme-dark .rf-detail,
@@ -2260,7 +2262,7 @@
       .analysis-panel .title .route-close {
         margin-left: auto;
       }
-      body.view-rotm { height: auto; overflow: auto; }
+      html body.view-rotm { height: auto; overflow: auto; }
       body.view-rotm .app { height: auto; min-height: 100vh; }
       .rotm-grid { grid-template-columns: 1fr; }
       .rotm-settings-grid { grid-template-columns: 1fr; }
@@ -2538,7 +2540,7 @@
           </div>
           <div class="rotm-settings-actions">
             <button class="btn" type="button" id="rotmChannelSave">Save ROTM settings</button>
-            <span class="rotm-settings-note" id="rotmChannelStatus">Admin only.</span>
+          <span class="rotm-settings-note" id="rotmChannelStatus">Secret is stored until you update it.</span>
           </div>
         </div>
         <div class="rotm-grid">
@@ -5144,7 +5146,7 @@
           const channelInput = document.getElementById("rotmChannelName");
           if (channelInput && cfg?.channel) channelInput.value = cfg.channel;
           const status = document.getElementById("rotmChannelStatus");
-          if (status) status.textContent = "Ready.";
+          if (status) status.textContent = "Secret is stored until you update it.";
           appData.rotmConfigLoaded = true;
         } catch {
           const status = document.getElementById("rotmChannelStatus");
@@ -6943,7 +6945,7 @@
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-          if (status) status.textContent = `Saved: ${data.channel || channel}`;
+          if (status) status.textContent = `Saved: ${data.channel || channel}. Secret is stored until you update it.`;
           if (secretInput) secretInput.value = "";
           appData.rotmConfigLoaded = true;
           await loadRotm();
