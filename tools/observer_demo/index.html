@@ -3104,6 +3104,16 @@
       </div>
     </div>
 
+    <div class="modal" id="rotmQsoDetailModal">
+      <div class="modal-card">
+        <strong id="rotmQsoDetailTitle">QSO details</strong>
+        <div id="rotmQsoDetailBody"></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="rotmQsoDetailClose">Close</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal" id="routeOverrideModal">
       <div class="modal-card route-modal-card">
         <strong>Suggest route fixes</strong>
@@ -4313,6 +4323,12 @@
     rotmQsoModal?.addEventListener("click", (e) => {
       if (e.target === rotmQsoModal) rotmQsoModal.classList.remove("open");
     });
+    const rotmQsoDetailModal = document.getElementById("rotmQsoDetailModal");
+    const rotmQsoDetailClose = document.getElementById("rotmQsoDetailClose");
+    rotmQsoDetailClose?.addEventListener("click", () => rotmQsoDetailModal?.classList.remove("open"));
+    rotmQsoDetailModal?.addEventListener("click", (e) => {
+      if (e.target === rotmQsoDetailModal) rotmQsoDetailModal.classList.remove("open");
+    });
 
     async function loadChannels() {
       const res = await fetch("/api/channels", { cache: "no-store" });
@@ -5444,7 +5460,13 @@
       }
       const allowOverride = !!appData.authUser?.isAdmin;
       const rows = items.map((qso) => `
-        <tr>
+        <tr data-qso-detail="1"
+            data-qso-date="${formatDateTime(qso.ts)}"
+            data-qso-repeater="${qso.repeater || "Unknown"}"
+            data-qso-cq="@${qso.cqSender || "unknown"}"
+            data-qso-cq-body="${qso.cqBody || ""}"
+            data-qso-response="@${qso.responseSender || "unknown"}"
+            data-qso-response-body="${qso.responseBody || ""}">
           <td>${formatDateTime(qso.ts)}</td>
           <td>
             ${qso.repeater || "Unknown"}
@@ -5460,8 +5482,7 @@
               </div>
             ` : ""}
           </td>
-          <td><strong>@${qso.cqSender || "unknown"}</strong><div class="rotm-qso-msg">${qso.cqBody || ""}</div></td>
-          <td><strong>@${qso.responseSender || "unknown"}</strong><div class="rotm-qso-msg">${qso.responseBody || ""}</div></td>
+          <td>@${qso.responseSender || "unknown"}</td>
         </tr>
       `).join("");
       log.innerHTML = `
@@ -5470,8 +5491,7 @@
             <tr>
               <th>Date</th>
               <th>Repeater</th>
-              <th>CQ</th>
-              <th>Response</th>
+              <th>Confirmed by</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -7278,6 +7298,30 @@
     const rotmQsoLog = document.getElementById("rotmQsoLog");
     if (rotmQsoLog) {
       rotmQsoLog.addEventListener("click", async (event) => {
+        const row = event.target.closest("[data-qso-detail]");
+        if (row && !event.target.closest(".rotm-qso-save")) {
+          const detailTitle = document.getElementById("rotmQsoDetailTitle");
+          const detailBody = document.getElementById("rotmQsoDetailBody");
+          if (detailTitle) detailTitle.textContent = "QSO details";
+          if (detailBody) {
+            const date = row.getAttribute("data-qso-date") || "--";
+            const repeater = row.getAttribute("data-qso-repeater") || "Unknown";
+            const cq = row.getAttribute("data-qso-cq") || "--";
+            const cqBody = row.getAttribute("data-qso-cq-body") || "";
+            const response = row.getAttribute("data-qso-response") || "--";
+            const responseBody = row.getAttribute("data-qso-response-body") || "";
+            detailBody.innerHTML = `
+              <div class="rotm-qso-msg"><strong>Date:</strong> ${date}</div>
+              <div class="rotm-qso-msg"><strong>Repeater:</strong> ${repeater}</div>
+              <div class="rotm-qso-msg"><strong>CQ:</strong> ${cq}</div>
+              <div class="rotm-qso-msg">${cqBody}</div>
+              <div class="rotm-qso-msg"><strong>Confirmed by:</strong> ${response}</div>
+              <div class="rotm-qso-msg">${responseBody}</div>
+            `;
+          }
+          rotmQsoDetailModal?.classList.add("open");
+          return;
+        }
         const btn = event.target.closest(".rotm-qso-save");
         if (!btn) return;
         if (!appData.authUser?.isAdmin) return;
