@@ -71,3 +71,23 @@ EXPLAIN QUERY PLAN highlights:
 - `messages` latest scan uses `idx_messages_ts`.
 - `message_observers` lookup uses PK autoindex.
 - `stats_5m` uses `idx_stats_5m_bucket`.
+
+## Live ingest run (60s MQTT + EXPLAIN)
+- Timestamp (UTC): 2026-01-23T11:24:19Z
+- Ingest: `node tools/observer_demo/mqtt_ingest.js` (60s)
+- Perf script: `scripts/verify_perf.sh`
+
+Format: time_total (s), size_download (bytes)
+- GET /api/dashboard?channel=#public&limit=10: 0.0118s, 9361b
+- GET /api/channels: 0.0221s, 332b
+- GET /api/messages?limit=10: 0.0082s, 32194b
+- GET /api/meshscore: 0.0613s, 262b
+- GET /api/repeater-rank-summary: 0.0019s, 95b
+- GET /api/node-rank-summary: 0.0189s, 88b
+- GET /api/observer-rank-summary: 0.0089s, 92b
+
+EXPLAIN QUERY PLAN highlights:
+- `messages` channel filter uses `idx_messages_channel_ts`.
+- `messages` latest scan uses `idx_messages_ts`.
+- `message_observers` lookup uses PK autoindex.
+- `stats_5m` uses `idx_stats_5m_bucket`.
