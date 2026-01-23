@@ -3254,7 +3254,9 @@
             maxNewMessages: 2
           },
           messageStream: {
-            es: null
+            es: null,
+            connected: false,
+            lastHealthAt: 0
           },
           authToken: null
         };
@@ -3441,6 +3443,15 @@
       if (!res.ok) return null;
       const data = await res.json();
       return data.user || null;
+    }
+
+    async function fetchDashboard(channelName, limit) {
+      const url = new URL("/api/dashboard", window.location.origin);
+      if (channelName) url.searchParams.set("channel", channelName);
+      if (Number.isFinite(limit) && limit > 0) url.searchParams.set("limit", String(limit));
+      const res = await fetch(url.toString(), { headers: authHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
     }
 
     function getChannelNameById(id) {
@@ -3753,6 +3764,7 @@
     async function showRoute(msgId) {
       const msg = appData.messages.find((m) => (m.frameHash || m.id) === msgId || m.id === msgId);
       if (!msg) return;
+      if (!map) initMap();
       appData.routeActiveId = msgId;
       appData.routeActiveMsg = msg;
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
@@ -4492,7 +4504,7 @@
 
     async function loadMessages(forceFull, opts = {}) {
       const previousLatest = appData.latestByChannel || {};
-      const data = await fetchMessages(opts);
+      const data = opts.preloadedData || await fetchMessages(opts);
       const raw = mergeMessages(data.messages || []);
       const mapped = raw.map((m) => ({
         id: m.id,
@@ -4637,8 +4649,9 @@
       if (appData.messageStream?.es) return;
       const es = new EventSource("/api/message-stream");
       appData.messageStream.es = es;
+      appData.messageStream.connected = false;
       let lastChannelRefresh = 0;
-      es.addEventListener("updates", (event) => {
+      es.addEventListener("packet", (event) => {
         try {
           const data = JSON.parse(event.data);
           applyMessageObserverUpdates(data);
@@ -4651,15 +4664,39 @@
           }
         } catch {}
       });
-      es.addEventListener("stats", () => {
-        if (document.body.classList.contains("view-channels")) {
-          loadChannels().catch(() => {});
-        }
-        fetchRankSummary().then(renderRankSummary).catch(() => {});
-        refreshNodeRankSummary().catch(() => {});
-        fetchMeshScore().then((mesh) => renderMeshScore(mesh, meshRangeDays)).catch(() => {});
-        loadRotm().catch(() => {});
+      es.addEventListener("counters", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (Array.isArray(data.channels)) applyChannels(data.channels);
+          if (data.rotm) applyRotmPayload(data.rotm);
+        } catch {}
       });
+      es.addEventListener("ranks", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.repeater) {
+            appData.rankSummary = data.repeater;
+            renderRankSummary(data.repeater);
+          }
+          if (data.node) renderNodeRankSummary(data.node);
+          if (data.observer) renderObserverRankSummary(data.observer);
+          if (data.meshscore) renderMeshScore(data.meshscore, meshRangeDays);
+        } catch {}
+      });
+      es.addEventListener("health", () => {
+        setServerStatus(true);
+        appData.messageStream.connected = true;
+        appData.messageStream.lastHealthAt = Date.now();
+      });
+      es.addEventListener("ready", () => {
+        setServerStatus(true);
+        appData.messageStream.connected = true;
+        appData.messageStream.lastHealthAt = Date.now();
+      });
+      es.onerror = () => {
+        setServerStatus(false);
+        appData.messageStream.connected = false;
+      };
     }
 
     async function checkServerStatus() {
@@ -4715,59 +4752,61 @@
       }
       appData.authToken = loadAuthToken();
       try {
-        const user = await fetchAuthMe();
-        setAuthUser(user);
-      } catch {}
-      try {
-        const res = await fetch("/api/admin/status", { cache: "no-store" });
-        const data = await res.json();
-        setBootstrapVisibility(!!data.hasAdmin);
-      } catch {}
-      updateNodeRankVisibility();
-      await checkServerStatus();
-      if (window.matchMedia?.("(max-width: 860px)")?.matches) {
-        document.body.classList.remove("route-open");
-      }
-      try {
-        await loadChannels();
-        await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+        const channelName = channelParam ? (channelParam.startsWith("#") ? channelParam : `#${channelParam}`) : null;
+        const dash = await fetchDashboard(channelName, appData.channelHistoryLimit);
+        setAuthUser(dash.user || null);
+        setBootstrapVisibility(!!dash.hasAdmin);
+        if (dash.rotmConfig?.channel) {
+          appData.rotmChannelName = dash.rotmConfig.channel;
+          appData.rotmConfigLoaded = true;
+        }
+        if (Array.isArray(dash.channels)) applyChannels(dash.channels);
+        await loadMessages(true, {
+          replace: true,
+          limit: appData.channelHistoryLimit,
+          preloadedData: { channels: dash.channels || [], messages: dash.messages || [] }
+        });
         initMessageStream();
-        loadRotm();
-        startRotmRefresh();
-        startRotmTimers();
-        try {
-          const mesh = await fetchMeshScore();
-          renderMeshScore(mesh, meshRangeDays);
-        } catch {}
+        if (dash.rotm) applyRotmPayload(dash.rotm);
+        if (dash.meshscore) renderMeshScore(dash.meshscore, meshRangeDays);
         setServerStatus(true);
-      } catch (err) {
+      } catch {
         const msg = document.createElement("div");
         msg.className = "rank-item";
         msg.textContent = "No messages yet.";
         document.getElementById("messages").appendChild(msg);
         setServerStatus(false);
       }
-      initMap();
-      initObserverMap();
+      if (window.matchMedia?.("(max-width: 860px)")?.matches) {
+        document.body.classList.remove("route-open");
+      }
+      try {
+        startRotmRefresh();
+        startRotmTimers();
+      } catch {}
       setInterval(async () => {
         const activeRank = document.body.classList.contains("view-rank");
         if (!activeRank) return;
+        if (appData.messageStream?.connected) return;
         await refreshRankSummary();
       }, 60 * 1000);
 
       setInterval(async () => {
         const activeNodeRank = document.body.classList.contains("view-node-rank");
         if (!activeNodeRank) return;
+        if (appData.messageStream?.connected) return;
         await refreshNodeRankSummary();
       }, 60 * 1000);
 
       setInterval(async () => {
         const activeObserverRank = document.body.classList.contains("view-observer-rank");
         if (!activeObserverRank) return;
+        if (appData.messageStream?.connected) return;
         await refreshObserverRankSummary();
       }, 60 * 1000);
 
       setInterval(async () => {
+        if (appData.messageStream?.connected) return;
         const ok = await checkServerStatus();
         if (!ok) return;
         try {
@@ -4964,6 +5003,7 @@
     }
 
     function renderObserverMap(data) {
+      if (!observerLayer) initObserverMap();
       if (!observerLayer || !data) return;
       observerLayer.clearLayers();
       const entries = Object.values(data.byId || {});
@@ -5573,6 +5613,23 @@
       renderRotmMap(node);
     }
 
+    function applyRotmPayload(data) {
+      if (!data) return;
+      appData.rotmData = data;
+      const updated = document.getElementById("rotmUpdated");
+      if (updated) updated.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--";
+      renderRotmFeed(data.feed || []);
+      renderRotmLeaderboard(data.leaderboard || []);
+      if (!appData.rotmSelectedNodeKey && data.leaderboard?.length) {
+        appData.rotmSelectedNodeKey = data.leaderboard[0].nodeKey;
+      }
+      if (appData.rotmSelectedNodeKey) {
+        selectRotmNode(appData.rotmSelectedNodeKey);
+      } else {
+        renderRotmMap(null);
+      }
+    }
+
     async function loadRotm() {
       if (!appData.rotmConfigLoaded && appData.authUser?.isAdmin) {
         try {
@@ -5590,19 +5647,7 @@
       }
       try {
         const data = await fetchRotmData();
-        appData.rotmData = data;
-        const updated = document.getElementById("rotmUpdated");
-        if (updated) updated.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--";
-        renderRotmFeed(data.feed || []);
-        renderRotmLeaderboard(data.leaderboard || []);
-        if (!appData.rotmSelectedNodeKey && data.leaderboard?.length) {
-          appData.rotmSelectedNodeKey = data.leaderboard[0].nodeKey;
-        }
-        if (appData.rotmSelectedNodeKey) {
-          selectRotmNode(appData.rotmSelectedNodeKey);
-        } else {
-          renderRotmMap(null);
-        }
+        applyRotmPayload(data);
       } catch (err) {
         const el = document.getElementById("rotmFeed");
         if (el) el.innerHTML = "<div class='rotm-feed-row'>Unable to load #rotm data.</div>";
@@ -5613,6 +5658,7 @@
       if (rotmRefreshTimer) clearInterval(rotmRefreshTimer);
       rotmRefreshTimer = setInterval(() => {
         if (document.hidden) return;
+        if (appData.messageStream?.connected) return;
         loadRotm();
       }, ROTM_REFRESH_MS);
     }

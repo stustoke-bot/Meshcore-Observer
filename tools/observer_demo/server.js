@@ -26,6 +26,8 @@ const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 const dbPath = path.join(dataDir, "meshrank.db");
+const DEBUG_PERF = process.env.DEBUG_PERF === "1";
+const DEBUG_SQL = process.env.DEBUG_SQL === "1";
 
 const CHANNEL_TAIL_LINES = 6000;
 const CHANNEL_HISTORY_LIMIT = 10;
@@ -58,6 +60,9 @@ const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
 const MESSAGE_OBSERVER_STREAM_POLL_MS = 1000;
 const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
 const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
+const MESSAGE_STREAM_HEALTH_MS = 12000;
+const MESSAGE_STREAM_COUNTERS_MS = 10000;
+const MESSAGE_STREAM_RANKS_MS = 30000;
 const RF_AGG_COOLDOWN_MS = 1500;
 const RF_AGG_LIMIT = 800;
 const REPEATER_FLAG_REVIEW_HOURS = 24;
@@ -69,6 +74,10 @@ const ROTM_MIN_OBSERVER_HITS = 1;
 const ROTM_FEED_LIMIT = 200;
 const ROTM_DB_LIMIT = 2000;
 const ROTM_CACHE_MS = 2000;
+const STATS_ROLLUP_WINDOW_MS = 5 * 60 * 1000;
+const STATS_ROLLUP_SEED_BUCKETS = 12;
+const STATS_ROLLUP_INTERVAL_MS = 60 * 1000;
+const STATS_ROLLUP_MIN_INTERVAL_MS = 10000;
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -242,6 +251,7 @@ let nodeRankRefreshInFlight = null;
 let meshScoreCache = { updatedAt: null, payload: null };
 let meshScoreRefresh = null;
 let db = null;
+let statsRollupLastAt = 0;
 
 let ChannelCrypto;
 try {
@@ -297,7 +307,12 @@ function hasMessageObserversDb(db) {
 
 function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPathsMap) {
   let path = [];
-  if (row.path_json) {
+  if (row.path_text) {
+    path = String(row.path_text)
+      .split("|")
+      .map(normalizePathHash)
+      .filter(Boolean);
+  } else if (row.path_json) {
     try {
       const parsed = JSON.parse(row.path_json);
       if (Array.isArray(parsed)) path = parsed;
@@ -382,7 +397,7 @@ function readMessagesFromDb(channelName, limit, beforeTs) {
   if (channelName) {
     if (before) {
       rows = db.prepare(`
-        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
         FROM messages
         WHERE channel_name = ? AND ts < ?
         ORDER BY ts DESC
@@ -390,7 +405,7 @@ function readMessagesFromDb(channelName, limit, beforeTs) {
       `).all(channelName, before, max);
     } else {
       rows = db.prepare(`
-        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+        SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
         FROM messages
         WHERE channel_name = ?
         ORDER BY ts DESC
@@ -399,7 +414,7 @@ function readMessagesFromDb(channelName, limit, beforeTs) {
     }
   } else {
     rows = db.prepare(`
-      SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+      SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
       FROM messages
       ORDER BY ts DESC
       LIMIT ?
@@ -414,7 +429,7 @@ function readMessageObserverAgg(db, hashes) {
   if (!list.length) return new Map();
   const placeholders = list.map(() => "?").join(",");
   const rows = db.prepare(`
-    SELECT message_hash, observer_id, observer_name, path_json
+    SELECT message_hash, observer_id, observer_name, path_json, path_text
     FROM message_observers
     WHERE message_hash IN (${placeholders})
   `).all(...list);
@@ -429,7 +444,13 @@ function readMessageObserverAgg(db, hashes) {
     }
     const label = row.observer_name || row.observer_id;
     if (label) entry.observerHits.add(label);
-    if (row.path_json) {
+    if (row.path_text) {
+      String(row.path_text)
+        .split("|")
+        .map(normalizePathHash)
+        .filter(Boolean)
+        .forEach((code) => entry.hopCodes.add(code));
+    } else if (row.path_json) {
       try {
         const parsed = JSON.parse(row.path_json);
         if (Array.isArray(parsed)) {
@@ -450,7 +471,7 @@ function readMessageObserverPaths(db, hashes) {
   if (!list.length) return new Map();
   const placeholders = list.map(() => "?").join(",");
   const rows = db.prepare(`
-    SELECT message_hash, observer_id, observer_name, path_json
+    SELECT message_hash, observer_id, observer_name, path_json, path_text
     FROM message_observers
     WHERE message_hash IN (${placeholders})
   `).all(...list);
@@ -458,9 +479,15 @@ function readMessageObserverPaths(db, hashes) {
   rows.forEach((row) => {
     const key = String(row.message_hash || "").toUpperCase();
     if (!key) return;
-    if (!row.path_json) return;
     let parsed;
-    try { parsed = JSON.parse(row.path_json); } catch { parsed = null; }
+    if (row.path_text) {
+      parsed = String(row.path_text)
+        .split("|")
+        .map(normalizePathHash)
+        .filter(Boolean);
+    } else if (row.path_json) {
+      try { parsed = JSON.parse(row.path_json); } catch { parsed = null; }
+    }
     if (!Array.isArray(parsed) || !parsed.length) return;
     const path = parsed.map(normalizePathHash).filter(Boolean);
     if (!path.length) return;
@@ -523,10 +550,38 @@ function readMessageObserverUpdatesSince(db, lastRowId, limit) {
   return { updates, lastRowId: nextRowId };
 }
 
+function ensureColumn(db, tableName, columnName, columnType) {
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (cols.some((c) => c.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+}
+
 function getDb() {
   if (db) return db;
   db = new Database(dbPath);
+  if (DEBUG_SQL) {
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      const stmt = origPrepare(sql);
+      ["run", "get", "all", "iterate"].forEach((method) => {
+        if (typeof stmt[method] !== "function") return;
+        const orig = stmt[method].bind(stmt);
+        stmt[method] = (...args) => {
+          const start = process.hrtime.bigint();
+          const result = orig(...args);
+          const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+          console.log(`[sql] ${elapsedMs.toFixed(2)}ms ${method} ${String(sql).trim()}`);
+          return result;
+        };
+      });
+      return stmt;
+    };
+  }
   db.pragma("journal_mode = WAL");
+  db.pragma("synchronous = NORMAL");
+  db.pragma("temp_store = MEMORY");
+  db.pragma("cache_size = -64000");
+  db.pragma("foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -568,16 +623,20 @@ function getDb() {
       body TEXT,
       ts TEXT,
       path_json TEXT,
+      path_text TEXT,
       path_length INTEGER,
       repeats INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
+    CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender_channel_ts ON messages(sender, channel_name, ts);
     CREATE TABLE IF NOT EXISTS message_observers (
       message_hash TEXT NOT NULL,
       observer_id TEXT NOT NULL,
       observer_name TEXT,
       ts TEXT,
       path_json TEXT,
+      path_text TEXT,
       path_length INTEGER,
       PRIMARY KEY (message_hash, observer_id)
     );
@@ -606,6 +665,7 @@ function getDb() {
       total24h INTEGER NOT NULL,
       cached_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_repeater_rank_history_recorded_at ON repeater_rank_history(recorded_at);
     CREATE TABLE IF NOT EXISTS repeater_rank_cache (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       updated_at TEXT NOT NULL,
@@ -616,6 +676,16 @@ function getDb() {
       updated_at TEXT NOT NULL,
       payload TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS stats_5m (
+      bucket_start INTEGER NOT NULL,
+      channel_name TEXT NOT NULL,
+      messages INTEGER NOT NULL,
+      unique_senders INTEGER NOT NULL,
+      unique_messages INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (bucket_start, channel_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stats_5m_bucket ON stats_5m(bucket_start);
     CREATE TABLE IF NOT EXISTS devices (
       pub TEXT PRIMARY KEY,
       name TEXT,
@@ -642,6 +712,8 @@ function getDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
   `);
+  ensureColumn(db, "messages", "path_text", "TEXT");
+  ensureColumn(db, "message_observers", "path_text", "TEXT");
   return db;
 }
 
@@ -1805,7 +1877,7 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
   let rows = [];
   if (channelName) {
     rows = db.prepare(`
-      SELECT message_hash, ts, path_json, path_length
+      SELECT message_hash, ts, path_json, path_text, path_length
       FROM messages
       WHERE sender = ? AND channel_name = ? AND ts >= ?
       ORDER BY ts DESC
@@ -1813,7 +1885,7 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     `).all(senderName, channelName, cutoff, maxRows);
   } else {
     rows = db.prepare(`
-      SELECT message_hash, ts, path_json, path_length
+      SELECT message_hash, ts, path_json, path_text, path_length
       FROM messages
       WHERE sender = ? AND ts >= ?
       ORDER BY ts DESC
@@ -1840,12 +1912,18 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
   const paths = [];
   const deadEnds = new Map();
   rows.forEach((row) => {
-    if (!row?.path_json) return;
     let parsed;
-    try {
-      parsed = JSON.parse(row.path_json);
-    } catch {
-      parsed = null;
+    if (row.path_text) {
+      parsed = String(row.path_text)
+        .split("|")
+        .map(normalizePathHash)
+        .filter(Boolean);
+    } else if (row?.path_json) {
+      try {
+        parsed = JSON.parse(row.path_json);
+      } catch {
+        parsed = null;
+      }
     }
     if (!Array.isArray(parsed) || !parsed.length) return;
     const path = parsed.map(normalizePathHash).filter(Boolean);
@@ -2741,6 +2819,36 @@ async function buildChannelMessages() {
   }
 }
 
+async function buildChannelSummary() {
+  const db = getDb();
+  if (hasMessagesDb(db)) {
+    const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
+    if ((countRow?.count || 0) > 0) {
+      const latestRows = db.prepare(`
+        SELECT m.channel_name, m.body, m.ts
+        FROM messages m
+        JOIN (
+          SELECT channel_name, MAX(ts) AS max_ts
+          FROM messages
+          GROUP BY channel_name
+        ) x
+        ON m.channel_name = x.channel_name AND m.ts = x.max_ts
+      `).all();
+      return latestRows
+        .filter((row) => row.channel_name)
+        .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
+        .map((row) => ({
+          id: String(row.channel_name || "").replace(/^#/, ""),
+          name: row.channel_name,
+          snippet: String(row.body || "").slice(0, 48) || "No recent messages",
+          time: row.ts ? new Date(row.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
+        }));
+    }
+  }
+  const payload = await buildChannelMessages();
+  return payload.channels || [];
+}
+
 async function refreshNodeRankCache(force) {
   const now = Date.now();
   const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
@@ -2756,6 +2864,134 @@ async function refreshNodeRankCache(force) {
   } finally {
     nodeRankRefreshInFlight = null;
   }
+}
+
+async function buildRepeaterRankSummary() {
+  const now = Date.now();
+  const last = rankSummaryCache.updatedAt ? new Date(rankSummaryCache.updatedAt).getTime() : 0;
+  if (!last || now - last >= RANK_REFRESH_MS) {
+    await refreshRankCache(true);
+  }
+  return {
+    updatedAt: rankSummaryCache.updatedAt,
+    count: rankSummaryCache.totals ? rankSummaryCache.totals.total : rankCache.count,
+    totals: rankSummaryCache.totals || { total: rankCache.count, active: 0, total24h: 0 }
+  };
+}
+
+async function buildNodeRankSummary() {
+  const now = Date.now();
+  const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
+  if (!last || now - last >= NODE_RANK_REFRESH_MS) {
+    await refreshNodeRankCache(true);
+  }
+  return {
+    updatedAt: nodeRankCache.updatedAt,
+    count: nodeRankCache.count,
+    totals: {
+      active: nodeRankCache.items.filter((n) => Number.isFinite(n.ageHours) && n.ageHours < 24).length,
+      messages24h: nodeRankCache.items.reduce((sum, n) => sum + (n.messages24h || 0), 0)
+    }
+  };
+}
+
+async function buildObserverRankSummary() {
+  const now = Date.now();
+  const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+  if (!observerRankCache.items?.length) {
+    await refreshObserverRankCache(true);
+  } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
+    await refreshObserverRankCache(true);
+  }
+  return {
+    updatedAt: observerRankCache.updatedAt,
+    count: observerRankCache.items.length,
+    totals: {
+      active: observerRankCache.items.filter((o) => o.ageHours < OBSERVER_OFFLINE_HOURS).length,
+      packetsToday: observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0)
+    }
+  };
+}
+
+function floorStatsBucket(ts) {
+  return ts - (ts % STATS_ROLLUP_WINDOW_MS);
+}
+
+function updateStatsRollup() {
+  const db = getDb();
+  const now = Date.now();
+  const currentBucket = floorStatsBucket(now);
+  const row = db.prepare("SELECT MAX(bucket_start) AS max_bucket FROM stats_5m").get();
+  let startBucket = Number.isFinite(row?.max_bucket)
+    ? row.max_bucket
+    : currentBucket - (STATS_ROLLUP_WINDOW_MS * STATS_ROLLUP_SEED_BUCKETS);
+  if (startBucket > currentBucket) startBucket = currentBucket;
+
+  const insert = db.prepare(`
+    INSERT INTO stats_5m (bucket_start, channel_name, messages, unique_senders, unique_messages, updated_at)
+    SELECT ?, channel_name, COUNT(1), COUNT(DISTINCT sender), COUNT(DISTINCT message_hash), ?
+    FROM messages
+    WHERE ts >= ? AND ts < ?
+    GROUP BY channel_name
+    ON CONFLICT(bucket_start, channel_name) DO UPDATE SET
+      messages = excluded.messages,
+      unique_senders = excluded.unique_senders,
+      unique_messages = excluded.unique_messages,
+      updated_at = excluded.updated_at
+  `);
+  const insertTotals = db.prepare(`
+    INSERT INTO stats_5m (bucket_start, channel_name, messages, unique_senders, unique_messages, updated_at)
+    SELECT ?, '__all__', COUNT(1), COUNT(DISTINCT sender), COUNT(DISTINCT message_hash), ?
+    FROM messages
+    WHERE ts >= ? AND ts < ?
+    ON CONFLICT(bucket_start, channel_name) DO UPDATE SET
+      messages = excluded.messages,
+      unique_senders = excluded.unique_senders,
+      unique_messages = excluded.unique_messages,
+      updated_at = excluded.updated_at
+  `);
+  const updatedAt = new Date().toISOString();
+  const tx = db.transaction(() => {
+    for (let bucket = startBucket; bucket <= currentBucket; bucket += STATS_ROLLUP_WINDOW_MS) {
+      const startIso = new Date(bucket).toISOString();
+      const endIso = new Date(bucket + STATS_ROLLUP_WINDOW_MS).toISOString();
+      insert.run(bucket, updatedAt, startIso, endIso);
+      insertTotals.run(bucket, updatedAt, startIso, endIso);
+    }
+  });
+  tx();
+}
+
+function maybeUpdateStatsRollup() {
+  const now = Date.now();
+  if (statsRollupLastAt && (now - statsRollupLastAt) < STATS_ROLLUP_MIN_INTERVAL_MS) return;
+  statsRollupLastAt = now;
+  try {
+    updateStatsRollup();
+  } catch {}
+}
+
+function readLatestStatsRollup() {
+  const db = getDb();
+  const row = db.prepare("SELECT MAX(bucket_start) AS max_bucket FROM stats_5m").get();
+  if (!Number.isFinite(row?.max_bucket)) return null;
+  const items = db.prepare(`
+    SELECT channel_name, messages, unique_senders, unique_messages
+    FROM stats_5m
+    WHERE bucket_start = ?
+  `).all(row.max_bucket);
+  const totals = items.find((item) => item.channel_name === "__all__") || null;
+  const perChannel = items.filter((item) => item.channel_name !== "__all__");
+  return { bucketStart: row.max_bucket, totals, perChannel };
+}
+
+function startStatsRollupUpdater() {
+  if (startStatsRollupUpdater.started) return;
+  startStatsRollupUpdater.started = true;
+  maybeUpdateStatsRollup();
+  setInterval(() => {
+    maybeUpdateStatsRollup();
+  }, STATS_ROLLUP_INTERVAL_MS);
 }
 
 async function buildChannelMessagesBefore(channelName, beforeTs, limit) {
@@ -2947,7 +3183,7 @@ async function buildRotmData() {
   const channelName = normalizeRotmChannel(cfg.channel || "#rotm");
   const channelPlain = channelName.replace(/^#/, "");
   const rows = db.prepare(`
-    SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_length, repeats
+    SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
     FROM messages
     WHERE lower(channel_name) IN (lower(?), lower(?)) AND ts >= ?
     ORDER BY ts DESC
@@ -3534,6 +3770,52 @@ async function readBody(req) {
   });
 }
 
+async function buildMessagesPayload({ channel, limit, beforeTs }) {
+  const payload = await buildChannelMessages();
+  const channelName = channel ? (String(channel).startsWith("#") ? channel : `#${channel}`) : null;
+  let list = payload.messages;
+  const before = typeof beforeTs === "string" ? beforeTs : (beforeTs ? new Date(beforeTs).toISOString() : null);
+  let max = Number.isFinite(limit) ? limit : null;
+
+  if (channelName) {
+    const channelLimit = channelHistoryLimit(channelName);
+    if (!Number.isFinite(max) || max <= 0 || max < channelLimit) {
+      max = channelLimit;
+    }
+    const cutoff = before ? new Date(before).getTime() : Date.now();
+    list = await buildChannelMessagesBefore(channelName, cutoff, max);
+  } else {
+    if (before) {
+      list = list.filter((m) => {
+        const ts = m.ts ? new Date(m.ts).getTime() : 0;
+        return ts && ts < new Date(before).getTime();
+      });
+    }
+    list.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  }
+
+  if (!channelName) {
+    const perChannel = new Map();
+    for (const m of list) {
+      const key = m.channelName || "#unknown";
+      const bucket = perChannel.get(key) || [];
+      bucket.push(m);
+      perChannel.set(key, bucket);
+    }
+    const trimmed = [];
+    for (const [key, bucket] of perChannel.entries()) {
+      const limitForChannel = channelHistoryLimit(key);
+      const keep = bucket.slice(Math.max(0, bucket.length - limitForChannel));
+      keep.forEach((item) => trimmed.push(item));
+    }
+    list = trimmed.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  } else if (Number.isFinite(max) && max > 0 && list.length > max) {
+    list = list.slice(Math.max(0, list.length - max));
+  }
+
+  return { channels: payload.channels, messages: list };
+}
+
 function send(res, status, contentType, body) {
   res.writeHead(status, {
     "Content-Type": contentType,
@@ -3556,6 +3838,30 @@ function contentTypeFor(filePath) {
 }
 
 const server = http.createServer(async (req, res) => {
+  let perfStart = null;
+  if (DEBUG_PERF) {
+    perfStart = process.hrtime.bigint();
+    let bytes = 0;
+    const origWrite = res.write.bind(res);
+    const origEnd = res.end.bind(res);
+    res.write = (chunk, encoding, cb) => {
+      if (chunk) {
+        bytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk), encoding);
+      }
+      return origWrite(chunk, encoding, cb);
+    };
+    res.end = (chunk, encoding, cb) => {
+      if (chunk) {
+        bytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk), encoding);
+      }
+      return origEnd(chunk, encoding, cb);
+    };
+    res.on("finish", () => {
+      if (req.url && req.url.startsWith("/api/message-stream")) return;
+      const elapsedMs = Number(process.hrtime.bigint() - perfStart) / 1e6;
+      console.log(`[perf] ${req.method} ${req.url} ${res.statusCode} ${elapsedMs.toFixed(1)}ms ${bytes}b`);
+    });
+  }
   const u = new URL(req.url, `http://${req.headers.host}`);
   if (u.pathname === "/") {
     const html = fs.readFileSync(indexPath, "utf8");
@@ -3570,6 +3876,42 @@ const server = http.createServer(async (req, res) => {
       const body = fs.readFileSync(absPath);
       return send(res, 200, contentTypeFor(absPath), body);
     }
+  }
+
+  if (u.pathname === "/api/dashboard") {
+    const channelRaw = String(u.searchParams.get("channel") || "").trim();
+    const channel = channelRaw ? (channelRaw.startsWith("#") ? channelRaw : `#${channelRaw}`) : null;
+    const limitRaw = u.searchParams.get("limit");
+    const beforeRaw = u.searchParams.get("before");
+    const limit = limitRaw ? Number(limitRaw) : null;
+    let beforeTs = null;
+    if (beforeRaw) {
+      const beforeDate = parseIso(beforeRaw);
+      if (beforeDate) beforeTs = beforeDate.getTime();
+    }
+
+    const user = getSessionUser(req);
+    const db = getDb();
+    const row = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
+    const messagesPayload = await buildMessagesPayload({ channel, limit, beforeTs });
+    maybeUpdateStatsRollup();
+    const stats = readLatestStatsRollup();
+    const meshscore = await refreshMeshScoreCache(false);
+    const rotm = await buildRotmData();
+    const rotmConfig = user?.isAdmin
+      ? { channel: normalizeRotmChannel(readRotmConfig().channel || "#rotm") }
+      : null;
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+      ok: true,
+      user,
+      hasAdmin: !!row,
+      channels: messagesPayload.channels,
+      messages: messagesPayload.messages,
+      stats,
+      meshscore,
+      rotm,
+      rotmConfig
+    }));
   }
 
   if (u.pathname === "/api/auth/me") {
@@ -3689,8 +4031,8 @@ const server = http.createServer(async (req, res) => {
 
   if (u.pathname === "/api/channels") {
     if (req.method === "GET") {
-      const payload = await buildChannelMessages();
-      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels }));
+      const channels = await buildChannelSummary();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels }));
     }
     if (req.method === "DELETE") {
       try {
@@ -3769,9 +4111,51 @@ const server = http.createServer(async (req, res) => {
       res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
     };
     sendEvent("ready", { ok: true, lastRowId });
-    const statsInterval = setInterval(() => {
-      sendEvent("stats", { ts: Date.now() });
-    }, 5000);
+    let countersBusy = false;
+    let ranksBusy = false;
+    const sendCounters = async () => {
+      if (closed || countersBusy) return;
+      countersBusy = true;
+      try {
+        maybeUpdateStatsRollup();
+        const channels = await buildChannelSummary();
+        const rotm = await buildRotmData();
+        const stats = readLatestStatsRollup();
+        sendEvent("counters", { ts: Date.now(), channels, rotm, stats });
+      } catch (err) {
+        sendEvent("error", { error: String(err?.message || err) });
+      } finally {
+        countersBusy = false;
+      }
+    };
+    const sendRanks = async () => {
+      if (closed || ranksBusy) return;
+      ranksBusy = true;
+      try {
+        const [repeater, node, observer, meshscore] = await Promise.all([
+          buildRepeaterRankSummary(),
+          buildNodeRankSummary(),
+          buildObserverRankSummary(),
+          refreshMeshScoreCache(false)
+        ]);
+        sendEvent("ranks", { ts: Date.now(), repeater, node, observer, meshscore });
+      } catch (err) {
+        sendEvent("error", { error: String(err?.message || err) });
+      } finally {
+        ranksBusy = false;
+      }
+    };
+    sendCounters().catch(() => {});
+    sendRanks().catch(() => {});
+    const countersInterval = setInterval(() => {
+      sendCounters().catch(() => {});
+    }, MESSAGE_STREAM_COUNTERS_MS);
+    const ranksInterval = setInterval(() => {
+      sendRanks().catch(() => {});
+    }, MESSAGE_STREAM_RANKS_MS);
+    const healthInterval = setInterval(() => {
+      sendEvent("health", { ts: Date.now(), uptime: Math.round(process.uptime()) });
+    }, MESSAGE_STREAM_HEALTH_MS);
     const poll = setInterval(() => {
       if (closed) return;
       try {
@@ -3782,7 +4166,7 @@ const server = http.createServer(async (req, res) => {
         );
         if (updates.length) {
           lastRowId = nextRowId;
-          sendEvent("updates", { updates });
+          sendEvent("packet", { updates, lastRowId });
         } else {
           lastRowId = nextRowId;
         }
@@ -3795,7 +4179,9 @@ const server = http.createServer(async (req, res) => {
     }, MESSAGE_OBSERVER_STREAM_PING_MS);
     req.on("close", () => {
       closed = true;
-      clearInterval(statsInterval);
+      clearInterval(countersInterval);
+      clearInterval(ranksInterval);
+      clearInterval(healthInterval);
       clearInterval(poll);
       clearInterval(ping);
     });
@@ -3803,57 +4189,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/messages") {
-    const payload = await buildChannelMessages();
     const channel = u.searchParams.get("channel");
     const limitRaw = u.searchParams.get("limit");
     const beforeRaw = u.searchParams.get("before");
-    let limit = limitRaw ? Number(limitRaw) : null;
+    const limit = limitRaw ? Number(limitRaw) : null;
     let beforeTs = null;
     if (beforeRaw) {
       const beforeDate = parseIso(beforeRaw);
       if (beforeDate) beforeTs = beforeDate.getTime();
     }
-
-    let list = payload.messages;
-    if (channel) {
-      const channelLimit = channelHistoryLimit(channel);
-      if (!Number.isFinite(limit) || limit <= 0 || limit < channelLimit) {
-        limit = channelLimit;
-      }
-      const cutoff = Number.isFinite(beforeTs) ? beforeTs : Date.now();
-      list = await buildChannelMessagesBefore(channel, cutoff, limit);
-    } else {
-      if (channel) {
-        list = list.filter((m) => m.channelName === channel);
-      }
-      list = list.filter((m) => {
-        if (!beforeTs) return true;
-        const ts = m.ts ? new Date(m.ts).getTime() : 0;
-        return ts && ts < beforeTs;
-      });
-      list.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
-    }
-
-    if (!channel) {
-      const perChannel = new Map();
-      for (const m of list) {
-        const key = m.channelName || "#unknown";
-        const bucket = perChannel.get(key) || [];
-        bucket.push(m);
-        perChannel.set(key, bucket);
-      }
-      const trimmed = [];
-      for (const [key, bucket] of perChannel.entries()) {
-        const limitForChannel = channelHistoryLimit(key);
-        const keep = bucket.slice(Math.max(0, bucket.length - limitForChannel));
-        keep.forEach((item) => trimmed.push(item));
-      }
-      list = trimmed.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
-    } else if (Number.isFinite(limit) && limit > 0 && list.length > limit) {
-      list = list.slice(Math.max(0, list.length - limit));
-    }
-
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: payload.channels, messages: list }));
+    const payload = await buildMessagesPayload({ channel, limit, beforeTs });
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
   if (u.pathname === "/api/rotm") {
@@ -4407,6 +4753,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, host, () => {
   console.log(`(observer-demo) http://${host}:${port}`);
   startObserverHitsTailer();
+  startStatsRollupUpdater();
   hydrateRepeaterRankCache();
   hydrateObserverRankCache();
   hydrateMeshScoreCache();

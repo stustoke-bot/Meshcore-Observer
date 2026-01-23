@@ -103,12 +103,22 @@ function refreshKeysIfNeeded() {
   }
 }
 
+function ensureColumn(db, tableName, columnName, columnType) {
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (cols.some((c) => c.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+}
+
 function initRfDb() {
   if (rfDb) return true;
   try {
     ensureDataDir();
     rfDb = new Database(dbPath);
     rfDb.pragma("journal_mode = WAL");
+    rfDb.pragma("synchronous = NORMAL");
+    rfDb.pragma("temp_store = MEMORY");
+    rfDb.pragma("cache_size = -64000");
+    rfDb.pragma("foreign_keys = ON");
     rfDb.exec(`
       CREATE TABLE IF NOT EXISTS rf_packets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,16 +148,20 @@ function initRfDb() {
         body TEXT,
         ts TEXT,
         path_json TEXT,
+        path_text TEXT,
         path_length INTEGER,
         repeats INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_name, ts);
+      CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
+      CREATE INDEX IF NOT EXISTS idx_messages_sender_channel_ts ON messages(sender, channel_name, ts);
       CREATE TABLE IF NOT EXISTS message_observers (
         message_hash TEXT NOT NULL,
         observer_id TEXT NOT NULL,
         observer_name TEXT,
         ts TEXT,
         path_json TEXT,
+        path_text TEXT,
         path_length INTEGER,
         PRIMARY KEY (message_hash, observer_id)
       );
@@ -177,7 +191,19 @@ function initRfDb() {
         updated_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
+      CREATE TABLE IF NOT EXISTS stats_5m (
+        bucket_start INTEGER NOT NULL,
+        channel_name TEXT NOT NULL,
+        messages INTEGER NOT NULL,
+        unique_senders INTEGER NOT NULL,
+        unique_messages INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (bucket_start, channel_name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_stats_5m_bucket ON stats_5m(bucket_start);
     `);
+    ensureColumn(rfDb, "messages", "path_text", "TEXT");
+    ensureColumn(rfDb, "message_observers", "path_text", "TEXT");
     rfInsert = rfDb.prepare(`
       INSERT INTO rf_packets (
         ts, payload_hex, frame_hash, rssi, snr, crc, observer_id, observer_name,
@@ -191,8 +217,8 @@ function initRfDb() {
     msgInsert = rfDb.prepare(`
       INSERT INTO messages (
         message_hash, frame_hash, channel_name, channel_hash, sender, sender_pub,
-        body, ts, path_json, path_length, repeats
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        body, ts, path_json, path_text, path_length, repeats
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(message_hash) DO UPDATE SET
         ts = CASE WHEN excluded.ts > messages.ts THEN excluded.ts ELSE messages.ts END,
         frame_hash = COALESCE(messages.frame_hash, excluded.frame_hash),
@@ -206,12 +232,16 @@ function initRfDb() {
         path_json = CASE
           WHEN excluded.path_length > messages.path_length THEN excluded.path_json
           ELSE messages.path_json
+        END,
+        path_text = CASE
+          WHEN excluded.path_length > messages.path_length THEN excluded.path_text
+          ELSE messages.path_text
         END
     `);
     msgObserverInsert = rfDb.prepare(`
       INSERT INTO message_observers (
-        message_hash, observer_id, observer_name, ts, path_json, path_length
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        message_hash, observer_id, observer_name, ts, path_json, path_text, path_length
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(message_hash, observer_id) DO UPDATE SET
         ts = CASE WHEN excluded.ts > message_observers.ts THEN excluded.ts ELSE message_observers.ts END,
         observer_name = COALESCE(message_observers.observer_name, excluded.observer_name),
@@ -219,6 +249,10 @@ function initRfDb() {
         path_json = CASE
           WHEN excluded.path_length > message_observers.path_length THEN excluded.path_json
           ELSE message_observers.path_json
+        END,
+        path_text = CASE
+          WHEN excluded.path_length > message_observers.path_length THEN excluded.path_text
+          ELSE message_observers.path_text
         END
     `);
     deviceUpsert = rfDb.prepare(`
@@ -336,6 +370,7 @@ function storeMessage(record) {
   ).toUpperCase();
   const pathRaw = Array.isArray(decoded.path) ? decoded.path : [];
   const path = pathRaw.map(normalizePathHash).filter(Boolean);
+  const pathText = path.length ? path.join("|") : null;
   const pathLength = path.length || (Number.isFinite(decoded.pathLength) ? decoded.pathLength : 0);
   const hopCount = pathLength || 0;
 
@@ -350,6 +385,7 @@ function storeMessage(record) {
       body || null,
       record.archivedAt || null,
       path.length ? JSON.stringify(path) : null,
+      pathText,
       pathLength,
       hopCount
     );
@@ -367,6 +403,7 @@ function storeMessage(record) {
           record.observerName || observerId,
           record.archivedAt || null,
           path.length ? JSON.stringify(path) : null,
+          pathText,
           pathLength
         );
       }
