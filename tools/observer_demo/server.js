@@ -333,7 +333,7 @@ try {
 }
 
 const host = "0.0.0.0";
-const port = Number(process.env.PORT || 5200);
+const port = Number(process.env.PORT || 5199);
 const AUTO_REFRESH_MS = 60 * 1000;
 
 function clamp(n, min, max) {
@@ -1740,6 +1740,18 @@ function classifyRepeaterQuality(entry, stats, lastAdvertHeardMs) {
   if (entry.gpsInvalidReason) reasons.push(`invalid_gps_${entry.gpsInvalidReason}`);
   if (reasons.length) return { quality: "low_quality", reasons };
   return { quality: "valid", reasons };
+}
+
+function chooseBetterRepeater(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const aTs = Number.isFinite(a.lastAdvertIngestMs) ? a.lastAdvertIngestMs : 0;
+  const bTs = Number.isFinite(b.lastAdvertIngestMs) ? b.lastAdvertIngestMs : 0;
+  if (aTs !== bTs) return aTs > bTs ? a : b;
+  const aTotal = Number.isFinite(a.total24h) ? a.total24h : 0;
+  const bTotal = Number.isFinite(b.total24h) ? b.total24h : 0;
+  if (aTotal !== bTotal) return aTotal > bTotal ? a : b;
+  return a.score >= b.score ? a : b;
 }
 
 function loadKeys() {
@@ -3268,6 +3280,7 @@ async function buildRepeaterRank() {
 
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
+  const windowHours = windowMs / 3600000;
   const rankWindowMs = windowMs * 3;
 
   const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, neighborRssi, clockDriftMs}
@@ -3592,7 +3605,8 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
       (Array.isArray(classification.reasons) ? classification.reasons : []).forEach(addExcludedReason);
     }
     if (isCompanionDevice(d)) addExcludedReason("companion_node");
-    if (!evidence.isTrueRepeater) {
+    const evidenceOk = evidence.isTrueRepeater || !!d.raw?.meta?.backfilled;
+    if (!evidenceOk) {
       addExcludedReason(evidence.repeatEvidenceReason || "insufficient_repeat_evidence");
     }
     if (excludedReasons.length) {
@@ -3733,8 +3747,24 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
     });
   }
 
-  const items = included
-    .sort((a, b) => (b.score - a.score) || (b.total24h - a.total24h));
+  const deduped = [];
+  const seenByName = new Map();
+  included.forEach((item) => {
+    const key = String(item.name || item.pub || "").trim().toLowerCase() || item.pub;
+    const existing = seenByName.get(key);
+    if (!existing) {
+      seenByName.set(key, item);
+      deduped.push(item);
+      return;
+    }
+    const better = chooseBetterRepeater(item, existing);
+    if (better === item) {
+      seenByName.set(key, item);
+      const idx = deduped.indexOf(existing);
+      if (idx >= 0) deduped[idx] = item;
+    }
+  });
+  const items = deduped.sort((a, b) => (b.score - a.score) || (b.total24h - a.total24h));
 
   return {
     updatedAt: new Date().toISOString(),
