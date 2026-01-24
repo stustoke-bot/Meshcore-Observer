@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const mqtt = require("mqtt");
 const Database = require("better-sqlite3");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
+const { getDbPath, logDbInfo } = require("./db_path");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
 const dataDir = path.join(projectRoot, "data");
@@ -15,7 +16,7 @@ const observerStatusPath = path.join(dataDir, "observers.json");
 const devicesPath = path.join(dataDir, "devices.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
-const dbPath = path.join(dataDir, "meshrank.db");
+const dbPath = getDbPath();
 const GPS_WARN_KM = 50;
 const RF_MAX_ROWS = 50000;
 const RF_CLEAN_INTERVAL = 500;
@@ -28,6 +29,11 @@ let msgInsert = null;
 let msgObserverInsert = null;
 let deviceUpsert = null;
 let observerUpsert = null;
+let rejectAdvertInsert = null;
+let ingestMetricUpsert = null;
+let ingestDbInfoLogged = false;
+let advertTimestamps = [];
+let lastAdvertSeenAtIso = null;
 let keysMtime = 0;
 let keyStore = null;
 let keyMap = {};
@@ -36,6 +42,7 @@ const mqttUrl = process.env.MESHRANK_MQTT_URL || "mqtts://meshrank.net:8883";
 const mqttTopic = process.env.MESHRANK_MQTT_TOPIC || "meshrank/observers/+/packets";
 const mqttUser = process.env.MESHRANK_MQTT_USER || undefined;
 const mqttPass = process.env.MESHRANK_MQTT_PASS || undefined;
+const INGEST_WINDOW_MS = 10 * 60 * 1000;
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {
@@ -63,6 +70,180 @@ function parseTopicInfo(topic) {
 function toNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseArchivedAtMs(value) {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const MAX_REPEATER_NAME_LENGTH = 32;
+const MAX_NAME_CONTROL_RATIO = 0.2;
+
+function isPrintableChar(codePoint) {
+  return codePoint >= 0x20 && codePoint !== 0x7f;
+}
+
+function sanitizeRepeaterName(value) {
+  const raw = value == null ? "" : String(value);
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, reason: "empty" };
+  if (trimmed.includes("�")) return { ok: false, reason: "replacement_char" };
+  if (trimmed.length < 2) return { ok: false, reason: "too_short" };
+  const strippedChars = [...trimmed].filter((ch) => {
+    const code = ch.codePointAt(0);
+    return code !== undefined && isPrintableChar(code);
+  });
+  const stripped = strippedChars.join("");
+  const controlRatio = trimmed.length ? (trimmed.length - stripped.length) / trimmed.length : 0;
+  if (controlRatio > MAX_NAME_CONTROL_RATIO) return { ok: false, reason: "too_many_control_chars" };
+  const cleaned = stripped.length > MAX_REPEATER_NAME_LENGTH
+    ? stripped.slice(0, MAX_REPEATER_NAME_LENGTH).trimEnd()
+    : stripped;
+  if (!cleaned) return { ok: false, reason: "empty_after_clean" };
+  return { ok: true, cleaned };
+}
+
+function normalizePubKey(value) {
+  if (!value) return null;
+  const raw = String(value).trim().toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(raw)) return null;
+  return raw;
+}
+
+function validateGps(value) {
+  if (!value || typeof value !== "object") return { valid: false, reason: "missing" };
+  const lat = Number(value.lat ?? value.latitude);
+  const lon = Number(value.lon ?? value.lng ?? value.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { valid: false, reason: "not_numeric" };
+  if (lat === 0 && lon === 0) return { valid: false, reason: "zero_point" };
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return { valid: false, reason: "out_of_range" };
+  return { valid: true, lat, lon };
+}
+
+function isVerifiedAdvert(decoded, advert) {
+  if (!decoded || !advert) return { ok: false, reason: "missing_payload" };
+  const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+  if (payloadType !== "Advert") return { ok: false, reason: "payload_not_advert" };
+  const pub = normalizePubKey(advert.publicKey || advert.pub || advert.pubKey);
+  if (!pub) return { ok: false, reason: "invalid_pub" };
+  const hasAppData = advert.appData && typeof advert.appData === "object";
+  const hasFlags = Number.isFinite(advert.flags) || Number.isFinite(advert.appFlags) || Number.isFinite(advert.appData?.flags);
+  const nameCandidate = advert.appData?.name || advert.name || null;
+  let nameResult = { ok: true };
+  if (nameCandidate) {
+    nameResult = sanitizeRepeaterName(nameCandidate);
+    if (!nameResult.ok) return { ok: false, reason: `invalid_name_${nameResult.reason}` };
+  }
+  const gpsCandidate = advert.gps || advert.appData?.location || null;
+  const gpsCheck = validateGps(gpsCandidate);
+  const gpsValid = gpsCheck.valid;
+  const structureProof = hasAppData && (hasFlags || nameCandidate || gpsValid);
+  if (!structureProof) return { ok: false, reason: "missing_structure" };
+  return {
+    ok: true,
+    reason: null,
+    pub,
+    cleanedName: nameResult.ok ? nameResult.cleaned : null,
+    gps: gpsValid ? { lat: gpsCheck.lat, lon: gpsCheck.lon } : null,
+    gpsInvalidReason: (gpsCandidate && !gpsValid) ? gpsCheck.reason : null
+  };
+}
+
+function resolveObserverId(record) {
+  if (!record) return null;
+  let observerId = record.observerId || "";
+  if (!observerId && record.topic) {
+    const match = String(record.topic).match(/observers\/([^/]+)\//i);
+    if (match) observerId = match[1];
+  }
+  observerId = String(observerId || record.observerName || "").trim();
+  return observerId || null;
+}
+
+function recordRejectedAdvert(pub, reason, record) {
+  if (!rejectAdvertInsert) return;
+  try {
+    const normalizedPub = pub ? String(pub).toUpperCase() : null;
+    const observerId = resolveObserverId(record);
+    const heardMs = parseArchivedAtMs(record?.archivedAt);
+    const sample = JSON.stringify({
+      observerId,
+      topic: record?.topic || null,
+      payloadHex: record?.payloadHex || null,
+      archivedAt: record?.archivedAt || null,
+      reason: reason || null
+    });
+    const sampleJson = sample.length > 1024 ? sample.slice(0, 1024) : sample;
+    rejectAdvertInsert.run(
+      normalizedPub,
+      observerId,
+      Number.isFinite(heardMs) ? heardMs : null,
+      String(reason || "unknown"),
+      sampleJson
+    );
+  } catch (err) {
+    logIngest("ERROR", `rejected advert insert failed ${err?.message || err}`);
+  }
+}
+
+function persistIngestMetric(key, value) {
+  if (!ingestMetricUpsert) return;
+  try {
+    ingestMetricUpsert.run(String(key), value, new Date().toISOString());
+  } catch (err) {
+    logIngest("ERROR", `ingest metric persist failed ${err?.message || err}`);
+  }
+}
+
+function recordAdvertSeen(heardMs) {
+  const nowMs = Number.isFinite(heardMs) ? heardMs : Date.now();
+  const cutoff = nowMs - INGEST_WINDOW_MS;
+  advertTimestamps = advertTimestamps.filter((ts) => ts >= cutoff);
+  advertTimestamps.push(nowMs);
+  const count = advertTimestamps.length;
+  lastAdvertSeenAtIso = new Date(nowMs).toISOString();
+  persistIngestMetric("countAdvertsSeenLast10m", String(count));
+  persistIngestMetric("lastAdvertSeenAtIso", lastAdvertSeenAtIso);
+}
+
+function logIngestDbInfo(db) {
+  if (ingestDbInfoLogged || !db) return;
+  try {
+    logDbInfo(db);
+    const dbList = db.pragma("database_list");
+    logIngest("INFO", `ingest db info ${JSON.stringify({
+      resolvedPath: getDbPath(),
+      cwd: process.cwd(),
+      databaseList: dbList || []
+    })}`);
+  } catch (err) {
+    logIngest("ERROR", `ingest db info failed ${err?.message || err}`);
+  } finally {
+    ingestDbInfoLogged = true;
+  }
+}
+
+function decodeAppFlags(flags) {
+  if (!Number.isInteger(flags)) return null;
+  const roleCode = flags & 0x0f;
+  let roleName = "unknown";
+  if (roleCode === 0x00) roleName = "sensor";
+  else if (roleCode === 0x01) roleName = "chat";
+  else if (roleCode === 0x02) roleName = "repeater";
+  else if (roleCode === 0x03) roleName = "room_server";
+  const isRepeater = roleCode === 0x02 || roleCode === 0x03;
+  return {
+    raw: flags,
+    roleCode,
+    roleName,
+    isRepeater,
+    hasLocation: !!(flags & 0x10),
+    hasName: !!(flags & 0x80)
+  };
 }
 
 function appendObserver(record) {
@@ -114,6 +295,7 @@ function initRfDb() {
   try {
     ensureDataDir();
     rfDb = new Database(dbPath);
+    logIngestDbInfo(rfDb);
     rfDb.pragma("journal_mode = WAL");
     rfDb.pragma("synchronous = NORMAL");
     rfDb.pragma("temp_store = MEMORY");
@@ -160,6 +342,7 @@ function initRfDb() {
         observer_id TEXT NOT NULL,
         observer_name TEXT,
         ts TEXT,
+        ts_ms INTEGER,
         path_json TEXT,
         path_text TEXT,
         path_length INTEGER,
@@ -173,12 +356,14 @@ function initRfDb() {
         is_observer INTEGER,
         last_seen TEXT,
         observer_last_seen TEXT,
+        last_advert_heard_ms INTEGER,
         gps_lat REAL,
         gps_lon REAL,
         raw_json TEXT,
         hidden_on_map INTEGER,
         updated_at TEXT
       );
+      CREATE INDEX IF NOT EXISTS idx_devices_last_advert_heard_ms ON devices(last_advert_heard_ms);
       CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
       CREATE TABLE IF NOT EXISTS observers (
         observer_id TEXT PRIMARY KEY,
@@ -191,6 +376,20 @@ function initRfDb() {
         updated_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
+      CREATE TABLE IF NOT EXISTS rejected_adverts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pub TEXT,
+        observer_id TEXT,
+        heard_ms INTEGER,
+        reason TEXT,
+        sample_json TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_rejected_adverts_heard_ms ON rejected_adverts(heard_ms);
+      CREATE TABLE IF NOT EXISTS ingest_metrics (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
+      );
       CREATE TABLE IF NOT EXISTS stats_5m (
         bucket_start INTEGER NOT NULL,
         channel_name TEXT NOT NULL,
@@ -202,8 +401,10 @@ function initRfDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_stats_5m_bucket ON stats_5m(bucket_start);
     `);
+    ensureColumn(rfDb, "devices", "last_advert_heard_ms", "INTEGER");
     ensureColumn(rfDb, "messages", "path_text", "TEXT");
     ensureColumn(rfDb, "message_observers", "path_text", "TEXT");
+    ensureColumn(rfDb, "message_observers", "ts_ms", "INTEGER");
     rfInsert = rfDb.prepare(`
       INSERT INTO rf_packets (
         ts, payload_hex, frame_hash, rssi, snr, crc, observer_id, observer_name,
@@ -213,6 +414,15 @@ function initRfDb() {
     rfPrune = rfDb.prepare(`
       DELETE FROM rf_packets
       WHERE id <= (SELECT id FROM rf_packets ORDER BY id DESC LIMIT 1 OFFSET ?)
+    `);
+    rejectAdvertInsert = rfDb.prepare(`
+      INSERT INTO rejected_adverts (pub, observer_id, heard_ms, reason, sample_json)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    ingestMetricUpsert = rfDb.prepare(`
+      INSERT INTO ingest_metrics (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
     `);
     msgInsert = rfDb.prepare(`
       INSERT INTO messages (
@@ -240,10 +450,11 @@ function initRfDb() {
     `);
     msgObserverInsert = rfDb.prepare(`
       INSERT INTO message_observers (
-        message_hash, observer_id, observer_name, ts, path_json, path_text, path_length
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        message_hash, observer_id, observer_name, ts, ts_ms, path_json, path_text, path_length
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(message_hash, observer_id) DO UPDATE SET
         ts = CASE WHEN excluded.ts > message_observers.ts THEN excluded.ts ELSE message_observers.ts END,
+        ts_ms = CASE WHEN excluded.ts_ms > message_observers.ts_ms THEN excluded.ts_ms ELSE message_observers.ts_ms END,
         observer_name = COALESCE(message_observers.observer_name, excluded.observer_name),
         path_length = MAX(message_observers.path_length, excluded.path_length),
         path_json = CASE
@@ -258,8 +469,8 @@ function initRfDb() {
     deviceUpsert = rfDb.prepare(`
       INSERT INTO devices (
         pub, name, is_repeater, is_observer, last_seen, observer_last_seen,
-        gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_advert_heard_ms, gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(pub) DO UPDATE SET
         name = COALESCE(excluded.name, devices.name),
         is_repeater = MAX(devices.is_repeater, excluded.is_repeater),
@@ -271,6 +482,12 @@ function initRfDb() {
         observer_last_seen = CASE
           WHEN excluded.observer_last_seen > devices.observer_last_seen THEN excluded.observer_last_seen
           ELSE devices.observer_last_seen
+        END,
+        last_advert_heard_ms = CASE
+          WHEN excluded.last_advert_heard_ms IS NULL THEN devices.last_advert_heard_ms
+          WHEN devices.last_advert_heard_ms IS NULL THEN excluded.last_advert_heard_ms
+          WHEN excluded.last_advert_heard_ms > devices.last_advert_heard_ms THEN excluded.last_advert_heard_ms
+          ELSE devices.last_advert_heard_ms
         END,
         gps_lat = COALESCE(excluded.gps_lat, devices.gps_lat),
         gps_lon = COALESCE(excluded.gps_lon, devices.gps_lon),
@@ -390,18 +607,15 @@ function storeMessage(record) {
       hopCount
     );
     if (msgObserverInsert) {
-      let observerId = record.observerId || "";
-      if (!observerId && record.topic) {
-        const m = String(record.topic).match(/observers\/([^/]+)\//i);
-        if (m) observerId = m[1];
-      }
-      observerId = String(observerId || record.observerName || "").trim();
+      const observerId = resolveObserverId(record);
       if (observerId) {
+        const archivedMs = parseArchivedAtMs(record.archivedAt);
         msgObserverInsert.run(
           msgHash,
           observerId,
           record.observerName || observerId,
           record.archivedAt || null,
+          Number.isFinite(archivedMs) ? archivedMs : null,
           path.length ? JSON.stringify(path) : null,
           pathText,
           pathLength
@@ -426,56 +640,95 @@ function updateDeviceFromAdvert(record) {
   if (payloadType !== "Advert") return;
   const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
   if (!adv) return;
-  const pub = adv.publicKey || adv.pub || adv.pubKey || null;
-  if (!pub) return;
-  const key = String(pub).toUpperCase();
+  const verification = isVerifiedAdvert(decoded, adv);
+  if (!verification.ok) {
+    recordRejectedAdvert(verification.pub || adv.publicKey || adv.pub || adv.pubKey, verification.reason, record);
+    return;
+  }
+  const key = verification.pub;
 
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
   const entry = byPub[key] || { pub: key };
   entry.lastSeen = record.archivedAt || entry.lastSeen || null;
+  entry.verifiedAdvert = true;
   entry.raw = entry.raw || {};
-  entry.raw.lastAdvert = adv;
-  if (!entry.name && adv.appData?.name) entry.name = String(adv.appData.name);
-
-  const gps = adv.gps || null;
-  const appLoc = adv.appData?.location
-    ? { lat: adv.appData.location.latitude, lon: adv.appData.location.longitude }
-    : null;
-  const nextGps = (appLoc && Number.isFinite(appLoc.lat) && Number.isFinite(appLoc.lon))
-    ? appLoc
-    : gps;
-  if (nextGps && Number.isFinite(nextGps.lat) && Number.isFinite(nextGps.lon)) {
-    if (!(nextGps.lat === 0 && nextGps.lon === 0)) {
-      const prev = entry.gpsReported || null;
-      const changed = !prev || prev.lat !== nextGps.lat || prev.lon !== nextGps.lon;
-      entry.gpsReported = nextGps;
-      if (changed) {
-        entry.gps = nextGps;
-        entry.manualLocation = false;
-        entry.locSource = null;
-        entry.gpsFlagged = false;
-        entry.gpsFlaggedAt = null;
-        entry.gpsEstimated = false;
-        entry.gpsEstimateAt = null;
-        entry.gpsEstimateNeighbors = null;
-        entry.gpsEstimateReason = null;
-        entry.gpsImplausible = false;
-        entry.hiddenOnMap = false;
-      } else if (!entry.manualLocation) {
-        entry.gps = nextGps;
-      }
+  entry.meta = entry.meta || {};
+  entry.raw.meta = entry.raw.meta || {};
+  entry.meta.verifiedAdvert = true;
+  entry.raw.meta.verifiedAdvert = true;
+  const heardMs = parseArchivedAtMs(record.archivedAt);
+  if (Number.isFinite(heardMs)) {
+    if (!Number.isFinite(entry.lastAdvertHeardMs) || heardMs > entry.lastAdvertHeardMs) {
+      entry.lastAdvertHeardMs = heardMs;
     }
   }
+  entry.raw.lastAdvert = adv;
+  entry.lastNameInvalid = entry.lastNameInvalid || false;
+  const hadValidName = !!entry.name && entry.nameValid;
+  if (verification.cleanedName) {
+    entry.name = verification.cleanedName;
+    entry.nameValid = true;
+    entry.nameInvalidReason = null;
+  } else if (!hadValidName) {
+    entry.nameValid = false;
+    entry.nameInvalidReason = "missing_name";
+  }
+  entry.nameInvalid = !entry.nameValid;
 
-  const isRepeater =
+  const appFlagsRaw =
+    (Number.isInteger(adv.flags) ? adv.flags : null) ??
+    (Number.isInteger(adv.appFlags) ? adv.appFlags : null) ??
+    (Number.isInteger(adv.appData?.flags) ? adv.appData.flags : null);
+  const decodedFlags = Number.isFinite(appFlagsRaw) ? decodeAppFlags(appFlagsRaw) : null;
+  const heuristicIsRepeater =
     adv.isRepeater ||
     adv.appData?.isRepeater ||
     adv.appData?.deviceRole === 2 ||
     adv.appData?.nodeType === "repeater" ||
     adv.appData?.type === "repeater";
-  if (isRepeater) entry.isRepeater = true;
+  if (decodedFlags) {
+    entry.appFlags = decodedFlags;
+    entry.role = decodedFlags.roleName;
+    entry.isRepeater = decodedFlags.isRepeater;
+  } else if (heuristicIsRepeater) {
+    entry.isRepeater = true;
+  }
 
+  entry.gpsInvalidReason = verification.gpsInvalidReason || null;
+  entry.meta.gpsInvalidReason = entry.gpsInvalidReason;
+  entry.raw.meta.gpsInvalidReason = entry.gpsInvalidReason;
+  const gps = verification.gps || null;
+  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon)) {
+    const prev = entry.gpsReported || null;
+    const changed = !prev || prev.lat !== gps.lat || prev.lon !== gps.lon;
+    entry.gpsReported = gps;
+    if (changed) {
+      entry.gps = gps;
+      entry.manualLocation = false;
+      entry.locSource = null;
+      entry.gpsFlagged = false;
+      entry.gpsFlaggedAt = null;
+      entry.gpsEstimated = false;
+      entry.gpsEstimateAt = null;
+      entry.gpsEstimateNeighbors = null;
+      entry.gpsEstimateReason = null;
+      entry.gpsImplausible = false;
+      entry.hiddenOnMap = false;
+    } else if (!entry.manualLocation) {
+      entry.gps = gps;
+    }
+  }
+
+  entry.raw.meta.nameValid = !!entry.nameValid;
+  entry.raw.meta.nameInvalidReason = entry.nameInvalidReason || null;
+  entry.meta.nameValid = !!entry.nameValid;
+  entry.meta.nameInvalidReason = entry.nameInvalidReason || null;
+  if (entry.name) {
+    entry.meta.name = entry.name;
+    entry.raw.meta.name = entry.name;
+  }
+  recordAdvertSeen(heardMs);
   byPub[key] = entry;
   devices.byPub = byPub;
   devices.updatedAt = new Date().toISOString();
@@ -489,6 +742,7 @@ function updateDeviceFromAdvert(record) {
       entry.isObserver ? 1 : 0,
       entry.lastSeen || null,
       entry.observerLastSeen || null,
+      entry.lastAdvertHeardMs ?? null,
       gps ? gps.lat : null,
       gps ? gps.lon : null,
       entry.raw ? JSON.stringify(entry.raw) : null,
@@ -590,6 +844,7 @@ function updateObserverStatus(record) {
           1,
           byPub[pub].lastSeen || null,
           byPub[pub].observerLastSeen || null,
+          byPub[pub].lastAdvertHeardMs ?? null,
           gps ? gps.lat : null,
           gps ? gps.lon : null,
           byPub[pub].raw ? JSON.stringify(byPub[pub].raw) : null,

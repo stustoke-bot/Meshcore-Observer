@@ -10,7 +10,7 @@ Optional debug logging:
 DEBUG_PERF=1 DEBUG_SQL=1 node tools/observer_demo/server.js
 ```
 
-## Runbook (restart + status)
+## Runbook (live site)
 ```bash
 . /root/.nvm/nvm.sh && nvm use 20
 cd /root/Meshcore-Observer
@@ -25,7 +25,30 @@ Status checks:
 systemctl status meshrank-server.service --no-pager -l | head -n 10
 ss -lntp | grep 5199
 curl -i http://127.0.0.1:5199/api/admin/status
+curl -i "http://127.0.0.1:5199/api/dashboard?channel=public"
+curl -N http://127.0.0.1:5199/api/message-stream | head -n 20
 ```
+
+## Runbook (test site)
+```bash
+. /root/.nvm/nvm.sh && nvm use 20
+cd /root/Meshcore-Observer
+sudo systemctl restart meshrank-test.service
+```
+
+Logs:
+- `/root/observer_demo_test.log`
+
+Status checks:
+```bash
+systemctl status meshrank-test.service --no-pager -l | head -n 10
+ss -lntp | grep 5200
+curl -i http://127.0.0.1:5200/api/admin/status
+curl -i "http://127.0.0.1:5200/api/dashboard?channel=public"
+curl -N http://127.0.0.1:5200/api/message-stream | head -n 20
+```
+
+> **Note:** `meshrank.net` now proxies to port `5199` (`meshrank-server.service`), while `test.meshrank.net` points to the sandbox on port `5200` (`meshrank-test.service`). The old test site should not be exposed on `meshrank.net`.
 
 ## MQTT ingest (optional)
 ```bash

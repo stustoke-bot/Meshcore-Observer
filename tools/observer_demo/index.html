@@ -7,6 +7,11 @@
   <meta http-equiv="pragma" content="no-cache"/>
   <meta http-equiv="expires" content="0"/>
   <title>MeshRank</title>
+  <script>
+    window.meshConfig = {
+      googleClientId: "__GOOGLE_CLIENT_ID__"
+    };
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
@@ -76,6 +81,141 @@
       min-height: 0;
     }
 
+    .mesh-live-panel {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px;
+      border-radius: 18px;
+    }
+    .mesh-live-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .mesh-live-title {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .mesh-live-header .muted {
+      margin: 4px 0 0;
+    }
+    .mesh-live-daily {
+      min-width: 220px;
+      font-size: 14px;
+      color: var(--muted);
+      background: rgba(0, 122, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .mesh-live-grid {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 16px;
+    }
+    .mesh-live-stats {
+      display: grid;
+      gap: 12px;
+    }
+    .mesh-live-card {
+      background: rgba(0, 0, 0, 0.03);
+      border-radius: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .accordion .mesh-live-card {
+      border-color: var(--line);
+    }
+    .mesh-live-card strong {
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    .mesh-live-card-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .mesh-live-map-wrapper {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      min-height: 420px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .mesh-live-map {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 420px;
+    }
+    .mesh-live-pulse-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .mesh-live-pulse-layer span {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(0, 122, 255, 0.8);
+      box-shadow: 0 0 12px rgba(0, 122, 255, 0.6);
+      animation: meshLivePulse 1s ease-out forwards;
+      transform: translate(-50%, -50%);
+    }
+    @keyframes meshLivePulse {
+      0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+    }
+    .mesh-live-list-wrapper {
+      background: rgba(0, 122, 255, 0.03);
+      border-radius: 14px;
+      padding: 12px;
+      border: 1px solid rgba(0, 122, 255, 0.12);
+    }
+    .mesh-live-list-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .mesh-live-list {
+      display: grid;
+      gap: 8px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .mesh-live-list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      gap: 10px;
+    }
+    .mesh-live-list-item strong {
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    .mesh-live-list-item .mesh-live-badge {
+      background: rgba(0, 122, 255, 0.12);
+      color: var(--blue);
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+    @media (max-width: 960px) {
+      .mesh-live-grid {
+        grid-template-columns: 1fr;
+      }
+    }
     .sidebar-panel {
       min-height: 0;
     }
@@ -275,6 +415,25 @@
       min-height: 0;
       flex: 1 1 auto;
       max-height: 100%;
+    }
+
+    .sidebar-helper {
+      display: none;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 122, 255, 0.3);
+      background: rgba(0, 122, 255, 0.08);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .sidebar-helper p {
+      margin: 6px 0 0;
+      font-weight: 400;
+    }
+    body.theme-dark .sidebar-helper {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.05);
     }
 
     #channels {
@@ -632,6 +791,49 @@
       max-height: 90vh;
       overflow-y: auto;
       box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+    .implausible-list {
+      display: grid;
+      gap: 10px;
+      max-height: 70vh;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .implausible-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.02);
+      font-size: 13px;
+    }
+    body.theme-dark .implausible-row {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .implausible-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .implausible-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .implausible-reason {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .implausible-placeholder {
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
     }
     .rank-detail-close {
       display: flex;
@@ -1159,6 +1361,22 @@
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
       background: #fafafa;
+    }
+
+    .rank-helper-row {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #f8f8f8;
+      text-align: right;
+    }
+
+    body.theme-dark .rank-helper-row {
+      background: var(--panel);
+    }
+
+    .rank-helper-row .link-btn {
+      font-size: 13px;
+      padding: 4px 10px;
     }
 
       .summary-card {
@@ -1852,6 +2070,21 @@
     body.view-channels .sidebar-panel,
     body.view-channels .content,
     body.view-channels .analysis-panel { display: flex; }
+    body.view-channel-directory .sidebar-panel,
+    body.view-channel-directory .content,
+    body.view-channel-directory .analysis-panel,
+    body.view-channel-directory .rank-panel,
+    body.view-channel-directory .meshscore-panel,
+    body.view-channel-directory .rf-panel,
+    body.view-channel-directory .observer-panel,
+    body.view-channel-directory .observer-rank-panel,
+    body.view-channel-directory .node-rank-panel,
+    body.view-channel-directory .rotm-panel,
+    body.view-channel-directory .why-panel { display: none; }
+    body.view-channel-directory .directory-panel {
+      display: flex;
+      grid-column: 1 / -1;
+    }
 
     body.view-rank .sidebar-panel,
     body.view-rank .content,
@@ -1891,6 +2124,30 @@
     body.view-why .observer-rank-panel,
     body.view-why .repeater-panel { display: none; }
     body.view-why .why-panel { display: flex; }
+    body.view-terms .sidebar-panel,
+    body.view-terms .content,
+    body.view-terms .analysis-panel,
+    body.view-terms .rank-panel,
+    body.view-terms .meshscore-panel,
+    body.view-terms .rf-panel,
+    body.view-terms .observer-panel,
+    body.view-terms .observer-rank-panel,
+    body.view-terms .repeater-panel,
+    body.view-terms .why-panel,
+    body.view-terms .privacy-panel { display: none; }
+    body.view-terms .terms-panel { display: flex; }
+    body.view-privacy .sidebar-panel,
+    body.view-privacy .content,
+    body.view-privacy .analysis-panel,
+    body.view-privacy .rank-panel,
+    body.view-privacy .meshscore-panel,
+    body.view-privacy .rf-panel,
+    body.view-privacy .observer-panel,
+    body.view-privacy .observer-rank-panel,
+    body.view-privacy .repeater-panel,
+    body.view-privacy .why-panel,
+    body.view-privacy .terms-panel { display: none; }
+    body.view-privacy .privacy-panel { display: flex; }
 
     body.view-observer-rank .sidebar-panel,
     body.view-observer-rank .content,
@@ -1926,6 +2183,463 @@
     body.view-rotm .why-panel,
     body.view-rotm .node-rank-panel { display: none; }
     body.view-rotm .rotm-panel { display: flex; }
+
+    .helper-banner {
+      margin: 0 18px 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 149, 0, 0.15);
+      color: #ff9500;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    body.theme-dark .helper-banner {
+      background: rgba(255, 149, 0, 0.2);
+      color: #ffd08a;
+    }
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(16, 24, 40, 0.9);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+      z-index: 50;
+    }
+    body.theme-dark .toast {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--ink);
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .directory-panel { display: none; flex-direction: column; gap: 20px; }
+    .directory-content { padding: 0 18px 18px; overflow: auto; }
+    .channel-page {
+      display: grid;
+      gap: 18px;
+    }
+    .channel-box {
+      border-radius: 16px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background:
+        linear-gradient(160deg, rgba(0, 122, 255, 0.08), rgba(255, 255, 255, 0.92) 42%),
+        rgba(255, 255, 255, 0.92);
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    body.theme-dark .channel-box {
+      background:
+        linear-gradient(160deg, rgba(0, 122, 255, 0.22), rgba(11, 15, 21, 0.85) 40%),
+        rgba(12, 18, 28, 0.9);
+      border-color: rgba(120, 160, 255, 0.35);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45);
+    }
+    .channel-box h3 { margin: 0; }
+    .channel-box-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .channel-box-head h3 {
+      color: #0a60d1;
+      letter-spacing: 0.2px;
+    }
+    body.theme-dark .channel-box-head h3 {
+      color: #8bb6ff;
+    }
+    body.theme-dark .directory-group-header {
+      border-color: rgba(120, 160, 255, 0.35);
+      background: rgba(12, 18, 28, 0.75);
+    }
+    body.theme-dark .directory-row {
+      border-color: rgba(120, 160, 255, 0.22);
+      background: rgba(12, 18, 28, 0.6);
+    }
+    .directory-strip {
+      display: block;
+      overflow: hidden;
+    }
+    .directory-strip-row {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scroll-snap-type: x proximity;
+    }
+    .directory-strip-row > .directory-card {
+      scroll-snap-align: start;
+    }
+    .directory-strip-row::-webkit-scrollbar {
+      height: 6px;
+    }
+    .directory-strip-row::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 999px;
+    }
+    .directory-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .directory-card {
+      padding: 14px;
+      border-radius: 14px;
+      background:
+        linear-gradient(120deg, rgba(0, 122, 255, 0.08), rgba(255, 255, 255, 0.95)),
+        rgba(16, 24, 40, 0.04);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    body.theme-dark .directory-card {
+      background:
+        linear-gradient(120deg, rgba(0, 122, 255, 0.16), rgba(15, 23, 42, 0.75)),
+        rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .directory-card h4 { margin: 0; font-size: 15px; }
+    .directory-card .muted { font-size: 12px; }
+    .directory-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .directory-groups { display: grid; gap: 18px; }
+    .directory-group { display: grid; gap: 10px; }
+    .directory-group-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(0, 122, 255, 0.35);
+      background: linear-gradient(135deg, rgba(0, 122, 255, 0.15), rgba(255, 255, 255, 0.85));
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+      font-weight: 700;
+    }
+    .checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .checkbox input {
+      width: 16px;
+      height: 16px;
+      accent-color: #007aff;
+    }
+    body.theme-dark .directory-group-header {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .directory-group-header h4 { margin: 0; display: flex; gap: 10px; align-items: center; cursor: pointer; }
+    .directory-group-toggle {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--ink);
+      background: #fff;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+    }
+    body.theme-dark .directory-group-toggle {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+    }
+    .directory-group-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    .directory-group-body {
+      display: grid;
+      gap: 10px;
+      padding-left: 12px;
+    }
+    .directory-group-title { flex: 1; display: inline-flex; align-items: center; gap: 6px; }
+    .directory-group-badge {
+      font-size: 11px;
+      background: var(--blue);
+      color: white;
+      border-radius: 999px;
+      padding: 2px 8px;
+      align-self: center;
+    }
+    .directory-group.collapsed .directory-group-body { display: none; }
+    .directory-row.dragging { opacity: 0.5; }
+    .directory-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background: rgba(255, 255, 255, 0.6);
+    }
+    .directory-group-body .directory-row {
+      margin-left: 6px;
+      padding-left: 18px;
+      background: rgba(0, 122, 255, 0.05);
+      border-left: 3px solid rgba(0, 122, 255, 0.4);
+    }
+    .directory-row.joined {
+      opacity: 0.6;
+      background: rgba(0, 122, 255, 0.08);
+    }
+    .directory-row.blocked {
+      opacity: 0.5;
+      background: rgba(142, 142, 147, 0.12);
+    }
+    body.theme-dark .directory-row {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    body.theme-dark .directory-group-body .directory-row {
+      background: rgba(0, 122, 255, 0.1);
+      border-color: rgba(0, 122, 255, 0.6);
+    }
+    .directory-row .row-main { display: grid; gap: 4px; }
+    .directory-row .row-title { font-weight: 600; }
+    .directory-row .row-meta { font-size: 12px; color: var(--muted); }
+    .directory-row .row-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .row-title .badge-bubble {
+      margin-left: 8px;
+      font-size: 10px;
+      padding: 2px 6px;
+    }
+    .directory-preview { display: none; }
+    .channel-muted .name { opacity: 0.7; }
+    .channel-muted .muted-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .channel-mute {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 0;
+      cursor: pointer;
+    }
+    .channel-mute:hover { color: var(--ink); }
+    body.theme-dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+    body.theme-dark ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); }
+    body.theme-dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 999px; }
+    body.theme-dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+    .modal-body { display: grid; gap: 12px; margin-top: 12px; }
+    .modal-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .modal-row .field { flex: 1 1 160px; }
+    .emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
+      gap: 8px;
+    }
+    .emoji-picker-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .emoji-preview {
+      font-size: 20px;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    body.theme-dark .emoji-preview {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .emoji-btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 6px;
+      font-size: 18px;
+      background: #fff;
+      cursor: pointer;
+    }
+    body.theme-dark .emoji-btn {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--ink);
+    }
+    .emoji-btn.active { outline: 2px solid var(--accent); }
+    .auth-panel, .account-panel { display: none; }
+    body.view-auth .auth-panel {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.28);
+      z-index: 40;
+    }
+    body.view-account .account-panel {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.28);
+      z-index: 40;
+    }
+    body.view-auth .sidebar-panel,
+    body.view-auth .content,
+    body.view-auth .analysis-panel,
+    body.view-auth .rank-panel,
+    body.view-auth .meshscore-panel,
+    body.view-auth .rf-panel,
+    body.view-auth .observer-panel,
+    body.view-auth .observer-rank-panel,
+    body.view-auth .node-rank-panel,
+    body.view-auth .rotm-panel,
+    body.view-auth .directory-panel,
+    body.view-auth .why-panel,
+    body.view-auth .terms-panel,
+    body.view-auth .privacy-panel { display: none; }
+    body.view-account .sidebar-panel,
+    body.view-account .content,
+    body.view-account .analysis-panel,
+    body.view-account .rank-panel,
+    body.view-account .meshscore-panel,
+    body.view-account .rf-panel,
+    body.view-account .observer-panel,
+    body.view-account .observer-rank-panel,
+    body.view-account .node-rank-panel,
+    body.view-account .rotm-panel,
+    body.view-account .directory-panel,
+    body.view-account .why-panel,
+    body.view-account .terms-panel,
+    body.view-account .privacy-panel { display: none; }
+    .auth-card {
+      max-width: 520px;
+      width: 100%;
+      padding: 28px;
+      border-radius: 18px;
+      background: rgba(16, 24, 40, 0.04);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      display: grid;
+      gap: 16px;
+      position: relative;
+    }
+    .account-modal {
+      max-width: 860px;
+      width: min(92vw, 860px);
+      max-height: 86vh;
+      overflow: hidden;
+    }
+    .auth-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    body.theme-dark .auth-close {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+    body.theme-dark .auth-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .auth-header h2 { margin: 0; }
+    .auth-tabs { display: flex; gap: 8px; }
+    .auth-tabs .tab-btn { flex: 1; }
+    .auth-tabs .tab-btn.active { background: var(--accent); color: #fff; }
+    .auth-providers { display: grid; gap: 8px; }
+    .auth-providers #gsiButton { display: flex; justify-content: center; }
+    .google-config-hint {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 4px;
+      display: none;
+    }
+    .auth-form { display: grid; gap: 12px; }
+    .password-row { display: flex; gap: 8px; align-items: center; }
+    .password-row input { flex: 1; }
+    .auth-hint { font-size: 12px; color: var(--muted); }
+    .auth-links { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+    .auth-links a {
+      color: #0b0f1a;
+      font-weight: 600;
+    }
+    .auth-links a:hover { text-decoration: underline; }
+    body.theme-dark .auth-links a {
+      color: #ffffff;
+    }
+    .account-content {
+      padding: 0 12px 12px;
+      display: grid;
+      gap: 12px;
+      max-height: 62vh;
+      overflow-y: auto;
+    }
+    .account-card {
+      background: rgba(16, 24, 40, 0.04);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      padding: 12px;
+      border-radius: 16px;
+      display: grid;
+      gap: 8px;
+    }
+    .account-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+    .account-actions .btn {
+      min-width: 160px;
+    }
+    body.theme-dark .account-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .account-list { display: grid; gap: 8px; }
+    .account-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(15, 23, 42, 0.06);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    body.theme-dark .account-item {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
 
     .row {
       display: flex;
@@ -1984,8 +2698,31 @@
       padding: 0;
       display: none;
     }
+    .channel-leave-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .channel-leave-toggle input {
+      width: 14px;
+      height: 14px;
+      accent-color: #007aff;
+    }
+    .channel-fixed {
+      opacity: 0.6;
+    }
+    body.leave-mode .channel-remove {
+      display: none !important;
+    }
     .admin-only {
       display: none;
+    }
+    body:not(.is-admin) .admin-only {
+      display: none !important;
     }
     .repeater-location-controls {
       display: flex;
@@ -2090,7 +2827,9 @@
       min-height: 0;
     }
 
-    .why-panel {
+    .why-panel,
+    .terms-panel,
+    .privacy-panel {
       grid-column: 1 / -1;
       display: none;
       min-height: 0;
@@ -2106,6 +2845,26 @@
       height: 100%;
       overflow: auto;
     }
+    .legal-body {
+      display: grid;
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+    }
+    .legal-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      background: #ffffff;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .legal-card h3 { margin: 0; font-size: 16px; }
+    .legal-card p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink); }
+    .legal-card ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
 
     .why-card {
       border: 1px solid var(--line);
@@ -2562,7 +3321,8 @@
           </div>
         </div>
       <nav class="nav">
-        <a href="#" class="active" data-view="channels">Channels</a>
+        <a href="#" class="active" data-view="channels">Messages</a>
+        <a href="#" data-view="channel-directory">Channels</a>
         <a href="#" data-view="rotm">#ROTM</a>
         <a href="#" data-view="rank">Repeater Rank</a>
         <a href="#" data-view="node-rank">Node Rank</a>
@@ -2584,7 +3344,8 @@
     </header>
     <div class="menu-backdrop" id="menuBackdrop"></div>
     <div class="mobile-menu" id="mobileMenu">
-      <a href="#" class="active" data-view="channels">Channels</a>
+      <a href="#" class="active" data-view="channels">Messages</a>
+      <a href="#" data-view="channel-directory">Channels</a>
       <a href="#" data-view="rotm">#ROTM</a>
       <a href="#" data-view="rank">Repeater Rank</a>
       <a href="#" data-view="node-rank">Node Rank</a>
@@ -2594,12 +3355,14 @@
       <a href="#" data-view="why">Why MeshRank?</a>
       <a href="#" data-view="observer">Become an Observer</a>
     </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <section class="panel sidebar-panel">
       <div class="title column">
-        <span>Channels <span class="chip">UK Mesh</span></span>
+        <span>Messages <span class="chip">UK Mesh</span></span>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn" id="addChannelBtn">Add Channel</button>
+          <button class="btn btn-ghost" id="leaveChannelBtn">Leave Channels</button>
           <div class="admin-only channel-history-control">
             <span>History</span>
             <select id="channelHistoryLimit" aria-label="Channel history limit"></select>
@@ -2607,6 +3370,12 @@
         </div>
       </div>
       <div class="sidebar">
+        <div class="sidebar-helper" id="channelSidebarHelper">
+          <div>
+            <strong>Your feed is now customisable.</strong>
+            <p>We’ve introduced a new Channels page where you can add or remove the channels you like. Open the Channels tab by clicking Add Channel above, or select it from the menu.</p>
+          </div>
+        </div>
         <div id="channels"></div>
       </div>
     </section>
@@ -2622,7 +3391,114 @@
           <span id="activeChannel">#public</span>
         </button>
       </div>
+      <div class="helper-banner" id="loginHelper" style="display:none;">
+        Can’t see your channels? Please log in or sign up to manage them.
+      </div>
       <div class="messages" id="messages"></div>
+    </section>
+
+    <section class="panel directory-panel" id="channelDirectoryPanel">
+        <div class="title column">
+        <span>Channels.</span>
+        <div class="muted">Discover and add channels so others can add to their personal feed.</div>
+      </div>
+      <div class="directory-content">
+        <div class="channel-page">
+          <div class="channel-box">
+            <div class="channel-box-head">
+              <div>
+                <h3>Popular Channels</h3>
+                <div class="muted">Channels you might like (last 24 hours).</div>
+              </div>
+            </div>
+            <div class="directory-strip">
+              <div id="popularChannels" class="directory-strip-row"></div>
+            </div>
+          </div>
+          <div class="channel-box">
+            <div class="channel-box-head">
+              <div>
+                <h3>Browse by group</h3>
+                <div class="muted">Add channels to your feed by category.</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn" id="channelDirectoryAddBtn" type="button">Add Channel</button>
+                <button class="btn btn-ghost admin-only" id="channelDirectoryAddGroupBtn" type="button">Add Group</button>
+              </div>
+            </div>
+            <div id="groupedChannels" class="directory-groups"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel auth-panel" id="authPanel">
+      <div class="auth-card">
+        <button class="auth-close" id="authCloseBtn" type="button" aria-label="Close login">✕</button>
+        <div class="auth-header">
+          <h2>Log in or sign up</h2>
+          <p class="muted">You'll get a more tailored experience and exclusive data access.</p>
+        </div>
+        <div class="auth-providers">
+          <div id="gsiButton"></div>
+          <div id="gsiFallback" class="google-config-hint">Google login is not configured yet.</div>
+        </div>
+        <div class="auth-form" id="authFlowForm">
+          <label class="field">
+            <span>Email address</span>
+            <input id="authFlowEmail" type="email" placeholder="you@example.com"/>
+          </label>
+          <label class="field" id="authFlowNameField" style="display:none;">
+            <span>Your name</span>
+            <input id="authFlowName" type="text" placeholder="Display name"/>
+          </label>
+          <label class="field" id="authFlowPasswordField" style="display:none;">
+            <span>Password</span>
+            <div class="password-row">
+              <input id="authFlowPassword" type="password" placeholder="••••••••"/>
+              <button class="btn btn-ghost" type="button" data-toggle-password="#authFlowPassword">Show</button>
+            </div>
+          </label>
+          <div class="auth-hint" id="authFlowError"></div>
+          <button class="btn primary" id="authFlowSubmit" type="button">Continue</button>
+          <div class="auth-links">
+            <a href="#" id="forgotPasswordLink" class="muted">Forgot password?</a>
+            <a href="#" class="muted" data-view="terms">Terms</a>
+            <a href="#" class="muted" data-view="privacy">Privacy</a>
+          </div>
+          <div class="auth-hint" id="authFlowHint" style="display:none;">Password strength: use 8+ characters with a mix of letters and numbers.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel account-panel" id="accountPanel">
+      <div class="auth-card account-modal">
+        <button class="auth-close" id="accountCloseBtn" type="button" aria-label="Close account">✕</button>
+        <div class="title column" style="gap:6px;">
+          <span>Account</span>
+          <div class="muted">Manage your profile, nodes, and joined channels.</div>
+        </div>
+        <div class="account-content">
+          <div class="account-card">
+            <h3>Account</h3>
+            <div id="accountSummary">Not logged in.</div>
+            <button class="btn" id="accountLogoutBtn" type="button">Logout</button>
+          </div>
+          <div class="account-card">
+            <h3>Claim your node</h3>
+            <p class="muted">Enter your public node ID to link it to your account.</p>
+            <input id="accountNodeId" class="rf-input" type="text" placeholder="Public node ID"/>
+            <button class="btn" id="accountClaimBtn" type="button">Claim node</button>
+            <div class="auth-hint" id="accountClaimStatus"></div>
+            <div id="accountNodes" class="account-list"></div>
+          </div>
+          <div class="account-card">
+            <h3>Your channels</h3>
+            <div class="account-list" style="max-height: 220px; overflow-y: auto;" id="accountChannels"></div>
+            <button class="btn btn-ghost" id="accountManageChannels" type="button">Manage channels</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <div class="route-backdrop" id="routeBackdrop"></div>
@@ -2688,6 +3564,11 @@
           <strong id="rankMeshToday">0</strong>
           <div style="font-size:11px;color:var(--muted);">Yesterday: <span id="rankMeshYesterday">0</span></div>
         </div>
+      </div>
+      <div class="rank-helper-row">
+        <button class="link-btn" id="rankFlaggedLink" type="button">
+          Can't see your repeater? Check the implausible GPS list.
+        </button>
       </div>
       <div class="rank-body">
         <div class="rank-map">
@@ -2802,6 +3683,45 @@
             <strong id="meshMsgsObserver">0</strong>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="panel mesh-live-panel">
+      <div class="mesh-live-header">
+        <div>
+          <span class="mesh-live-title">MeshLive</span>
+          <p class="muted">Live visibility into packet flow, repeaters, and evolving mesh health.</p>
+        </div>
+        <div id="meshLiveDaily" class="mesh-live-daily">
+          <div>Loading daily delta…</div>
+        </div>
+      </div>
+      <div class="mesh-live-grid">
+        <div class="mesh-live-stats">
+          <div class="mesh-live-card">
+            <div class="mesh-live-card-label">Packet throughput</div>
+            <strong id="meshLivePacketRate">--</strong>
+            <span class="muted">packets per minute</span>
+          </div>
+          <div class="mesh-live-card">
+            <div class="mesh-live-card-label">Repeaters plotted</div>
+            <strong id="meshLiveRepeaterCount">--</strong>
+            <span class="muted">with GPS fixes</span>
+          </div>
+          <div class="mesh-live-card">
+            <div class="mesh-live-card-label">Daily movement</div>
+            <strong id="meshLiveDailyChange">--</strong>
+            <span class="muted">MeshRank / msgs</span>
+          </div>
+        </div>
+        <div class="mesh-live-map-wrapper">
+          <div class="mesh-live-map" id="meshLiveMap"></div>
+          <div class="mesh-live-pulse-layer" id="meshLivePulseLayer"></div>
+        </div>
+      </div>
+      <div class="mesh-live-list-wrapper">
+        <div class="mesh-live-list-title">Repeaters with recent packets</div>
+        <div class="mesh-live-list" id="meshLiveList"></div>
       </div>
     </section>
 
@@ -2988,15 +3908,17 @@
 
     <div class="neighbor-map-modal" id="neighborMapModal">
       <div class="neighbor-map-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <strong id="neighborMapTitle">Zero-hop Neighbors</strong>
-          <button class="observer-location-button" type="button" id="neighborMapClose">Close</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost" type="button" id="neighborEditToggle">Something not right?</button>
+            <button class="observer-location-button" type="button" id="neighborMapClose">Close</button>
+          </div>
         </div>
         <div class="neighbor-map" id="neighborMap"></div>
         <div class="neighbor-map-legend">
-          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#34c759;"></span>Good RSSI</div>
-          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ffcc00;"></span>Unknown/OK</div>
-          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ff3b30;"></span>Weak RSSI</div>
+          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#34c759;"></span>Reciprocal neighbor</div>
+          <div class="neighbor-map-legend-item"><span class="neighbor-map-legend-swatch" style="background:#ffcc00;"></span>One-way neighbor</div>
         </div>
         <div class="neighbor-map-list" id="neighborMapList"></div>
         <div class="confidence-meta" id="neighborMapMeta">Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.</div>
@@ -3074,23 +3996,172 @@
         </div>
       </div>
     </section>
+
+    <section class="panel terms-panel">
+      <div class="title">Terms of Use</div>
+      <div class="legal-body">
+        <div class="legal-card">
+          <h3>Overview</h3>
+          <p>These terms apply to your use of MeshRank.net and related services. By using the site, you agree to these terms.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Acceptable use</h3>
+          <ul>
+            <li>Use the service lawfully and respectfully.</li>
+            <li>Do not attempt to disrupt, overload, or bypass security.</li>
+            <li>Do not upload or share unlawful, harmful, or misleading content.</li>
+          </ul>
+        </div>
+        <div class="legal-card">
+          <h3>Accounts</h3>
+          <p>You are responsible for keeping your login details secure and for activity under your account.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Availability</h3>
+          <p>We aim to keep the service available but do not guarantee uninterrupted access.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Liability</h3>
+          <p>The service is provided “as is”. To the extent allowed by law, we exclude liability for indirect or consequential loss.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Changes</h3>
+          <p>We may update these terms. Continued use after changes means you accept the updated terms.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Contact</h3>
+          <p>Questions? Contact us via the MeshRank site.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel privacy-panel">
+      <div class="title">Privacy Policy (UK)</div>
+      <div class="legal-body">
+        <div class="legal-card">
+          <h3>What we collect</h3>
+          <ul>
+            <li>Account details (email, display name).</li>
+            <li>Usage data and basic analytics to operate the service.</li>
+            <li>Node identifiers you choose to claim.</li>
+          </ul>
+        </div>
+        <div class="legal-card">
+          <h3>How we use data</h3>
+          <ul>
+            <li>To provide and improve the service.</li>
+            <li>To keep accounts secure.</li>
+            <li>To personalise your experience where enabled.</li>
+          </ul>
+        </div>
+        <div class="legal-card">
+          <h3>Lawful basis</h3>
+          <p>We process personal data under legitimate interests and, where applicable, consent or contract.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Sharing</h3>
+          <p>We do not sell personal data. We may use trusted service providers for hosting and authentication.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Retention</h3>
+          <p>We keep data only as long as needed for the service or legal obligations.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Your rights</h3>
+          <p>You can request access, correction, or deletion of your personal data, and object to processing where applicable.</p>
+        </div>
+        <div class="legal-card">
+          <h3>Contact</h3>
+          <p>For privacy requests, contact us via the MeshRank site.</p>
+        </div>
+      </div>
+    </section>
   </div>
 
-    <div class="modal" id="channelModal">
+    <div class="modal" id="channelCreateModal">
       <div class="modal-card">
-        <strong>Add Channel</strong>
-      <div class="field">
-        <label for="channelName"># Channel name</label>
-        <input id="channelName" type="text" placeholder="#public"/>
+        <strong>Add channel to <span id="channelCreateGroup">Group</span></strong>
+        <div class="modal-body">
+          <label class="field">
+            <span># Name</span>
+            <input id="channelCreateName" type="text" placeholder="#channel"/>
+          </label>
+          <div class="modal-row">
+            <label class="field">
+              <span>Group</span>
+              <select id="channelCreateGroupSelect" class="rf-input"></select>
+            </label>
+            <label class="field">
+              <span>Key</span>
+              <input id="channelCreateCode" type="text" placeholder="Channel hash / node id"/>
+            </label>
+          </div>
+          <div class="field">
+            <span>Emoji (optional)</span>
+            <div id="channelCreateEmojiGrid" class="emoji-grid"></div>
+            <div class="emoji-picker-trigger">
+              <span class="emoji-preview" id="emojiPreview">💬</span>
+              <button class="btn btn-ghost" type="button" id="openEmojiPicker">More emojis</button>
+            </div>
+          </div>
+          <label class="field admin-only" id="channelPopularWrap">
+            <span>Popular list</span>
+            <label class="checkbox">
+              <input id="channelCreatePopular" type="checkbox" checked />
+              <span>Allow in popular channels</span>
+            </label>
+          </label>
+          <label class="field admin-only" id="channelBlockedWrap">
+            <span>Visibility</span>
+            <label class="checkbox">
+              <input id="channelCreateBlocked" type="checkbox" />
+              <span>Block channel for non-admins</span>
+            </label>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="channelCreateCancel">Cancel</button>
+          <button class="btn" id="channelCreateSave">Add channel</button>
+        </div>
       </div>
-      <div class="field">
-        <label for="channelSecret">Secret (32 hex chars)</label>
-        <input id="channelSecret" type="text" placeholder="8b3387e9c5cdea6ac9e4edbaa115cd72"/>
+    </div>
+
+    <div class="modal" id="emojiPickerModal">
+      <div class="modal-card">
+        <strong>Select any emoji</strong>
+        <div class="modal-body">
+          <label class="field">
+            <span>Custom emoji</span>
+            <input id="emojiCustomInput" type="text" placeholder="Paste emoji here"/>
+          </label>
+          <div id="emojiPickerGrid" class="emoji-grid"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="emojiPickerClose">Close</button>
+          <button class="btn" id="emojiPickerApply">Use emoji</button>
+        </div>
       </div>
-      <div class="modal-actions">
-        <button class="btn" id="cancelChannel">Cancel</button>
-        <button class="btn" id="saveChannel">Save</button>
+    </div>
+
+    <div class="modal" id="channelPreviewModal">
+      <div class="modal-card">
+        <strong id="channelPreviewTitle">Channel</strong>
+        <div class="modal-body" id="channelPreviewBody"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="channelPreviewClose" type="button">Close</button>
+        </div>
       </div>
+    </div>
+
+    <div class="modal" id="guestChannelNoticeModal">
+      <div class="modal-card">
+        <strong>Channel saved locally</strong>
+        <div class="modal-body">
+          <p id="guestChannelNoticeText">Channels are stored in your browser cache. Log in or register to sync them across devices.</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="guestChannelNoticeClose" type="button">Close</button>
+        </div>
       </div>
     </div>
 
@@ -3188,11 +4259,32 @@
           <input id="authPassword" class="rf-input" type="password" placeholder="Password"/>
           <div id="authStatus" style="font-size:12px;color:var(--muted);"></div>
         </div>
+        <div class="directory-actions" style="margin-top:12px;">
+          <button class="btn btn-ghost" id="authGoogle" type="button">Continue with Google</button>
+          <button class="btn btn-ghost" id="authApple" type="button">Continue with Apple</button>
+          <button class="btn btn-ghost" id="authFacebook" type="button">Continue with Facebook</button>
+        </div>
+        <div style="margin-top:14px;display:grid;gap:8px;">
+          <strong style="font-size:13px;">Claim a node</strong>
+          <input id="claimPub" class="rf-input" type="text" placeholder="Public ID (e.g. A1B2C3...)"/>
+          <button class="btn" id="claimNodeBtn" type="button">Submit claim</button>
+          <div id="claimStatus" style="font-size:12px;color:var(--muted);"></div>
+        </div>
         <div class="modal-actions">
           <button class="btn" id="authLogin">Login</button>
           <button class="btn" id="authBootstrap">Setup admin</button>
           <button class="btn" id="authLogout">Logout</button>
           <button class="btn" id="authClose">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="changesModal">
+      <div class="modal-card">
+        <strong>Channels update</strong>
+        <p>We’ve improved channels! You can now personalise your experience by joining the channels you care about — and even add new channels for others to join.</p>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="changesClose">Got it</button>
         </div>
       </div>
     </div>
@@ -3203,8 +4295,20 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     document.body.classList.add("view-channels");
-      const appData = {
+    const FIXED_CHANNELS = ["#public", "#meshranksuggestions"];
+    const appData = {
         channels: [],
+        userChannels: [],
+        userNodes: [],
+        channelDirectory: null,
+        channelPreviews: {},
+        channelGroupFlags: {},
+        directoryGroupState: {},
+        mutedChannels: [],
+        guestChannels: [],
+        dismissedChannels: [],
+        leaveMode: false,
+        leaveSelection: new Set(),
         messages: [],
         lastChannelsSig: "",
         lastMessagesSig: "",
@@ -3232,7 +4336,7 @@
         routeSuggestions: null,
         repeatersByCode: null,
         routeActivePathCodes: [],
-        routeActivePathPoints: [],
+      routeActivePathPoints: [],
           routeActiveMsg: null,
           channelHistoryLimit: 10,
           authUser: null,
@@ -3242,7 +4346,10 @@
         rotmSelectedNodeKey: null,
         rotmLastFetch: 0,
         latestByChannel: {},
+        channelCounts24h: {},
         recentStatsByChannel: {},
+        neighborEditMode: false,
+        neighborEditActiveEntry: null,
         livePulse: {
           timer: null,
           running: false,
@@ -3253,13 +4360,19 @@
             limitMs: 5000,
             maxNewMessages: 2
           },
-          messageStream: {
-            es: null,
-            connected: false,
-            lastHealthAt: 0
-          },
-          authToken: null
-        };
+        meshLive: {
+          polling: null,
+          markers: [],
+          boundsSet: false
+        },
+        messageStream: {
+          es: null,
+          connected: false,
+          lastHealthAt: 0
+        },
+        authToken: null,
+        googleInitialized: false
+      };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
 
@@ -3272,7 +4385,10 @@
     }
 
     function isRepeaterHidden(r) {
-      return !!r?.hiddenOnMap || !hasValidGps(r) || r?.stale;
+      if (!r) return false;
+      if (r.hiddenOnMap) return true;
+      if (r.gpsImplausible || r.gpsFlagged) return true;
+      return !hasValidGps(r);
     }
 
     function confidence(msg) {
@@ -3320,6 +4436,12 @@
       return String(value || "").trim().replace(/^#/, "").toLowerCase();
     }
 
+    function normalizeChannelName(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return null;
+      return raw.startsWith("#") ? raw : `#${raw}`;
+    }
+
     function loadAuthToken() {
       try {
         return localStorage.getItem("mesh_session_token");
@@ -3356,6 +4478,112 @@
       } catch {}
     }
 
+    let toastTimer = null;
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add("show");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.remove("show");
+      }, 2600);
+    }
+
+    function loadCachedUserChannels() {
+      try {
+        const raw = localStorage.getItem("meshrank.userChannels.cached");
+        const parsed = JSON.parse(raw || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveCachedUserChannels(channels) {
+      try {
+        localStorage.setItem("meshrank.userChannels.cached", JSON.stringify(channels || []));
+      } catch {}
+    }
+
+    function loadMutedChannels() {
+      try {
+        const raw = localStorage.getItem("meshrank.mutedChannels");
+        const parsed = JSON.parse(raw || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveMutedChannels(channels) {
+      try {
+        localStorage.setItem("meshrank.mutedChannels", JSON.stringify(channels || []));
+      } catch {}
+    }
+
+    function isChannelMuted(channelId) {
+      return appData.mutedChannels.includes(channelId);
+    }
+
+    const GUEST_CHANNELS_KEY = "meshrank.guestChannels.v2";
+    function loadGuestChannels() {
+      try {
+        localStorage.removeItem("meshrank.guestChannels");
+        const raw = localStorage.getItem(GUEST_CHANNELS_KEY);
+        const parsed = JSON.parse(raw || "[]");
+        if (!Array.isArray(parsed)) return [];
+        const cleaned = parsed.map((item) => {
+          if (typeof item === "string") return normalizeChannelName(item);
+          if (item && typeof item === "object") {
+            return normalizeChannelName(item.name || item.channel || item.channelName || "");
+          }
+          return null;
+        }).filter(Boolean);
+        const unique = Array.from(new Set(cleaned));
+        if (unique.length !== parsed.length) {
+          localStorage.setItem(GUEST_CHANNELS_KEY, JSON.stringify(unique));
+        }
+        return unique;
+      } catch {
+        return [];
+      }
+    }
+
+    function saveGuestChannels(list) {
+      try {
+        const cleaned = (list || []).map((item) => normalizeChannelName(item)).filter(Boolean);
+        const unique = Array.from(new Set(cleaned));
+        localStorage.setItem(GUEST_CHANNELS_KEY, JSON.stringify(unique));
+      } catch {}
+    }
+
+    function isGuestChannel(name) {
+      const id = normalizeChannelId(name);
+      return (appData.guestChannels || []).some((c) => normalizeChannelId(c) === id);
+    }
+
+    function loadDismissedChannels() {
+      try {
+        const raw = localStorage.getItem("meshrank.dismissedChannels");
+        const parsed = JSON.parse(raw || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveDismissedChannels(list) {
+      try {
+        localStorage.setItem("meshrank.dismissedChannels", JSON.stringify(list || []));
+      } catch {}
+    }
+
+    function isDismissedChannel(name) {
+      const id = normalizeChannelId(name);
+      return (appData.dismissedChannels || []).some((c) => normalizeChannelId(c) === id);
+    }
+
     function loadChannelHistoryLimit() {
       try {
         const raw = localStorage.getItem("meshrank.channelHistoryLimit");
@@ -3377,19 +4605,27 @@
       return { Authorization: `Bearer ${token}` };
     }
 
+    function updateRotmNavVisibility() {
+      const showRotm = !!appData.authUser?.isAdmin;
+      document.querySelectorAll("[data-view='rotm']").forEach((link) => {
+        link.style.display = showRotm ? "" : "none";
+      });
+    }
+
     function setAuthUser(user) {
       appData.authUser = user || null;
       const btn = document.getElementById("loginBtn");
       if (btn) {
-        btn.textContent = user ? user.username : "Login";
+        const label = user ? (user.displayName || user.username) : "Login";
+        btn.textContent = label;
       }
-      const status = document.getElementById("authStatus");
-      if (status) {
-        status.textContent = user
-          ? `Logged in as ${user.username}${user.isAdmin ? " (admin)" : ""}`
-          : "Not logged in.";
-      }
+      document.querySelectorAll(".auth-only").forEach((el) => {
+        el.style.display = user ? "" : "none";
+      });
       const isAdmin = !!user?.isAdmin;
+      document.body.classList.toggle("is-admin", isAdmin);
+      const addBtn = document.getElementById("addChannelBtn");
+      if (addBtn) addBtn.disabled = false;
       document.querySelectorAll(".admin-only").forEach((el) => {
         if (!isAdmin) {
           el.style.display = "none";
@@ -3415,6 +4651,64 @@
       }
       updateNodeRankVisibility();
       renderChannels();
+      updateLoginHelper();
+      maybeShowChangesModal();
+      updateRotmNavVisibility();
+      if (user) {
+        loadAccountData().catch(() => {});
+        syncGuestChannelsToAccount().catch(() => {});
+      } else {
+        renderAccountSummary();
+      }
+    }
+
+    function maybeShowChangesModal() {
+      if (!appData.authUser) return;
+      const key = "meshrank.channels.update.v1";
+      try {
+        if (localStorage.getItem(key)) return;
+        const modal = document.getElementById("changesModal");
+        modal?.classList.add("open");
+        localStorage.setItem(key, "1");
+      } catch {}
+    }
+
+    function updateLoginHelper() {
+      const banner = document.getElementById("loginHelper");
+      if (!banner) return;
+      const isMessagesView = document.body.classList.contains("view-channels");
+      const hasUser = !!appData.authUser;
+      const hasSelection = hasUser
+        ? (appData.userChannels || []).length > 0
+        : (appData.guestChannels || []).length > 0;
+      const cached = loadCachedUserChannels();
+      if (!hasUser && cached.length) {
+        banner.textContent = "You’re on a new browser. Log in to restore your personalised feed.";
+      } else {
+        banner.textContent = "Can’t see your channels? Please log in or sign up to manage them.";
+      }
+      const show = isMessagesView && (!hasUser || !hasSelection);
+      banner.style.display = show ? "block" : "none";
+    }
+
+    async function syncGuestChannelsToAccount() {
+      if (!appData.authUser) return;
+      const fixed = new Set(["#public", "#meshranksuggestions"]);
+      const pending = (appData.guestChannels || []).filter((name) => !fixed.has(normalizeChannelName(name)));
+      if (!pending.length) return;
+      try {
+        await Promise.allSettled(pending.map((name) =>
+          fetch("/api/user/channels/join", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ channelName: name })
+          })
+        ));
+        appData.guestChannels = [];
+        saveGuestChannels([]);
+        await loadChannels();
+        await loadChannelDirectory();
+      } catch {}
     }
 
     function setBootstrapVisibility(hasAdmin) {
@@ -3429,13 +4723,374 @@
         el.style.display = isAuthed ? "" : "none";
       });
       if (!isAuthed && document.body.classList.contains("view-node-rank")) {
-        document.body.classList.remove("view-node-rank");
-        document.body.classList.add("view-channels");
-        navLinks.forEach((l) => l.classList.remove("active"));
-        navLinks.forEach((l) => {
-          if (l.dataset.view === "channels") l.classList.add("active");
-        });
+        setView("channels");
       }
+    }
+
+    let googleInitTimer = null;
+
+    function setView(view) {
+      const views = [
+        "channels",
+        "channel-directory",
+        "rotm",
+        "rank",
+        "node-rank",
+        "meshscore",
+        "rf",
+        "observer",
+        "observer-rank",
+        "why",
+        "terms",
+        "privacy",
+        "auth",
+        "account"
+      ];
+      views.forEach((name) => {
+        document.body.classList.toggle(`view-${name}`, name === view);
+      });
+      document.querySelectorAll(".nav a, .mobile-nav a, .mobile-menu a").forEach((l) => {
+        l.classList.toggle("active", l.dataset.view === view);
+      });
+      if (view !== "channels") updateChannelParam(null);
+      updateLoginHelper();
+    }
+
+    tryInitGoogleSignin();
+    if (!googleInitTimer) {
+      googleInitTimer = window.setInterval(tryInitGoogleSignin, 500);
+    }
+
+    let meshLiveMap;
+    let meshLiveLayer;
+    let meshLivePulseContainer;
+
+    function ensureMeshLiveMap() {
+      if (meshLiveMap) return;
+      if (typeof L === "undefined") return;
+      const el = document.getElementById("meshLiveMap");
+      if (!el) return;
+      meshLiveMap = L.map(el, {
+        zoomControl: true,
+        scrollWheelZoom: false,
+        attributionControl: false
+      }).setView([54.0, -2.5], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(meshLiveMap);
+      meshLiveLayer = L.layerGroup().addTo(meshLiveMap);
+      meshLivePulseContainer = document.getElementById("meshLivePulseLayer");
+      meshLiveMap.on("moveend zoomend resize", () => refreshMeshLivePulsePositions());
+    }
+
+    function refreshMeshLivePulsePositions() {
+      if (!meshLiveMap || !meshLivePulseContainer) return;
+      meshLivePulseContainer.querySelectorAll("span").forEach((pulse) => {
+        const lat = Number(pulse.dataset.lat);
+        const lon = Number(pulse.dataset.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        const point = meshLiveMap.latLngToLayerPoint([lat, lon]);
+        pulse.style.left = `${point.x}px`;
+        pulse.style.top = `${point.y}px`;
+      });
+    }
+
+    function spawnMeshLivePulse(latlng) {
+      if (!meshLiveMap || !meshLivePulseContainer) return;
+      const lat = latlng[0];
+      const lon = latlng[1];
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const point = meshLiveMap.latLngToLayerPoint(latlng);
+      const pulse = document.createElement("span");
+      pulse.dataset.lat = String(lat);
+      pulse.dataset.lon = String(lon);
+      pulse.style.left = `${point.x}px`;
+      pulse.style.top = `${point.y}px`;
+      meshLivePulseContainer.appendChild(pulse);
+      setTimeout(() => pulse.remove(), 1100);
+    }
+
+    function renderMeshLivePayload(payload) {
+      if (!payload) return;
+      const packetRateEl = document.getElementById("meshLivePacketRate");
+      if (packetRateEl) {
+        packetRateEl.textContent = payload.packetRate ? payload.packetRate.toLocaleString() : "0";
+      }
+      const repeaterCountEl = document.getElementById("meshLiveRepeaterCount");
+      const repeaters = Array.isArray(payload.repeaters) ? payload.repeaters : [];
+      if (repeaterCountEl) {
+        repeaterCountEl.textContent = repeaters.length.toLocaleString();
+      }
+      const dailyEl = document.getElementById("meshLiveDaily");
+      const dailyStats = payload.daily || {};
+      const todayScore = dailyStats.today?.score;
+      const diffScore = dailyStats.diff?.score;
+      const diffMsgs = dailyStats.diff?.messages;
+      if (dailyEl) {
+        dailyEl.innerHTML = `
+          <div>MeshRank today: <strong>${todayScore?.toFixed(1) ?? "--"}</strong></div>
+          <div>Change: <strong>${diffScore ? `${diffScore > 0 ? "+" : ""}${diffScore.toFixed(1)}` : "--"}</strong></div>
+          <div>Msgs Δ: <strong>${diffMsgs ? `${diffMsgs > 0 ? "+" : ""}${diffMsgs}` : "--"}</strong></div>
+        `;
+      }
+      const changeEl = document.getElementById("meshLiveDailyChange");
+      if (changeEl) {
+        const scoreText = diffScore ? `${diffScore > 0 ? "+" : ""}${diffScore.toFixed(1)} pts` : "--";
+        const msgText = diffMsgs ? `${diffMsgs > 0 ? "+" : ""}${diffMsgs} msgs` : "--";
+        changeEl.textContent = `${scoreText} / ${msgText}`;
+      }
+      const listEl = document.getElementById("meshLiveList");
+      if (listEl) {
+        listEl.innerHTML = repeaters.slice(0, 6).map((item) => {
+          const name = item.name || item.pub || item.hash || "Unnamed";
+          const score = Number.isFinite(item.score) ? `${item.score.toFixed(1)} pts` : "Score n/a";
+          const total = Number.isFinite(item.total24h) ? item.total24h : 0;
+          return `
+            <div class="mesh-live-list-item">
+              <div>
+                <strong>${name}</strong>
+                <div class="muted">${score}</div>
+              </div>
+              <span class="mesh-live-badge">24h ${total}</span>
+            </div>
+          `;
+        }).join("");
+      }
+      if (meshLiveLayer) {
+        meshLiveLayer.clearLayers();
+      }
+      if (meshLiveMap && repeaters.length) {
+        const points = [];
+        repeaters.forEach((item) => {
+          const lat = Number(item.lat);
+          const lon = Number(item.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          points.push([lat, lon]);
+          const radius = clamp(Math.sqrt((item.total24h || 1)) * 2, 6, 28);
+          const fillColor = item.color || "var(--blue)";
+          L.circleMarker([lat, lon], {
+            radius,
+            fillColor,
+            color: fillColor,
+            weight: 1.5,
+            fillOpacity: 0.65,
+            stroke: true
+          }).bindTooltip(`${item.name || item.pub || item.hash || "Unnamed"}<br/>Score ${item.score ?? "--"}`, { direction: "top" }).addTo(meshLiveLayer);
+        });
+        if (points.length && !appData.meshLive.boundsSet) {
+          meshLiveMap.fitBounds(points, { padding: [40, 40], maxZoom: 10 });
+          appData.meshLive.boundsSet = true;
+        }
+        const pulses = repeaters.slice(0, 5);
+        pulses.forEach((item) => spawnMeshLivePulse([Number(item.lat), Number(item.lon)]));
+      }
+    }
+
+    async function loadMeshLivePayload() {
+      try {
+        const res = await fetch("/api/mesh-live");
+        const payload = await res.json();
+        if (!payload?.ok) return;
+        renderMeshLivePayload(payload);
+      } catch (err) {
+        console.error("MeshLive refresh failed", err);
+      }
+    }
+
+    function startMeshLivePolling() {
+      if (appData.meshLive.polling) return;
+      ensureMeshLiveMap();
+      loadMeshLivePayload();
+      appData.meshLive.polling = window.setInterval(loadMeshLivePayload, 8000);
+    }
+
+    function stopMeshLivePolling() {
+      if (!appData.meshLive.polling) return;
+      clearInterval(appData.meshLive.polling);
+      appData.meshLive.polling = null;
+    }
+
+    async function handleGoogleCredentialResponse(response) {
+      if (!response?.credential) return;
+      try {
+        const res = await fetch("/api/auth/google-id-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Google login failed.");
+        appData.authToken = data.token || null;
+        saveAuthToken(appData.authToken);
+        setAuthUser(data.user || null);
+        await loadChannels();
+        setView("channels");
+        setAuthFlowMode("email");
+      } catch (err) {
+        showToast(err?.message || "Google login failed.");
+      }
+    }
+
+    function initGoogleSigninButton() {
+      const btn = document.getElementById("gsiButton");
+      const fallback = document.getElementById("gsiFallback");
+      const clientId = window.meshConfig?.googleClientId || "";
+      if (!btn) return;
+      if (!clientId) {
+        if (fallback) fallback.style.display = "block";
+        btn.innerHTML = "<div class='muted'>Google login is not configured.</div>";
+        return;
+      }
+      if (!window.google?.accounts?.id) return;
+      if (appData.googleInitialized) return;
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleGoogleCredentialResponse,
+        ux_mode: "popup"
+      });
+      google.accounts.id.renderButton(btn, {
+        type: "standard",
+        size: "large",
+        theme: "outline",
+        text: "sign_in_with",
+        shape: "rectangular",
+        logo_alignment: "left"
+      });
+      appData.googleInitialized = true;
+      if (fallback) fallback.style.display = "none";
+    }
+
+    function tryInitGoogleSignin() {
+      const clientId = window.meshConfig?.googleClientId;
+      if (!clientId) {
+        const fallback = document.getElementById("gsiFallback");
+        if (fallback) fallback.style.display = "block";
+        return;
+      }
+      if (appData.googleInitialized) return;
+      if (window.google && window.google.accounts && window.google.accounts.id) {
+        initGoogleSigninButton();
+        if (googleInitTimer) {
+          clearInterval(googleInitTimer);
+          googleInitTimer = null;
+        }
+      }
+    }
+
+    function renderAccountSummary() {
+      const summary = document.getElementById("accountSummary");
+      if (!summary) return;
+      if (!appData.authUser) {
+        summary.textContent = "Not logged in.";
+        return;
+      }
+      const label = appData.authUser.displayName || appData.authUser.username;
+      summary.textContent = `Logged in as ${label}`;
+    }
+
+    function renderAccountNodes() {
+      const list = document.getElementById("accountNodes");
+      if (!list) return;
+      if (!appData.authUser) {
+        list.innerHTML = "<div class='muted'>Log in to claim your nodes.</div>";
+        return;
+      }
+      if (!appData.userNodes.length) {
+        list.innerHTML = "<div class='muted'>No nodes claimed yet.</div>";
+        return;
+      }
+      list.innerHTML = appData.userNodes.map((node) => `
+        <div class="account-item">
+          <div>
+            <div><strong>${node.public_id}</strong></div>
+            <div class="muted">${new Date(node.created_at).toLocaleDateString()}</div>
+          </div>
+          <button class="btn btn-ghost" type="button" data-node-unclaim="${node.public_id}">Unclaim</button>
+        </div>
+      `).join("");
+      list.querySelectorAll("[data-node-unclaim]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const pub = btn.getAttribute("data-node-unclaim");
+          if (!pub) return;
+          try {
+            const res = await fetch("/api/user/nodes/unclaim", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...authHeaders() },
+              body: JSON.stringify({ publicNodeId: pub })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error(data.error || "Unclaim failed.");
+            appData.userNodes = data.nodes || [];
+            renderAccountNodes();
+          } catch (err) {
+            showToast(err?.message || String(err));
+          }
+        });
+      });
+    }
+
+    function renderAccountChannels() {
+      const list = document.getElementById("accountChannels");
+      if (!list) return;
+      if (!appData.authUser) {
+        list.innerHTML = "<div class='muted'>Log in to manage your channels.</div>";
+        return;
+      }
+      if (!appData.userChannels.length) {
+        list.innerHTML = "<div class='muted'>No channels joined yet.</div>";
+        return;
+      }
+      list.innerHTML = appData.userChannels.map((name) => `
+        <div class="account-item">
+          <div>${name}</div>
+          <button class="btn btn-ghost" type="button" data-channel-leave="${name}">Leave</button>
+        </div>
+      `).join("");
+      list.querySelectorAll("[data-channel-leave]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const name = btn.getAttribute("data-channel-leave");
+          if (!name) return;
+          try {
+            const res = await fetch("/api/user/channels/leave", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...authHeaders() },
+              body: JSON.stringify({ channelName: name })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error(data.error || "Unable to leave channel.");
+            await loadChannels();
+            await loadChannelDirectory();
+            renderAccountChannels();
+          } catch (err) {
+            showToast(err?.message || String(err));
+          }
+        });
+      });
+    }
+
+    async function loadAccountData() {
+      if (!appData.authUser) return;
+      renderAccountSummary();
+      try {
+        const [channelsRes, nodesRes] = await Promise.all([
+          fetch("/api/user/channels", { headers: authHeaders(), cache: "no-store" }),
+          fetch("/api/user/nodes", { headers: authHeaders(), cache: "no-store" })
+        ]);
+        if (channelsRes.ok) {
+          const data = await channelsRes.json().catch(() => ({}));
+          if (Array.isArray(data.userChannels)) {
+            appData.userChannels = data.userChannels;
+            saveCachedUserChannels(data.userChannels);
+          }
+        }
+        if (nodesRes.ok) {
+          const data = await nodesRes.json().catch(() => ({}));
+          appData.userNodes = data.nodes || [];
+        }
+      } catch {}
+      renderAccountChannels();
+      renderAccountNodes();
     }
 
     async function fetchAuthMe() {
@@ -3452,6 +5107,372 @@
       const res = await fetch(url.toString(), { headers: authHeaders(), cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
+    }
+
+    async function fetchChannelDirectory() {
+      const res = await fetch("/api/channel-directory", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    async function fetchPopularChannels(limit = 6) {
+      const url = new URL("/api/channels/popular", window.location.origin);
+      url.searchParams.set("limit", String(limit));
+      const res = await fetch(url.toString(), { headers: authHeaders(), cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      return Array.isArray(data.popular) ? data.popular : [];
+    }
+
+    async function fetchChannelPreview(channelName, limit = 10) {
+      const url = new URL("/api/messages", window.location.origin);
+      url.searchParams.set("channel", channelName);
+      url.searchParams.set("limit", String(limit));
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      return Array.isArray(data.messages) ? data.messages : [];
+    }
+
+    function buildDirectoryActions(name, isJoined, isBlocked) {
+      return `
+        <div class="directory-actions">
+          <button class="btn btn-ghost" type="button" data-channel-view="${name}">View</button>
+          <button class="btn" type="button" data-channel-join="${name}" ${isJoined || isBlocked ? "disabled" : ""}>${isJoined ? "Joined" : "Join"}</button>
+          <button class="btn btn-ghost" type="button" data-channel-dismiss="${name}">Not interested</button>
+        </div>
+      `;
+    }
+
+    function buildDirectoryCard(item, joined) {
+      const name = item.name || "#unknown";
+      const emoji = item.emoji || "💬";
+      const count = item.messageCount24h ?? item.messages ?? 0;
+      const last = item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleTimeString() : null;
+      const meta = last
+        ? `${count} messages (24h) · Last activity ${last}`
+        : `${count} messages (24h)`;
+      return `
+        <div class="directory-card">
+          <h4 style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span>${emoji} ${name}</span>
+            ${count ? `<span class="badge-bubble">${count}</span>` : ""}
+          </h4>
+          <div class="muted">${meta}</div>
+          ${buildDirectoryActions(name, joined, false)}
+        </div>
+      `;
+    }
+
+    function buildDirectoryRow(item, joined) {
+      const name = item.name || "#unknown";
+      const emoji = item.emoji || "💬";
+      const group = item.group || "";
+      const code = item.code || getChannelCode(item.name || "") || "";
+      const allowPopular = item.allowPopular !== false;
+      const count24h = Number(item.messageCount24h || 0);
+      const metaText = count24h
+        ? `${count24h} message${count24h === 1 ? "" : "s"} (24h)`
+        : "No recent activity";
+      const isAdmin = !!appData.authUser?.isAdmin;
+      const isBlocked = item.blocked === true;
+      return `
+        <div class="directory-row ${joined ? "joined" : ""} ${isBlocked ? "blocked" : ""}" data-channel-name="${name}" data-channel-group="${group}" data-channel-code="${code}" data-channel-emoji="${emoji}" data-channel-popular="${allowPopular ? "1" : "0"}" data-channel-blocked="${isBlocked ? "1" : "0"}">
+          <div class="row-main">
+            <div class="row-title">${emoji} ${name}${count24h ? ` <span class="badge-bubble">${count24h}</span>` : ""}${isBlocked ? ` <span class="badge badge-gray">Blocked</span>` : ""}</div>
+            <div class="row-meta">${metaText}</div>
+          </div>
+          <div class="row-actions">
+            ${buildDirectoryActions(name, joined, isBlocked)}
+            ${isAdmin ? `<button class="btn btn-ghost" type="button" data-channel-edit="${name}">Edit</button>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPopularChannels(list) {
+      const popularEl = document.getElementById("popularChannels");
+      if (!popularEl) return;
+      const joined = new Set((appData.userChannels || []).map((name) => String(name || "").toLowerCase()));
+      const dismissed = new Set((appData.dismissedChannels || []).map((name) => String(name || "").toLowerCase()));
+      if (!list.length) {
+        popularEl.innerHTML = "<div class='directory-card'>No popular channels yet.</div>";
+        return;
+      }
+      const skipPopular = new Set(FIXED_CHANNELS.map((name) => normalizeChannelName(name)).filter(Boolean));
+      const filtered = list
+        .filter((row) => !dismissed.has(String(row.name || "").toLowerCase()))
+        .filter((row) => {
+          const normalized = normalizeChannelName(row.name);
+          if (!normalized) return false;
+          if (skipPopular.has(normalized)) return false;
+          if (isRotmChannel(normalized) && !appData.authUser?.isAdmin) return false;
+          return true;
+        });
+      if (!filtered.length) {
+        popularEl.innerHTML = "<div class='directory-card'>No popular channels yet.</div>";
+        return;
+      }
+      popularEl.innerHTML = filtered.map((row) => {
+        const name = row.name || "#unknown";
+        const isJoined = joined.has(String(name || "").toLowerCase());
+        return buildDirectoryCard(row, isJoined);
+      }).join("");
+    }
+
+    function renderGroupedChannels(groups) {
+      const groupsEl = document.getElementById("groupedChannels");
+      if (!groupsEl) return;
+      const joined = new Set((appData.userChannels || []).map((name) => String(name || "").toLowerCase()));
+      const groupKeys = Object.keys(groups || {});
+      groupsEl.innerHTML = groupKeys.map((group) => {
+        const list = groups[group] || [];
+        const expanded = appData.directoryGroupState[group] === true;
+        const collapsed = !expanded;
+        const groupFlag = appData.channelGroupFlags[group] || {};
+        const newCount = Number(groupFlag.newChannelCount || 0);
+        const badgeHtml = newCount ? `<span class="directory-group-badge">${newCount} new</span>` : "";
+        const filtered = list.filter((item) => {
+          const normalized = normalizeChannelName(item.name);
+          return normalized && (!isRotmChannel(normalized) || appData.authUser?.isAdmin);
+        });
+        const rows = filtered.map((item) => {
+          const name = item.name || "#unknown";
+          const isJoined = joined.has(String(name || "").toLowerCase());
+          return buildDirectoryRow({ ...item, group }, isJoined);
+        }).join("");
+        return `
+          <div class="directory-group ${collapsed ? "collapsed" : ""}" data-group="${group}">
+            <div class="directory-group-header">
+              <h4 data-group-toggle="${group}">
+                <span class="directory-group-toggle">${collapsed ? "+" : "–"}</span>
+                <span class="directory-group-title">
+                  <span class="directory-group-name">${group}</span>
+                  ${badgeHtml}
+                </span>
+              </h4>
+            </div>
+            <div class="directory-group-body">${rows || "<div class='muted'>No channels yet.</div>"}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function joinChannel(channelName) {
+      if (!appData.authUser) {
+        const fixed = new Set(["#public", "#meshranksuggestions"]);
+        const normalized = normalizeChannelName(channelName);
+        if (!normalized || fixed.has(normalized)) return false;
+        const blocked = (appData.channelDirectory?.groups && Object.values(appData.channelDirectory.groups).some((list) =>
+          list.some((row) => normalizeChannelName(row.name) === normalized && row.blocked)
+        )) || false;
+        if (blocked) {
+          showToast("This channel is blocked.");
+          return false;
+        }
+        appData.guestChannels = [...new Set([...(appData.guestChannels || []), normalized])];
+        saveGuestChannels(appData.guestChannels);
+        await loadChannels();
+        await loadChannelDirectory();
+        return true;
+      }
+      try {
+        const res = await fetch("/api/user/channels/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ channelName })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Join failed.");
+        await loadChannels();
+        await loadChannelDirectory();
+        if (document.body.classList.contains("view-channel-directory")) {
+          try {
+            const popular = await fetchPopularChannels(6);
+            appData.channelDirectory = appData.channelDirectory || { groups: {} };
+            appData.channelDirectory.popular = popular;
+          } catch {}
+          renderPopularChannels(appData.channelDirectory?.popular || []);
+          renderGroupedChannels(appData.channelDirectory?.groups || {});
+          attachChannelDirectoryHandlers();
+        }
+        return true;
+      } catch (err) {
+        showToast(err?.message || String(err));
+        return false;
+    }
+  }
+
+    function isRotmChannel(channelName) {
+      return normalizeChannelName(channelName) === normalizeChannelName("#rotm");
+    }
+
+    function findChannelDirectoryEntry(name) {
+      const normalized = normalizeChannelName(name);
+      if (!normalized) return null;
+      const directory = appData.channelDirectory || {};
+      const popular = directory.popular || [];
+      const groups = directory.groups || {};
+      for (const entry of popular) {
+        if (normalizeChannelName(entry.name) === normalized) return entry;
+      }
+      for (const list of Object.values(groups)) {
+        for (const entry of list || []) {
+          if (normalizeChannelName(entry.name) === normalized) return entry;
+        }
+      }
+      return null;
+    }
+
+    function getChannelCode(name) {
+      const entry = findChannelDirectoryEntry(name);
+      return entry?.code || entry?.description || "";
+    }
+
+    async function showChannelPreview(channelName) {
+      if (!channelPreviewModal || !channelPreviewBody) return;
+      if (channelPreviewTitle) channelPreviewTitle.textContent = `${channelName} (last 10)`;
+      channelPreviewBody.textContent = "Loading last 10 messages...";
+      channelPreviewModal.classList.add("open");
+      try {
+        const rows = await fetchChannelPreview(channelName, 10);
+        if (!rows.length) {
+          channelPreviewBody.textContent = "No recent messages.";
+          return;
+        }
+        channelPreviewBody.innerHTML = rows.map((m) => {
+          const rawTs = m.ts || m.tsRaw || m.time || "";
+          const time = rawTs ? new Date(rawTs).toLocaleTimeString() : "--";
+          const sender = m.sender || "unknown";
+          const text = (m.body || m.text || "").slice(0, 140);
+          return `
+            <div class="preview-item">
+              <span class="preview-text">${sender}: ${text}</span>
+              <span>${time}</span>
+            </div>
+          `;
+        }).join("");
+      } catch (err) {
+        channelPreviewBody.textContent = "Unable to load messages.";
+      }
+    }
+
+    function attachChannelDirectoryHandlers() {
+      document.querySelectorAll("[data-channel-view]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const channel = btn.getAttribute("data-channel-view");
+          if (channel) showChannelPreview(channel);
+        });
+      });
+      document.querySelectorAll("[data-channel-join]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const channel = btn.getAttribute("data-channel-join");
+          if (!channel || btn.disabled) return;
+          btn.disabled = true;
+          btn.textContent = "Joined";
+          const ok = await joinChannel(channel);
+          if (ok && !appData.authUser) {
+            openGuestChannelNotice();
+          }
+          if (!ok) {
+            btn.disabled = false;
+            btn.textContent = "Join";
+          }
+        });
+      });
+      document.querySelectorAll("[data-channel-dismiss]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const channel = btn.getAttribute("data-channel-dismiss");
+          if (!channel) return;
+          appData.dismissedChannels = [...new Set([...(appData.dismissedChannels || []), channel])];
+          saveDismissedChannels(appData.dismissedChannels);
+          renderPopularChannels(appData.channelDirectory?.popular || []);
+          attachChannelDirectoryHandlers();
+        });
+      });
+      document.querySelectorAll("[data-group-toggle]").forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const group = toggle.getAttribute("data-group-toggle");
+          if (!group) return;
+          const expanded = appData.directoryGroupState[group] === true;
+          appData.directoryGroupState[group] = !expanded;
+          renderGroupedChannels(appData.channelDirectory?.groups || {});
+          attachChannelDirectoryHandlers();
+        });
+      });
+      // Group add buttons removed; use the single top-level add button.
+
+      if (appData.authUser?.isAdmin) {
+        document.querySelectorAll(".directory-row").forEach((row) => {
+          row.setAttribute("draggable", "true");
+          row.addEventListener("dragstart", (e) => {
+            row.classList.add("dragging");
+            const name = row.getAttribute("data-channel-name");
+            e.dataTransfer.setData("text/plain", name || "");
+          });
+          row.addEventListener("dragend", () => {
+            row.classList.remove("dragging");
+          });
+        });
+        document.querySelectorAll(".directory-group-body").forEach((body) => {
+          body.addEventListener("dragover", (e) => {
+            e.preventDefault();
+          });
+          body.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            const group = body.closest(".directory-group")?.getAttribute("data-group") || "";
+            const name = e.dataTransfer.getData("text/plain");
+            if (!group || !name) return;
+            try {
+              const res = await fetch("/api/channels/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({ name, group })
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok || !data.ok) throw new Error(data.error || "Unable to move channel.");
+              appData.channelDirectory = data.directory || appData.channelDirectory;
+              renderGroupedChannels(appData.channelDirectory?.groups || {});
+              attachChannelDirectoryHandlers();
+              showToast("Channel moved.");
+            } catch (err) {
+              showToast(err?.message || String(err));
+            }
+          });
+        });
+      }
+      document.querySelectorAll("[data-channel-edit]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (!appData.authUser?.isAdmin) return;
+          const row = btn.closest(".directory-row");
+          if (!row) return;
+          const name = row.getAttribute("data-channel-name") || "";
+      const code = row.getAttribute("data-channel-code") || "";
+      const emoji = row.getAttribute("data-channel-emoji") || "💬";
+      const group = row.getAttribute("data-channel-group") || "";
+      const allowPopular = row.getAttribute("data-channel-popular") !== "0";
+      const blocked = row.getAttribute("data-channel-blocked") === "1";
+      openChannelCreateModal(group, { name, code, emoji, allowPopular, blocked, mode: "edit" });
+        });
+      });
+    }
+
+    async function loadChannelDirectory() {
+      try {
+        const [directory, popular] = await Promise.all([
+          fetchChannelDirectory(),
+          fetchPopularChannels(6)
+        ]);
+        appData.channelDirectory = directory || { groups: {} };
+        appData.channelDirectory.popular = popular;
+        appData.channelGroupFlags = directory?.groupFlags || {};
+        if (directory?.channelCounts24h) appData.channelCounts24h = directory.channelCounts24h;
+      } catch {
+        appData.channelDirectory = { popular: [], groups: {} };
+      }
+      renderPopularChannels(appData.channelDirectory.popular || []);
+      renderGroupedChannels(appData.channelDirectory.groups || {});
+      attachChannelDirectoryHandlers();
     }
 
     function getChannelNameById(id) {
@@ -3511,10 +5532,30 @@
 
     let activeChannelId = "public";
     function applyChannels(channels) {
-      appData.channels = (channels || []).map((c) => ({
+      let list = channels || [];
+      if (!appData.authUser) {
+        const fixed = new Set(["public", "meshranksuggestions"]);
+        const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
+        const allowed = new Set([...fixed, ...guest]);
+        list = list.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
+      }
+      appData.channels = list.map((c) => ({
         ...c,
         id: normalizeChannelId(c.id || c.name)
       }));
+      const fixedNames = ["#public", "#meshranksuggestions"];
+      fixedNames.forEach((name) => {
+        const id = normalizeChannelId(name);
+        const exists = appData.channels.some((c) => c.id === id);
+        if (!exists) {
+          appData.channels.unshift({
+            id,
+            name,
+            snippet: "No channels yet.",
+            time: "--"
+          });
+        }
+      });
       if (appData.authUser?.isAdmin) {
         const rotmName = appData.rotmChannelName || "#rotm";
         const rotmId = normalizeChannelId(rotmName);
@@ -3539,6 +5580,27 @@
       }
       renderChannels();
     }
+
+    function mergeChannelMetadata(channels = []) {
+      if (!Array.isArray(channels) || !appData.channels.length) return;
+      const metaById = new Map();
+      channels.forEach((ch) => {
+        const id = normalizeChannelId(ch.id || ch.name);
+        if (!id) return;
+        metaById.set(id, ch);
+      });
+      if (!metaById.size) return;
+      appData.channels = appData.channels.map((ch) => {
+        const meta = metaById.get(ch.id);
+        if (!meta) return ch;
+        return {
+          ...ch,
+          snippet: meta.snippet ?? ch.snippet,
+          time: meta.time ?? meta.lastMessageAt ?? ch.time,
+          messageCount24h: meta.messageCount24h ?? meta.messages ?? ch.messageCount24h
+        };
+      });
+    }
     function updateChannelParam(channelId) {
       const url = new URL(window.location.href);
       if (channelId) {
@@ -3556,75 +5618,155 @@
       const list = appData.channels.length
         ? appData.channels
         : [{ id: "public", name: "#public", snippet: "No channels yet.", time: "--" }];
-      const totalUnread = Object.values(appData.unreadByChannel || {}).reduce((sum, v) => sum + (v || 0), 0);
+      const totalUnread = Object.entries(appData.unreadByChannel || {}).reduce((sum, [key, value]) => {
+        if (isChannelMuted(key)) return sum;
+        return sum + (value || 0);
+      }, 0);
       tabBadges.forEach((badge) => {
         badge.textContent = totalUnread || 0;
         badge.style.display = totalUnread ? "inline-flex" : "none";
       });
-      const isAdmin = !!appData.authUser?.isAdmin;
+      const leaveMode = !!appData.leaveMode;
+      const selection = appData.leaveSelection || new Set();
+      const canManage = false;
       list.forEach((ch, idx) => {
-        const unread = appData.unreadByChannel[ch.id] || 0;
+        const muted = isChannelMuted(ch.id);
+        const unread = muted ? 0 : (appData.unreadByChannel[ch.id] || 0);
         const displayName = ch.name || "#unknown";
+        const nameKey = normalizeChannelName(displayName) || displayName;
         const avatarChar = (displayName[1] || displayName[0] || "?").toUpperCase();
         const snippet = ch.snippet || "No recent messages.";
         const time = ch.time || "--";
+        const count24h = appData.channelCounts24h?.[ch.id] || 0;
         const row = document.createElement("div");
-        row.className = "channel" + (ch.id === activeChannelId ? " active" : "") + (unread ? " unread" : "");
+        const fixedChannels = new Set(["#public", "#meshranksuggestions"]);
+        const isFixed = fixedChannels.has(displayName.toLowerCase());
+        const rowClasses = [
+          "channel",
+          ch.id === activeChannelId ? "active" : "",
+          unread ? "unread" : "",
+          muted ? "channel-muted" : "",
+          leaveMode && isFixed ? "channel-fixed" : ""
+        ].filter(Boolean).join(" ");
+        row.className = rowClasses;
+        const isSelected = selection.has(nameKey);
         row.innerHTML = `
           <div class="avatar" style="background:${colors[idx % colors.length]}">${avatarChar}</div>
           <div>
             <div class="name">${displayName}</div>
             <div class="channel-meta">
               <div class="snippet">${snippet}</div>
+              ${muted ? `<div class="muted-label">Muted</div>` : ""}
               <div class="channel-time">${time}</div>
             </div>
           </div>
           <div style="display:grid;gap:6px;justify-items:end;">
             ${unread ? `<div class="badge-bubble">${unread}</div>` : ""}
-            ${isAdmin ? `<button class="channel-remove" type="button" data-remove="${displayName}">Remove</button>` : ""}
+            ${leaveMode ? `
+              <label class="channel-leave-toggle">
+                <input type="checkbox" data-leave="${nameKey}" ${isFixed ? "disabled" : ""} ${isSelected ? "checked" : ""}>
+                <span>Leave</span>
+              </label>
+            ` : ""}
+            <button class="channel-mute" type="button" data-mute="${ch.id}">${muted ? "Unmute" : "Mute"}</button>
+            ${canManage && !isFixed ? `<button class="channel-remove" type="button" data-remove="${displayName}">Leave</button>` : ""}
           </div>
         `;
-        if (isAdmin) {
+        const muteBtn = row.querySelector(".channel-mute");
+        muteBtn?.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (muted) {
+            appData.mutedChannels = appData.mutedChannels.filter((id) => id !== ch.id);
+          } else {
+            appData.mutedChannels = [...new Set([...(appData.mutedChannels || []), ch.id])];
+            appData.unreadByChannel[ch.id] = 0;
+          }
+          saveMutedChannels(appData.mutedChannels);
+          renderChannels();
+        });
+        if (canManage) {
           const removeBtn = row.querySelector(".channel-remove");
-          removeBtn.style.display = "inline-flex";
-          removeBtn.addEventListener("click", async (ev) => {
-            ev.stopPropagation();
-            if (!confirm(`Remove ${displayName}?`)) return;
-            try {
-              const res = await fetch(`/api/channels?name=${encodeURIComponent(displayName)}`, {
-                method: "DELETE",
-                headers: authHeaders()
-              });
-              if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                alert(err.error || "Failed to remove channel.");
-                return;
+          if (removeBtn) {
+            removeBtn.style.display = "inline-flex";
+            removeBtn.addEventListener("click", async (ev) => {
+              ev.stopPropagation();
+              if (!confirm(`Leave ${displayName}?`)) return;
+              try {
+                if (!appData.authUser) {
+                  appData.guestChannels = (appData.guestChannels || []).filter(
+                    (c) => normalizeChannelId(c) !== normalizeChannelId(displayName)
+                  );
+                  saveGuestChannels(appData.guestChannels);
+                  await loadChannels();
+                  await loadChannelDirectory();
+                  await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+                  return;
+                }
+                const res = await fetch("/api/user/channels/leave", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", ...authHeaders() },
+                  body: JSON.stringify({ channelName: displayName })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.ok) throw new Error(data.error || "Failed to remove channel.");
+                await loadChannels();
+                await loadChannelDirectory();
+                await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+              } catch (err) {
+                showToast(err?.message || String(err));
               }
-              await loadChannels();
-              await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
-            } catch (err) {
-              alert(err?.message || err);
+            });
+          }
+        }
+        if (leaveMode) {
+          const leaveToggle = row.querySelector("input[data-leave]");
+          leaveToggle?.addEventListener("click", (ev) => ev.stopPropagation());
+          leaveToggle?.addEventListener("change", (ev) => {
+            const checked = ev.target?.checked;
+            if (!checked) {
+              selection.delete(nameKey);
+            } else {
+              selection.add(nameKey);
             }
           });
         }
-        row.addEventListener("click", () => {
-          activeChannelId = ch.id;
-          document.getElementById("activeChannel").textContent = ch.name;
-          updateChannelParam(activeChannelId);
-          const latest = appData.messages
-            .filter((msg) => msg.channelId === activeChannelId)
-            .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
-            .reduce((a, b) => Math.max(a, b), 0);
-          if (latest) appData.lastReadByChannel[activeChannelId] = latest;
-          appData.unreadByChannel[activeChannelId] = 0;
-          saveReadState();
-          renderChannels();
-          renderMessages(true);
+          row.addEventListener("click", () => {
+            activeChannelId = ch.id;
+            document.getElementById("activeChannel").textContent = ch.name;
+            updateChannelParam(activeChannelId);
+            const latest = appData.messages
+              .filter((msg) => msg.channelId === activeChannelId)
+              .map((msg) => msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0)
+              .reduce((a, b) => Math.max(a, b), 0);
+            if (latest) appData.lastReadByChannel[activeChannelId] = latest;
+            appData.unreadByChannel[activeChannelId] = 0;
+            saveReadState();
+            renderChannels();
+            renderMessages(true);
           loadMessages(false, { limit: appData.channelHistoryLimit });
-          document.body.classList.remove("menu-open-left", "menu-open-right");
-        });
+            document.body.classList.remove("menu-open-left", "menu-open-right");
+          });
         el.appendChild(row);
       });
+      updateChannelSidebarHelper();
+    }
+
+    function channelSelectionList() {
+      const list = appData.authUser ? (appData.userChannels || []) : (appData.guestChannels || []);
+      if (!Array.isArray(list)) return [];
+      return list.map((name) => normalizeChannelName(name)).filter(Boolean);
+    }
+
+    function hasOnlyDefaultChannels() {
+      const selection = channelSelectionList();
+      if (!selection.length) return true;
+      return selection.every((name) => FIXED_CHANNELS.includes(name));
+    }
+
+    function updateChannelSidebarHelper() {
+      const helper = document.getElementById("channelSidebarHelper");
+      if (!helper) return;
+      helper.style.display = hasOnlyDefaultChannels() ? "block" : "none";
     }
 
     function renderMessages(full, opts = {}) {
@@ -3993,6 +6135,13 @@
     messageList?.addEventListener("touchstart", () => {
       if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
     }, { passive: true });
+    const rankFlaggedLink = document.getElementById("rankFlaggedLink");
+    if (rankFlaggedLink) {
+      rankFlaggedLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        openImplausibleList();
+      });
+    }
     window.addEventListener("resize", () => {
       if (!window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
@@ -4188,6 +6337,7 @@
     const repeaterLocationSave = document.getElementById("repeaterLocationSave");
     const neighborMapModal = document.getElementById("neighborMapModal");
     const neighborMapClose = document.getElementById("neighborMapClose");
+    const neighborEditToggle = document.getElementById("neighborEditToggle");
     const neighborOverrideModal = document.getElementById("neighborOverrideModal");
     const neighborOverrideClose = document.getElementById("neighborOverrideClose");
     const neighborOverrideSave = document.getElementById("neighborOverrideSave");
@@ -4204,6 +6354,20 @@
     neighborMapClose?.addEventListener("click", closeNeighborMapModal);
     neighborMapModal?.addEventListener("click", (e) => {
       if (e.target === neighborMapModal) closeNeighborMapModal();
+    });
+    neighborEditToggle?.addEventListener("click", () => {
+      if (!appData.authUser?.isAdmin) {
+        showToast("Admin access required to edit neighbors.");
+        return;
+      }
+      appData.neighborEditMode = !appData.neighborEditMode;
+      neighborEditToggle.textContent = appData.neighborEditMode ? "Done editing" : "Something not right?";
+      if (appData.neighborEditMode) {
+        showToast("Select a neighbor to change its repeater match.");
+      }
+      if (appData.neighborEditActiveEntry) {
+        openNeighborMapModal(appData.neighborEditActiveEntry);
+      }
     });
     neighborOverrideClose?.addEventListener("click", () => neighborOverrideModal?.classList.remove("open"));
     neighborOverrideModal?.addEventListener("click", (e) => {
@@ -4311,53 +6475,301 @@
       }
     });
 
-    const modal = document.getElementById("channelModal");
     const addBtn = document.getElementById("addChannelBtn");
-    const cancelBtn = document.getElementById("cancelChannel");
-    const saveBtn = document.getElementById("saveChannel");
+    const leaveBtn = document.getElementById("leaveChannelBtn");
+    const channelCreateModal = document.getElementById("channelCreateModal");
+    const channelCreateGroup = document.getElementById("channelCreateGroup");
+    const channelCreateGroupSelect = document.getElementById("channelCreateGroupSelect");
+    const channelCreateName = document.getElementById("channelCreateName");
+    const channelCreateCode = document.getElementById("channelCreateCode");
+    const channelCreateEmojiGrid = document.getElementById("channelCreateEmojiGrid");
+    const openEmojiPicker = document.getElementById("openEmojiPicker");
+    const emojiPreview = document.getElementById("emojiPreview");
+    const channelCreatePopular = document.getElementById("channelCreatePopular");
+    const channelCreateBlocked = document.getElementById("channelCreateBlocked");
+    const emojiPickerModal = document.getElementById("emojiPickerModal");
+    const emojiPickerGrid = document.getElementById("emojiPickerGrid");
+    const emojiPickerClose = document.getElementById("emojiPickerClose");
+    const emojiPickerApply = document.getElementById("emojiPickerApply");
+    const emojiCustomInput = document.getElementById("emojiCustomInput");
+    const channelPreviewModal = document.getElementById("channelPreviewModal");
+    const channelPreviewTitle = document.getElementById("channelPreviewTitle");
+    const channelPreviewBody = document.getElementById("channelPreviewBody");
+    const channelPreviewClose = document.getElementById("channelPreviewClose");
+    const channelDirectoryAddBtn = document.getElementById("channelDirectoryAddBtn");
+    const channelDirectoryAddGroupBtn = document.getElementById("channelDirectoryAddGroupBtn");
+    const guestChannelNoticeModal = document.getElementById("guestChannelNoticeModal");
+    const guestChannelNoticeClose = document.getElementById("guestChannelNoticeClose");
+    const channelCreateCancel = document.getElementById("channelCreateCancel");
+    const channelCreateSave = document.getElementById("channelCreateSave");
+    let channelCreateSelectedEmoji = "💬";
 
-    function openModal() {
-      document.getElementById("channelName").value = "";
-      document.getElementById("channelSecret").value = "";
-      modal.classList.add("open");
+    function setLeaveMode(enabled) {
+      appData.leaveMode = !!enabled;
+      appData.leaveSelection = new Set();
+      if (leaveBtn) {
+        leaveBtn.textContent = appData.leaveMode ? "Save" : "Leave Channels";
+      }
+      document.body.classList.toggle("leave-mode", appData.leaveMode);
+      renderChannels();
     }
 
-    function closeModal() {
-      modal.classList.remove("open");
+    async function leaveSelectedChannels(list) {
+      const fixed = new Set(["#public", "#meshranksuggestions"]);
+      const targets = (list || [])
+        .map((name) => normalizeChannelName(name))
+        .filter((name) => name && !fixed.has(name.toLowerCase()));
+      if (!targets.length) {
+        showToast("No removable channels selected.");
+        return;
+      }
+      if (!appData.authUser) {
+        const removeSet = new Set(targets.map((name) => normalizeChannelId(name)));
+        appData.guestChannels = (appData.guestChannels || []).filter(
+          (name) => !removeSet.has(normalizeChannelId(name))
+        );
+        saveGuestChannels(appData.guestChannels);
+      } else {
+        for (const channelName of targets) {
+          const res = await fetch("/api/user/channels/leave", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ channelName })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || `Failed to leave ${channelName}.`);
+          }
+        }
+      }
+      await loadChannels();
+      await loadChannelDirectory();
+      await loadMessages(true, { replace: true, limit: appData.channelHistoryLimit });
+      showToast("Channels updated.");
     }
 
-    addBtn.addEventListener("click", openModal);
-    cancelBtn.addEventListener("click", closeModal);
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeModal();
+    function populateGroupSelect(group) {
+      if (!channelCreateGroupSelect) return;
+      const fallbackGroups = [
+        "General Chat",
+        "Regional",
+        "Specialist",
+        "Clubs & Societies",
+        "Testing",
+        "Ham Radio",
+        "Comedy",
+        "Sports",
+        "Music",
+        "Other"
+      ];
+      const groups = Object.keys(appData.channelDirectory?.groups || {}).length
+        ? Object.keys(appData.channelDirectory.groups)
+        : fallbackGroups;
+      channelCreateGroupSelect.innerHTML = groups.map((g) => `
+        <option value="${g}">${g}</option>
+      `).join("");
+      if (group) channelCreateGroupSelect.value = group;
+    }
+
+    function openChannelCreateModal(group, preset = {}) {
+      if (!appData.authUser) {
+        openGuestChannelNotice();
+      }
+      if (channelCreateGroup) channelCreateGroup.textContent = group || "Group";
+      populateGroupSelect(group);
+      if (channelCreateName) channelCreateName.value = preset.name || "";
+      if (channelCreateCode) {
+        const fallbackCode = getChannelCode(preset.name || "") || getChannelCode(channelCreateName?.value || "");
+        channelCreateCode.value = preset.code || fallbackCode || "";
+      }
+      channelCreateSelectedEmoji = preset.emoji || "💬";
+      if (emojiPreview) emojiPreview.textContent = channelCreateSelectedEmoji;
+      if (channelCreateSave) {
+        channelCreateSave.textContent = preset.mode === "edit" ? "Save" : "Add channel";
+      }
+      if (channelCreatePopular) {
+        const allowPopular = preset.allowPopular !== false;
+        channelCreatePopular.checked = allowPopular;
+      }
+      if (channelCreateBlocked) {
+        channelCreateBlocked.checked = preset.blocked === true;
+      }
+      if (channelCreateEmojiGrid) {
+        const options = ["💬", "📡", "🛰️", "🌐", "🏕️", "🚗", "⚡", "🏴", "🧭", "⚙️", "🎯", "🗺️"];
+        channelCreateEmojiGrid.innerHTML = options.map((emoji) => `
+          <button class="emoji-btn ${emoji === channelCreateSelectedEmoji ? "active" : ""}" type="button" data-emoji="${emoji}">${emoji}</button>
+        `).join("");
+        channelCreateEmojiGrid.querySelectorAll("[data-emoji]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            channelCreateSelectedEmoji = btn.getAttribute("data-emoji") || "💬";
+            if (emojiPreview) emojiPreview.textContent = channelCreateSelectedEmoji;
+            channelCreateEmojiGrid.querySelectorAll(".emoji-btn").forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+          });
+        });
+      }
+      channelCreateModal?.classList.add("open");
+      channelCreateModal?.setAttribute("data-group", group || "");
+      channelCreateModal?.setAttribute("data-mode", preset.mode || "create");
+    }
+
+    function closeChannelCreateModal() {
+      channelCreateModal?.classList.remove("open");
+    }
+
+    function openEmojiPickerModal() {
+      if (!emojiPickerModal) return;
+      const options = [
+        "💬","😀","😁","😂","🤣","😅","😊","😍","🤝","🎉","✨","🔥","⚡","📡","🛰️","🌐","📍","🏴","🧭","🗺️",
+        "🎯","🎵","🎧","🏆","⚽","🏀","🏈","🏓","🎣","🚗","🚀","🏕️","🌄","⛰️","🌧️","☀️","🌈","🌊","📣","📢",
+        "💡","🧪","📻","🛠️","🔧","🔒","✅","❗","❓","🟢","🔵","🟡","🟠","🔴","⚪","⚫"
+      ];
+      if (emojiPickerGrid) {
+        emojiPickerGrid.innerHTML = options.map((emoji) => `
+          <button class="emoji-btn" type="button" data-emoji="${emoji}">${emoji}</button>
+        `).join("");
+        emojiPickerGrid.querySelectorAll("[data-emoji]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const emoji = btn.getAttribute("data-emoji") || "💬";
+            if (emojiCustomInput) emojiCustomInput.value = emoji;
+          });
+        });
+      }
+      if (emojiCustomInput) emojiCustomInput.value = channelCreateSelectedEmoji || "💬";
+      emojiPickerModal.classList.add("open");
+    }
+
+    function openGuestChannelNotice(message) {
+      if (!guestChannelNoticeModal) return;
+      const noticeText = document.getElementById("guestChannelNoticeText");
+      if (noticeText) {
+        noticeText.textContent = message || "Channel choices are stored in your browser cache. Log in or register to sync them across devices.";
+      }
+      guestChannelNoticeModal.classList.add("open");
+    }
+
+    function closeEmojiPickerModal() {
+      emojiPickerModal?.classList.remove("open");
+    }
+
+    addBtn?.addEventListener("click", () => {
+      setView("channel-directory");
+      loadChannelDirectory().catch(() => {});
+      if (!appData.authUser) {
+        showToast("Channels added while logged out are only saved locally. Log in to keep them.");
+        openGuestChannelNotice();
+      }
     });
-
-    saveBtn.addEventListener("click", async () => {
-      const name = document.getElementById("channelName").value.trim();
-      const secret = document.getElementById("channelSecret").value.trim();
-      if (!name.startsWith("#")) {
-        alert("Channel name must start with #");
+    channelDirectoryAddBtn?.addEventListener("click", () => {
+      openChannelCreateModal("");
+      if (!appData.authUser) {
+        openGuestChannelNotice();
+      }
+    });
+    channelDirectoryAddGroupBtn?.addEventListener("click", async () => {
+      if (!appData.authUser?.isAdmin) {
+        showToast("Admin access required.");
         return;
       }
-      if (name.toLowerCase() === "#rotm" && !appData.authUser?.isAdmin) {
-        alert("You cannot add this hashgroup.");
+      const name = prompt("Group name?");
+      if (!name) return;
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      appData.channelDirectory = appData.channelDirectory || { groups: {} };
+      appData.channelDirectory.groups = appData.channelDirectory.groups || {};
+      if (appData.channelDirectory.groups[trimmed]) {
+        showToast("Group already exists.");
         return;
       }
-      if (!/^[0-9a-fA-F]{32}$/.test(secret)) {
-        alert("Secret must be 32 hex characters");
+      appData.channelDirectory.groups[trimmed] = [];
+      renderGroupedChannels(appData.channelDirectory.groups);
+      attachChannelDirectoryHandlers();
+      showToast("Group added (temporary). Save by adding a channel to it.");
+    });
+    leaveBtn?.addEventListener("click", async () => {
+      if (!appData.leaveMode) {
+        setLeaveMode(true);
+        showToast("Select channels to leave, then click Save.");
+        return;
+      }
+      const selected = Array.from(appData.leaveSelection || []);
+      if (!selected.length) {
+        setLeaveMode(false);
         return;
       }
       try {
-        const res = await fetch("/api/channels", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, secretHex: secret })
-        });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        await loadChannels();
-        closeModal();
+        await leaveSelectedChannels(selected);
+        setLeaveMode(false);
       } catch (err) {
-        alert("Failed to add channel: " + (err?.message || err));
+        showToast(err?.message || String(err));
+      }
+    });
+    openEmojiPicker?.addEventListener("click", () => openEmojiPickerModal());
+    emojiPickerClose?.addEventListener("click", closeEmojiPickerModal);
+    emojiPickerModal?.addEventListener("click", (e) => {
+      if (e.target === emojiPickerModal) closeEmojiPickerModal();
+    });
+    emojiPickerApply?.addEventListener("click", () => {
+      const value = emojiCustomInput?.value?.trim();
+      if (value) {
+        channelCreateSelectedEmoji = value;
+        if (emojiPreview) emojiPreview.textContent = value;
+      }
+      closeEmojiPickerModal();
+    });
+    channelPreviewClose?.addEventListener("click", () => {
+      channelPreviewModal?.classList.remove("open");
+    });
+    channelPreviewModal?.addEventListener("click", (e) => {
+      if (e.target === channelPreviewModal) channelPreviewModal.classList.remove("open");
+    });
+    guestChannelNoticeClose?.addEventListener("click", () => {
+      guestChannelNoticeModal?.classList.remove("open");
+    });
+    guestChannelNoticeModal?.addEventListener("click", (e) => {
+      if (e.target === guestChannelNoticeModal) guestChannelNoticeModal.classList.remove("open");
+    });
+    channelCreateCancel?.addEventListener("click", closeChannelCreateModal);
+    channelCreateModal?.addEventListener("click", (e) => {
+      if (e.target === channelCreateModal) closeChannelCreateModal();
+    });
+    channelCreateSave?.addEventListener("click", async () => {
+      const group = channelCreateGroupSelect?.value || channelCreateModal?.getAttribute("data-group") || "";
+      const name = channelCreateName?.value?.trim() || "";
+      const code = channelCreateCode?.value?.trim() || "";
+      const mode = channelCreateModal?.getAttribute("data-mode") || "create";
+      const allowPopular = channelCreatePopular ? channelCreatePopular.checked : true;
+      const blocked = channelCreateBlocked ? channelCreateBlocked.checked : false;
+      if (!name || (mode !== "edit" && !code)) {
+        showToast("Please fill in all fields.");
+        return;
+      }
+      const normalized = name.startsWith("#") ? name : `#${name}`;
+      try {
+        const endpoint = mode === "edit" ? "/api/channels/update" : "/api/channels/create";
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ group, name: normalized, code, emoji: channelCreateSelectedEmoji, allowPopular })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Unable to create channel.");
+        if (appData.authUser?.isAdmin && mode === "edit") {
+          const blockEndpoint = blocked ? "/api/channels/block" : "/api/channels/unblock";
+          await fetch(blockEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ name: normalized })
+          }).catch(() => {});
+        }
+        appData.channelDirectory = data.directory || appData.channelDirectory;
+        renderPopularChannels(appData.channelDirectory?.popular || []);
+        renderGroupedChannels(appData.channelDirectory?.groups || {});
+        attachChannelDirectoryHandlers();
+        closeChannelCreateModal();
+        showToast(mode === "edit" ? "Channel updated." : "Channel added.");
+      } catch (err) {
+        showToast(err?.message || String(err));
       }
     });
 
@@ -4397,10 +6809,30 @@
     });
 
     async function loadChannels() {
-      const res = await fetch("/api/channels", { cache: "no-store" });
+      const url = appData.authUser ? "/api/user/channels" : "/api/channels";
+      const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      applyChannels(data.channels || []);
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data.userChannels)) {
+        appData.userChannels = data.userChannels;
+        saveCachedUserChannels(data.userChannels);
+      } else if (!appData.authUser) {
+        appData.userChannels = [];
+      }
+      const rawChannels = Array.isArray(data.channels) ? data.channels : [];
+      if (!appData.authUser) {
+        const fixed = new Set(["public", "meshranksuggestions"]);
+        const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
+        const allowed = new Set([...fixed, ...guest]);
+        const filtered = rawChannels.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
+        applyChannels(filtered.length ? filtered : [
+          { id: "public", name: "#public", snippet: "No channels yet.", time: "--" },
+          { id: "meshranksuggestions", name: "#meshranksuggestions", snippet: "No channels yet.", time: "--" }
+        ]);
+      } else {
+        applyChannels(rawChannels);
+      }
+      updateLoginHelper();
     }
 
     function mergeMessages(raw) {
@@ -4541,7 +6973,7 @@
           latestByChannel[msg.channelId] = t;
         }
         const lastRead = appData.lastReadByChannel[msg.channelId] || 0;
-        if (t > lastRead) {
+        if (t > lastRead && !isChannelMuted(msg.channelId)) {
           unread[msg.channelId] = (unread[msg.channelId] || 0) + 1;
         }
       });
@@ -4554,7 +6986,19 @@
       appData.latestByChannel = latestByChannel;
       appData.unreadByChannel = unread;
       if (Array.isArray(data.channels)) {
-        applyChannels(data.channels);
+        if (!appData.authUser) {
+          const fixed = new Set(["public", "meshranksuggestions"]);
+          const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
+          const allowed = new Set([...fixed, ...guest]);
+          const filtered = data.channels.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
+          applyChannels(filtered.length ? filtered : [
+            { id: "public", name: "#public", snippet: "No channels yet.", time: "--" },
+            { id: "meshranksuggestions", name: "#meshranksuggestions", snippet: "No channels yet.", time: "--" }
+          ]);
+        } else {
+          mergeChannelMetadata(data.channels);
+          renderChannels();
+        }
       } else {
         renderChannels();
       }
@@ -4651,15 +7095,24 @@
       appData.messageStream.es = es;
       appData.messageStream.connected = false;
       let lastChannelRefresh = 0;
+      let lastActiveRefresh = 0;
       es.addEventListener("packet", (event) => {
         try {
           const data = JSON.parse(event.data);
           applyMessageObserverUpdates(data);
           if (document.body.classList.contains("view-channels")) {
             const now = Date.now();
+            if (now - lastActiveRefresh > 500) {
+              lastActiveRefresh = now;
+              loadMessages(false, {
+                channel: activeChannelId,
+                limit: appData.channelHistoryLimit,
+                preserveScroll: true
+              }).catch(() => {});
+            }
             if (now - lastChannelRefresh > 2000) {
               lastChannelRefresh = now;
-              loadMessages(false, { channel: activeChannelId, limit: appData.channelHistoryLimit }).catch(() => {});
+              loadMessages(false, { limit: appData.channelHistoryLimit, preserveScroll: true }).catch(() => {});
             }
           }
         } catch {}
@@ -4667,7 +7120,7 @@
       es.addEventListener("counters", (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (Array.isArray(data.channels)) applyChannels(data.channels);
+          if (!appData.authUser && Array.isArray(data.channels)) applyChannels(data.channels);
           if (data.rotm) applyRotmPayload(data.rotm);
         } catch {}
       });
@@ -4751,11 +7204,21 @@
         activeChannelId = normalizeChannelId(channelParam);
       }
       appData.authToken = loadAuthToken();
+      appData.mutedChannels = loadMutedChannels().filter(Boolean);
+      appData.guestChannels = loadGuestChannels();
+      appData.dismissedChannels = loadDismissedChannels();
       try {
         const channelName = channelParam ? (channelParam.startsWith("#") ? channelParam : `#${channelParam}`) : null;
         const dash = await fetchDashboard(channelName, appData.channelHistoryLimit);
         setAuthUser(dash.user || null);
         setBootstrapVisibility(!!dash.hasAdmin);
+        if (Array.isArray(dash.userChannels)) {
+          appData.userChannels = dash.userChannels;
+          saveCachedUserChannels(dash.userChannels);
+        }
+        if (dash.channelCounts24h) {
+          appData.channelCounts24h = dash.channelCounts24h;
+        }
         if (dash.rotmConfig?.channel) {
           appData.rotmChannelName = dash.rotmConfig.channel;
           appData.rotmConfigLoaded = true;
@@ -4770,6 +7233,8 @@
         if (dash.rotm) applyRotmPayload(dash.rotm);
         if (dash.meshscore) renderMeshScore(dash.meshscore, meshRangeDays);
         setServerStatus(true);
+        if (appData.authUser) loadAccountData().catch(() => {});
+        updateLoginHelper();
       } catch {
         const msg = document.createElement("div");
         msg.className = "rank-item";
@@ -5271,11 +7736,10 @@
       modal.classList.remove("open");
     }
 
-    function rssiTone(rssi) {
-      if (!Number.isFinite(rssi)) return { color: "#ffcc00", label: "RSSI n/a" };
-      if (rssi >= -75) return { color: "#34c759", label: `${rssi} dBm` };
-      if (rssi >= -95) return { color: "#ffcc00", label: `${rssi} dBm` };
-      return { color: "#ff3b30", label: `${rssi} dBm` };
+    function rssiTone(rssi, relation) {
+      const label = Number.isFinite(rssi) ? `${rssi} dBm` : "RSSI n/a";
+      const color = relation === "reciprocal" ? "#34c759" : "#ffcc00";
+      return { color, label };
     }
 
     function openNeighborMapModal(entry) {
@@ -5283,6 +7747,10 @@
       const title = document.getElementById("neighborMapTitle");
       const meta = document.getElementById("neighborMapMeta");
       if (!modal) return;
+      appData.neighborEditActiveEntry = entry;
+      if (neighborEditToggle) {
+        neighborEditToggle.textContent = appData.neighborEditMode ? "Done editing" : "Something not right?";
+      }
       const repeaterName = entry?.name || entry?.pub || "Repeater";
       if (title) title.textContent = `Zero-hop neighbours: ${repeaterName}`;
       if (meta) meta.textContent = "Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.";
@@ -5299,7 +7767,12 @@
       if (neighborMapLayer) neighborMapLayer.clearLayers();
 
       const repeaterGps = entry?.gps;
-      const neighbors = Array.isArray(entry?.zeroHopNeighborDetails) ? entry.zeroHopNeighborDetails : [];
+      const neighbors = Array.isArray(entry?.zeroHopNeighborDetails) ? [...entry.zeroHopNeighborDetails] : [];
+      neighbors.sort((a, b) => {
+        const aVal = Number.isFinite(a?.rssiAvg) ? a.rssiAvg : -Infinity;
+        const bVal = Number.isFinite(b?.rssiAvg) ? b.rssiAvg : -Infinity;
+        return bVal - aVal;
+      });
       const byHash = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
       const points = [];
       const list = document.getElementById("neighborMapList");
@@ -5322,7 +7795,7 @@
         const target = candidates.find((c) => c?.gps && Number.isFinite(c.gps.lat) && Number.isFinite(c.gps.lon)) || null;
         const gps = n.gps || target?.gps || null;
         if (!gps || !Number.isFinite(gps.lat) || !Number.isFinite(gps.lon)) return;
-        const tone = rssiTone(n.rssiAvg);
+        const tone = rssiTone(n.rssiAvg, n.relation);
         const label = n.name || n.hash || "Neighbor";
         const marker = L.circleMarker([gps.lat, gps.lon], {
           radius: 6,
@@ -5332,12 +7805,15 @@
           weight: 2
         }).bindPopup(`${label} | ${tone.label}`).addTo(neighborMapLayer);
         if (repeaterGps && Number.isFinite(repeaterGps.lat) && Number.isFinite(repeaterGps.lon)) {
+          const relationText = n.relation === "reciprocal"
+            ? "Reciprocal neighbour"
+            : "Mesh packet passed between these nodes";
           const line = L.polyline([[repeaterGps.lat, repeaterGps.lon], [gps.lat, gps.lon]], {
             color: tone.color,
             weight: 2,
             opacity: 0.8
           }).addTo(neighborMapLayer);
-          line.bindTooltip(`${label} (${tone.label})`, { sticky: true });
+          line.bindTooltip(`${label} (${relationText})`, { sticky: true });
         }
         points.push([gps.lat, gps.lon]);
       });
@@ -5348,7 +7824,10 @@
         } else {
           list.innerHTML = neighbors.map((n) => {
             const rssi = Number.isFinite(n.rssiAvg) ? `${n.rssiAvg} dBm` : "--";
-            const canChange = !!appData.authUser?.isAdmin && Array.isArray(n.options) && n.options.length > 1;
+            const status = n.relation === "reciprocal"
+              ? "Reciprocal neighbour"
+              : "Mesh packet passed between these nodes";
+            const canChange = !!appData.authUser?.isAdmin && appData.neighborEditMode && Array.isArray(n.options) && n.options.length > 1;
             if (Array.isArray(n.options) && n.options.length > 1) {
               appData.neighborOverrideOptions.set(String(n.hash || ""), n.options);
             }
@@ -5356,7 +7835,7 @@
               <div class="neighbor-map-item" data-neighbor-hash="${n.hash || ""}">
                 <div>
                   <div><strong>${n.name || n.hash || "Neighbor"}</strong></div>
-                  <div class="neighbor-meta">Avg RSSI: ${rssi}</div>
+                  <div class="neighbor-meta">${status} · Avg RSSI: ${rssi}</div>
                 </div>
                 ${canChange ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
               </div>
@@ -5757,7 +8236,15 @@
 
     function buildRepeaterBadges(r, nearestObserverSet) {
       const badges = [];
-      if (r.stale) badges.push({ label: "Stale repeater", tone: "gray" });
+      if (r.stale) {
+        const offlineHours = Number.isFinite(r.lastAdvertAgeHours)
+          ? Math.ceil(r.lastAdvertAgeHours)
+          : null;
+        const offlineLabel = offlineHours
+          ? `No advert in ${offlineHours}h`
+          : "No advert in 24h";
+        badges.push({ label: offlineLabel, tone: "gray" });
+      }
       if (r.gpsImplausible) badges.push({ label: "GPS implausible", tone: "amber" });
       if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "blue" });
       if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
@@ -5804,6 +8291,89 @@
 
     function closeRankDetail() {
       const overlay = document.getElementById("rankDetailOverlay");
+      if (overlay) overlay.classList.remove("open");
+    }
+
+    async function fetchFlaggedRepeaters() {
+      const url = new URL("/api/repeater-rank-excluded", window.location.origin);
+      url.searchParams.set("_ts", Date.now().toString());
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    function wrapImplausibleContent(body) {
+      return `
+        <div class="rank-detail-close">
+          <button type="button" onclick="closeImplausibleList()">✕</button>
+        </div>
+        ${body}
+      `;
+    }
+
+    function buildImplausibleSkeleton(message) {
+      return wrapImplausibleContent(`
+        <div class="implausible-placeholder">${message}</div>
+      `);
+    }
+
+    function buildImplausibleList(rows) {
+      const items = rows.map((row) => {
+        const name = row.name || row.pub || "Unknown repeater";
+        const hashLabel = row.hashByte ? ` <span class="chip chip-strong">${row.hashByte}</span>` : "";
+        const reasons = Array.isArray(row.excludedReasons)
+          ? row.excludedReasons.filter(Boolean)
+          : [];
+        const reasonLabel = reasons.length
+          ? reasons.join(", ")
+          : (Array.isArray(row.qualityReasons) ? row.qualityReasons.filter(Boolean).join(", ") : row.quality || "Flagged");
+        const lastSeen = row.lastAdvertIngestIso ? formatDateTime(row.lastAdvertIngestIso) : "unknown";
+        const hoursAgo = Number.isFinite(row.lastAdvertAgeHours)
+          ? `${Math.round(row.lastAdvertAgeHours)}h ago`
+          : null;
+        return `
+          <div class="implausible-row">
+            <div class="implausible-title">
+              <strong>${name}</strong>${hashLabel}
+            </div>
+            <div class="implausible-meta">
+              <span>Pub: ${row.pub || "--"}</span>
+              <span>Last seen: ${lastSeen}${hoursAgo ? ` · ${hoursAgo}` : ""}</span>
+            </div>
+            <div class="implausible-reason">Reasons: ${reasonLabel}</div>
+          </div>
+        `;
+      }).join("");
+      return wrapImplausibleContent(`<div class="implausible-list">${items}</div>`);
+    }
+
+    async function openImplausibleList() {
+      const overlay = document.getElementById("repeaterFlaggedOverlay");
+      const content = document.getElementById("repeaterFlaggedContent");
+      if (!overlay || !content) return;
+      overlay.classList.add("open");
+      content.innerHTML = buildImplausibleSkeleton("Loading flagged GPS repeaters...");
+      try {
+        const data = await fetchFlaggedRepeaters();
+        const rows = Array.isArray(data.excluded) ? data.excluded : [];
+        const flagged = rows.filter((row) => {
+          if (!row) return false;
+          if (row.gpsImplausible || row.gpsFlagged) return true;
+          if (!Array.isArray(row.excludedReasons)) return false;
+          return row.excludedReasons.some((reason) => typeof reason === "string" && reason.toLowerCase().includes("gps"));
+        }).sort((a, b) => (b.lastAdvertIngestMs || 0) - (a.lastAdvertIngestMs || 0)).slice(0, 40);
+        if (!flagged.length) {
+          content.innerHTML = buildImplausibleSkeleton("No flagged GPS repeaters right now.");
+          return;
+        }
+        content.innerHTML = buildImplausibleList(flagged);
+      } catch (err) {
+        content.innerHTML = buildImplausibleSkeleton(`Unable to load flagged repeaters: ${err?.message || err}`);
+      }
+    }
+
+    function closeImplausibleList() {
+      const overlay = document.getElementById("repeaterFlaggedOverlay");
       if (overlay) overlay.classList.remove("open");
     }
 
@@ -6573,7 +9143,7 @@
       visible.forEach((r) => {
           const item = document.createElement("div");
           const isHidden = isRepeaterHidden(r);
-          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : (r.stale ? "Stale repeater" : "GPS unreliable");
+          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : "GPS unreliable";
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
           item.dataset.pub = (r.pub || "").toUpperCase();
@@ -6611,7 +9181,7 @@
         });
         list.appendChild(item);
 
-        if (!onMobile && !isHidden && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
+        if (!onMobile && !isHidden && !r.stale && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
           const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
             radius: 8,
             color: r.color,
@@ -6656,11 +9226,17 @@
         </div>
         ${isAdmin ? "" : `<div style="margin-top:6px;font-size:12px;color:rgba(60,60,67,0.6);">Admin login required to correct location.</div>`}
       `;
+      const offlineHours = Number.isFinite(r.lastAdvertAgeHours)
+        ? Math.ceil(r.lastAdvertAgeHours)
+        : null;
+      const statusLabel = r.stale
+        ? `Offline (${offlineHours ? `${offlineHours}h` : "24h+"})`
+        : "Active";
       const locationNote = `${flaggedNote}${estimatedNote}${actionButtons}`;
       return `
         <div style="min-width:220px;font-family:'Space Grotesk',system-ui,sans-serif;">
           <div style="font-weight:700;margin-bottom:6px;">${r.name}${code}</div>
-          <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${r.stale ? "stale" : "active"}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${statusLabel}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</div>
@@ -6718,6 +9294,7 @@
 
 
     const navLinks = document.querySelectorAll(".nav a, .mobile-nav a, .mobile-menu a");
+    const authLinks = document.querySelectorAll(".auth-links [data-view]");
     const menuToggle = document.getElementById("menuToggle");
     const menuBackdrop = document.getElementById("menuBackdrop");
     const channelToggles = document.querySelectorAll("[data-channels-toggle]");
@@ -6739,24 +9316,15 @@
         link.addEventListener("click", async (e) => {
           e.preventDefault();
           document.body.classList.remove("route-open");
-          navLinks.forEach((l) => l.classList.remove("active"));
           let view = link.dataset.view;
-          navLinks.forEach((l) => {
-            if (l.dataset.view === view) l.classList.add("active");
-          });
-          closeMenu();
-          document.body.classList.toggle("view-channels", view === "channels");
-          document.body.classList.toggle("view-rotm", view === "rotm");
-          document.body.classList.toggle("view-rank", view === "rank");
-          document.body.classList.toggle("view-node-rank", view === "node-rank");
-          document.body.classList.toggle("view-meshscore", view === "meshscore");
-          document.body.classList.toggle("view-rf", view === "rf");
-          document.body.classList.toggle("view-observer", view === "observer");
-          document.body.classList.toggle("view-observer-rank", view === "observer-rank");
-          document.body.classList.toggle("view-why", view === "why");
-          if (view !== "channels") {
-            updateChannelParam(null);
+          if (view === "account" && !appData.authUser) {
+            showToast("Log in to access your account.");
+            setView("auth");
+            closeMenu();
+            return;
           }
+          closeMenu();
+          setView(view);
 
         if (view === "rank") {
           if (!rankMap) initRankMap();
@@ -6775,14 +9343,13 @@
           }
         }
 
+        if (view === "channel-directory") {
+          await loadChannelDirectory();
+        }
+
         if (view === "node-rank") {
           if (!appData.authUser) {
-            document.body.classList.remove("view-node-rank");
-            document.body.classList.add("view-channels");
-            navLinks.forEach((l) => l.classList.remove("active"));
-            navLinks.forEach((l) => {
-              if (l.dataset.view === "channels") l.classList.add("active");
-            });
+            setView("channels");
             return;
           }
           if (!isMobile() && !nodeRankMap) initNodeRankMap();
@@ -6828,7 +9395,6 @@
           }
         }
         if (view === "rotm") {
-          if (!appData.authUser?.isAdmin) return;
           if (!rotmMap) initRotmMap();
           await loadRotm();
           startRotmRefresh();
@@ -6860,72 +9426,227 @@
         }
       });
     });
+    const sidebarViewLinks = document.querySelectorAll("[data-sidebar-view]");
+    sidebarViewLinks.forEach((link) => {
+      link.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const view = link.dataset.sidebarView;
+        if (!view) return;
+        document.body.classList.remove("route-open");
+        closeMenu();
+        setView(view);
+      });
+    });
+    authLinks.forEach((link) => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const view = link.dataset.view;
+        if (view) setView(view);
+      });
+    });
 
-    const authModal = document.getElementById("authModal");
     const loginBtn = document.getElementById("loginBtn");
-    const authClose = document.getElementById("authClose");
-    const authLogin = document.getElementById("authLogin");
-    const authBootstrap = document.getElementById("authBootstrap");
-    const authLogout = document.getElementById("authLogout");
-    const authUserInput = document.getElementById("authUsername");
-    const authPassInput = document.getElementById("authPassword");
+    const authPanel = document.getElementById("authPanel");
+    const authCloseBtn = document.getElementById("authCloseBtn");
+    const authFlowEmail = document.getElementById("authFlowEmail");
+    const authFlowName = document.getElementById("authFlowName");
+    const authFlowPassword = document.getElementById("authFlowPassword");
+    const authFlowNameField = document.getElementById("authFlowNameField");
+    const authFlowPasswordField = document.getElementById("authFlowPasswordField");
+    const authFlowSubmit = document.getElementById("authFlowSubmit");
+    const authFlowError = document.getElementById("authFlowError");
+    const authFlowHint = document.getElementById("authFlowHint");
+    const accountCloseBtn = document.getElementById("accountCloseBtn");
+    const accountLogoutBtn = document.getElementById("accountLogoutBtn");
+    const accountManageChannels = document.getElementById("accountManageChannels");
+    const accountClaimBtn = document.getElementById("accountClaimBtn");
+    const accountNodeId = document.getElementById("accountNodeId");
+    const accountClaimStatus = document.getElementById("accountClaimStatus");
+    const changesModal = document.getElementById("changesModal");
+    const changesClose = document.getElementById("changesClose");
 
     loginBtn?.addEventListener("click", async () => {
-      authModal?.classList.add("open");
-      setAuthUser(appData.authUser);
-      try {
-        const res = await fetch("/api/admin/status", { cache: "no-store" });
-        const data = await res.json();
-        setBootstrapVisibility(!!data.hasAdmin);
-      } catch {}
+      if (appData.authUser) {
+        setView("account");
+        await loadAccountData();
+      } else {
+        setView("auth");
+        setAuthFlowMode("email");
+      }
     });
-    authClose?.addEventListener("click", () => authModal?.classList.remove("open"));
-    authModal?.addEventListener("click", (e) => {
-      if (e.target === authModal) authModal.classList.remove("open");
+    authCloseBtn?.addEventListener("click", () => {
+      setView("channels");
+    });
+    accountCloseBtn?.addEventListener("click", () => {
+      setView("channels");
+    });
+    accountPanel?.addEventListener("click", (e) => {
+      const card = accountPanel.querySelector(".account-modal");
+      if (card && !card.contains(e.target)) {
+        setView("channels");
+      }
     });
 
-    authLogin?.addEventListener("click", async () => {
-      const username = authUserInput?.value?.trim() || "";
-      const password = authPassInput?.value || "";
-      if (!username || !password) return;
-      const res = await fetch("/api/auth/login", {
+    document.querySelectorAll("[data-toggle-password]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.getAttribute("data-toggle-password");
+        const input = target ? document.querySelector(target) : null;
+        if (!input) return;
+        input.type = input.type === "password" ? "text" : "password";
+        btn.textContent = input.type === "password" ? "Show" : "Hide";
+      });
+    });
+
+    const forgotPasswordLink = document.getElementById("forgotPasswordLink");
+    forgotPasswordLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      showToast("Forgot password is not available yet. Please email support.");
+    });
+
+    let authFlowMode = "email";
+    function setAuthFlowMode(mode) {
+      authFlowMode = mode;
+      if (!authFlowNameField || !authFlowPasswordField || !authFlowSubmit) return;
+      if (authFlowError) authFlowError.textContent = "";
+      if (authFlowHint) authFlowHint.style.display = "none";
+      if (mode === "email") {
+        authFlowNameField.style.display = "none";
+        authFlowPasswordField.style.display = "none";
+        authFlowSubmit.textContent = "Continue";
+        return;
+      }
+      if (mode === "login") {
+        authFlowNameField.style.display = "none";
+        authFlowPasswordField.style.display = "block";
+        authFlowSubmit.textContent = "Log in";
+        return;
+      }
+      authFlowNameField.style.display = "block";
+      authFlowPasswordField.style.display = "block";
+      authFlowSubmit.textContent = "Create account";
+      if (authFlowHint) authFlowHint.style.display = "block";
+    }
+
+    authFlowEmail?.addEventListener("input", () => {
+      setAuthFlowMode("email");
+    });
+
+    setAuthFlowMode("email");
+
+    authFlowSubmit?.addEventListener("click", async () => {
+      if (authFlowError) authFlowError.textContent = "";
+      const email = authFlowEmail?.value?.trim() || "";
+      if (!email) {
+        if (authFlowError) authFlowError.textContent = "Enter your email address.";
+        return;
+      }
+      if (authFlowMode === "email") {
+        try {
+          const res = await fetch(`/api/auth/exists?email=${encodeURIComponent(email)}`);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) throw new Error(data.error || "Unable to check account.");
+          setAuthFlowMode(data.exists ? "login" : "register");
+        } catch (err) {
+          if (authFlowError) authFlowError.textContent = err?.message || String(err);
+        }
+        return;
+      }
+      const password = authFlowPassword?.value || "";
+      if (!password) {
+        if (authFlowError) authFlowError.textContent = "Enter your password.";
+        return;
+      }
+      if (authFlowMode === "login") {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: email, password })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          if (authFlowError) authFlowError.textContent = data.error || "Login failed.";
+          return;
+        }
+        appData.authToken = data.token || null;
+        saveAuthToken(appData.authToken);
+        setAuthUser(data.user || null);
+        await loadChannels();
+        setView("channels");
+        setAuthFlowMode("email");
+        return;
+      }
+      const displayName = authFlowName?.value?.trim() || "";
+      if (!displayName) {
+        if (authFlowError) authFlowError.textContent = "Enter your name to create an account.";
+        return;
+      }
+      if (password.length < 8) {
+        if (authFlowError) authFlowError.textContent = "Password must be at least 8 characters.";
+        return;
+      }
+      const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ email, password, displayName })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        document.getElementById("authStatus").textContent = data.error || "Login failed.";
+        if (authFlowError) authFlowError.textContent = data.error || "Registration failed.";
         return;
       }
       appData.authToken = data.token || null;
       saveAuthToken(appData.authToken);
       setAuthUser(data.user || null);
+      await loadChannels();
+      setView("channels");
+      setAuthFlowMode("email");
     });
 
-    authBootstrap?.addEventListener("click", async () => {
-      const username = authUserInput?.value?.trim() || "";
-      const password = authPassInput?.value || "";
-      if (!username || password.length < 8) {
-        document.getElementById("authStatus").textContent = "Use a strong password (min 8 chars).";
-        return;
-      }
-      const res = await fetch("/api/admin/bootstrap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
-      });
-      const data = await res.json().catch(() => ({}));
-      document.getElementById("authStatus").textContent = data.ok
-        ? "Admin created. You can now log in."
-        : (data.error || "Admin setup failed.");
-    });
-
-    authLogout?.addEventListener("click", async () => {
+    accountLogoutBtn?.addEventListener("click", async () => {
       await fetch("/api/auth/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
       appData.authToken = null;
       saveAuthToken(null);
       setAuthUser(null);
+      setView("channels");
+      await loadChannels();
+    });
+
+    accountManageChannels?.addEventListener("click", async () => {
+      setView("channel-directory");
+      await loadChannelDirectory();
+    });
+
+    accountClaimBtn?.addEventListener("click", async () => {
+      if (!appData.authUser) {
+        showToast("Please log in to claim a node.");
+        setView("auth");
+        return;
+      }
+      const publicNodeId = accountNodeId?.value?.trim() || "";
+      if (!publicNodeId) {
+        if (accountClaimStatus) accountClaimStatus.textContent = "Enter a public node ID.";
+        return;
+      }
+      try {
+        const res = await fetch("/api/user/nodes/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ publicNodeId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Claim failed.");
+        appData.userNodes = data.nodes || [];
+        renderAccountNodes();
+        if (accountClaimStatus) accountClaimStatus.textContent = "Node claimed successfully.";
+        if (accountNodeId) accountNodeId.value = "";
+      } catch (err) {
+        if (accountClaimStatus) accountClaimStatus.textContent = err?.message || String(err);
+      }
+    });
+
+    changesClose?.addEventListener("click", () => changesModal?.classList.remove("open"));
+    changesModal?.addEventListener("click", (e) => {
+      if (e.target === changesModal) changesModal.classList.remove("open");
     });
 
     document.getElementById("observerRankSearch")?.addEventListener("input", () => {
@@ -7366,17 +10087,16 @@
       });
     }
 
+    const showZeroHopPlaceholder = () => {
+      showToast("Zero-hop neighbour stats are being refreshed; this view will return soon.");
+    };
     if (rankList) {
       rankList.addEventListener("click", (event) => {
         const btn = event.target.closest("[data-repeater-neighbors]");
         if (!btn) return;
         event.preventDefault();
         event.stopPropagation();
-        const pub = String(btn.getAttribute("data-repeater-neighbors") || "").trim().toUpperCase();
-        if (!pub) return;
-        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
-        if (!entry) return;
-        openNeighborMapModal(entry);
+        showZeroHopPlaceholder();
       });
     }
 
@@ -7558,6 +10278,12 @@
       if (rankMap) rankMap.invalidateSize();
     });
   </script>
+  <script async defer src="https://accounts.google.com/gsi/client"></script>
+  <div id="repeaterFlaggedOverlay" class="rank-detail-overlay" onclick="closeImplausibleList()">
+    <div class="rank-detail-card" onclick="event.stopPropagation()">
+      <div id="repeaterFlaggedContent"></div>
+    </div>
+  </div>
   <div id="messageRouteOverlay" class="rank-detail-overlay" onclick="closeMessageRouteOverlay()">
     <div class="rank-detail-card" onclick="event.stopPropagation()">
       <div id="messageRouteContent"></div>

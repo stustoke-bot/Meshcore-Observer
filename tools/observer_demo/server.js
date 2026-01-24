@@ -9,12 +9,32 @@ const Database = require("better-sqlite3");
 const bcrypt = require("bcryptjs");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, "utf8");
+  raw.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const idx = trimmed.indexOf("=");
+    if (idx <= 0) return;
+    const key = trimmed.slice(0, idx).trim();
+    let value = trimmed.slice(idx + 1).trim();
+    if (!key) return;
+    if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  });
+}
+loadEnvFile(path.join(projectRoot, ".env"));
 const dataDir = path.join(projectRoot, "data");
 const devicesPath = path.join(dataDir, "devices.json");
 const decodedPath = path.join(dataDir, "decoded.ndjson");
 const rfPath = path.join(dataDir, "rf.ndjson");
 const observerPath = path.join(dataDir, "observer.ndjson");
 const observersPath = path.join(dataDir, "observers.json");
+const devicesPathAlt = path.join(projectRoot, "devices.json");
+const observersPathAlt = path.join(projectRoot, "observers.json");
 const ingestLogPath = path.join(dataDir, "ingest.log");
 const routeSuggestionsPath = path.join(dataDir, "route_suggestions.json");
 const rotmConfigPath = path.join(dataDir, "rotm_config.json");
@@ -25,9 +45,13 @@ const staticDir = __dirname;
 const keysPath = path.join(projectRoot, "tools", "meshcore_keys.json");
 const crypto = require("crypto");
 const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
-const dbPath = path.join(dataDir, "meshrank.db");
+const { getDbPath, logDbInfo } = require("./db_path");
+const dbPath = getDbPath();
 const DEBUG_PERF = process.env.DEBUG_PERF === "1";
 const DEBUG_SQL = process.env.DEBUG_SQL === "1";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "";
 
 const CHANNEL_TAIL_LINES = 6000;
 const CHANNEL_HISTORY_LIMIT = 10;
@@ -54,6 +78,9 @@ const CONFIDENCE_HISTORY_MAX_ROWS = 400;
 const CONFIDENCE_DEAD_END_LIMIT = 20;
 const messageRouteCache = new Map();
 
+const packetTimeline = [];
+let meshTrendCache = { updatedAt: 0, payload: null };
+
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
 const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
@@ -78,6 +105,48 @@ const STATS_ROLLUP_WINDOW_MS = 5 * 60 * 1000;
 const STATS_ROLLUP_SEED_BUCKETS = 12;
 const STATS_ROLLUP_INTERVAL_MS = 60 * 1000;
 const STATS_ROLLUP_MIN_INTERVAL_MS = 10000;
+const PACKET_TREND_WINDOW_MS = 2 * 60 * 1000;
+const PACKET_RATE_DURATION_MS = 60 * 1000;
+const MESH_TREND_CACHE_MS = 60 * 1000;
+const MESHFLOW_POLL_MS = 1000;
+const MESHFLOW_HISTORY_MAX_SEC = 120;
+const MESHFLOW_DEFAULT_WINDOW_SEC = 30;
+const MESHFLOW_MAX_FLOWS = 300;
+const MESHFLOW_MAX_NODES = 500;
+const MESHFLOW_READ_LIMIT = 400;
+const MESHFLOW_JITTER_ENABLED = process.env.MESHFLOW_JITTER === "1";
+const MESHFLOW_JITTER_DEGREES = 0.004;
+
+const { inferRouteViterbi } = require("./geoscore_infer");
+
+const GEO_SCORE_RETENTION_DAYS = Number(process.env.GEOSCORE_RETENTION_DAYS || 7);
+const GEO_SCORE_CANDIDATE_K = 5;
+const GEO_SCORE_BATCH_SIZE = 20;
+const GEO_SCORE_STATUS_WINDOWS = ["1h", "24h", "14d"];
+const GEO_SCORE_OBSERVER_SOURCE = "observers.json:bestRepeaterPub";
+const GEO_SCORE_DEBUG = process.env.GEOSCORE_DEBUG === "1";
+const GEO_SCORE_LAST_HEARD_REFRESH_MS = 60 * 1000;
+const GEO_SCORE_LAST_HEARD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+const meshFlowHistory = [];
+let meshFlowLastRowId = 0;
+let meshFlowTimer = null;
+const meshFlowCache = {
+  nodeMap: { updatedAt: 0, map: null },
+  repeaterHash: { updatedAt: 0, map: null }
+};
+
+const geoscoreQueue = [];
+let geoscoreProcessing = false;
+let geoscoreObserverProfilesCache = new Map();
+let geoscoreRouteUpsertStmt = null;
+let geoscoreObserverProfileUpsertStmt = null;
+let lastHeardByHash = new Map();
+let lastHeardByPub = new Map();
+let lastGeoscoreDiagLogMs = 0;
+let dbInfoLogged = false;
+let dbInfoCache = null;
+const INGEST_METRICS_KEYS = ["countAdvertsSeenLast10m", "lastAdvertSeenAtIso"];
 
 function recordObserverHit(rec, map, keyStore) {
   if (!rec) return;
@@ -233,8 +302,11 @@ const OBSERVER_OFFLINE_MINUTES = 24 * 60;
 const OBSERVER_OFFLINE_HOURS = OBSERVER_OFFLINE_MINUTES / 60;
 const OBSERVER_LOW_PACKET_MINUTES = 15;
 const OBSERVER_MAX_REPEATER_KM = 300;
+const REPEAT_EVIDENCE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REPEAT_EVIDENCE_MIN_MIDDLE = 5;
+const REPEAT_EVIDENCE_MIN_NEIGHBORS = 2;
 
-let rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+let rankCache = { updatedAt: null, count: 0, items: [], excluded: [], cachedAt: null };
 let rankRefreshInFlight = null;
 let rankSummaryCache = {
   updatedAt: null,
@@ -261,7 +333,7 @@ try {
 }
 
 const host = "0.0.0.0";
-const port = 5199;
+const port = Number(process.env.PORT || 5200);
 const AUTO_REFRESH_MS = 60 * 1000;
 
 function clamp(n, min, max) {
@@ -368,6 +440,7 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
       gps: hit?.gps || null
     };
   });
+  // TODO M3: replace placeholder inference with full Viterbi + edge aggregation.
   return {
     id: row.message_hash,
     frameHash: row.frame_hash,
@@ -502,6 +575,28 @@ function readMessageObserverPaths(db, hashes) {
   return map;
 }
 
+function fetchGeoscorePathRows(db, hashes) {
+  if (!hasMessageObserversDb(db)) return [];
+  const list = Array.isArray(hashes) ? hashes.filter(Boolean) : [];
+  if (!list.length) return [];
+  const placeholders = list.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT
+      mo.message_hash,
+      mo.observer_id,
+      mo.path_text,
+      mo.path_json,
+      mo.ts,
+      mo.ts_ms,
+      m.frame_hash
+    FROM message_observers mo
+    LEFT JOIN messages m ON m.message_hash = mo.message_hash
+    WHERE mo.message_hash IN (${placeholders})
+      AND (mo.path_text IS NOT NULL OR mo.path_json IS NOT NULL)
+  `).all(...list);
+  return rows;
+}
+
 function readMessageObserverUpdatesSince(db, lastRowId, limit) {
   if (!hasMessageObserversDb(db)) return { updates: [], lastRowId };
   const max = Number.isFinite(limit) ? limit : MESSAGE_OBSERVER_STREAM_MAX_ROWS;
@@ -556,9 +651,28 @@ function ensureColumn(db, tableName, columnName, columnType) {
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
 }
 
+function recordDbInfo(db) {
+  if (dbInfoLogged || !db) return;
+  try {
+    logDbInfo(db);
+    const dbList = db.pragma("database_list") || [];
+    dbInfoCache = {
+      resolvedPath: getDbPath(),
+      cwd: process.cwd(),
+      databaseList: dbList,
+      mainFile: dbList && dbList.length ? dbList[0].file : null
+    };
+  } catch (err) {
+    console.log("(observer-demo) db info log failed", err?.message || err);
+  } finally {
+    dbInfoLogged = true;
+  }
+}
+
 function getDb() {
   if (db) return db;
   db = new Database(dbPath);
+  recordDbInfo(db);
   if (DEBUG_SQL) {
     const origPrepare = db.prepare.bind(db);
     db.prepare = (sql) => {
@@ -587,6 +701,7 @@ function getDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      display_name TEXT,
       is_admin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       last_login TEXT
@@ -595,6 +710,36 @@ function getDb() {
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
       expires_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_channels (
+      user_id INTEGER NOT NULL,
+      channel_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, channel_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_channels_user ON user_channels(user_id);
+    CREATE TABLE IF NOT EXISTS user_nodes (
+      user_id INTEGER NOT NULL,
+      public_id TEXT NOT NULL,
+      nickname TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, public_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_nodes_user ON user_nodes(user_id);
+    CREATE TABLE IF NOT EXISTS channels_catalog (
+      name TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      group_name TEXT NOT NULL,
+      allow_popular INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_channels_catalog_group ON channels_catalog(group_name);
+    CREATE TABLE IF NOT EXISTS channel_blocks (
+      name TEXT PRIMARY KEY,
+      blocked_by INTEGER,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS node_profiles (
       pub TEXT PRIMARY KEY,
@@ -635,12 +780,60 @@ function getDb() {
       observer_id TEXT NOT NULL,
       observer_name TEXT,
       ts TEXT,
+      ts_ms INTEGER,
       path_json TEXT,
       path_text TEXT,
       path_length INTEGER,
       PRIMARY KEY (message_hash, observer_id)
     );
     CREATE INDEX IF NOT EXISTS idx_message_observers_hash ON message_observers(message_hash);
+    CREATE TABLE IF NOT EXISTS geoscore_model_versions (
+      model_version TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      window_days INTEGER NOT NULL,
+      weights_json TEXT,
+      notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS geoscore_observer_profiles (
+      observer_id TEXT PRIMARY KEY,
+      linked_repeater_pub TEXT,
+      home_lat REAL,
+      home_lon REAL,
+      source TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS geoscore_edges (
+      from_pub TEXT NOT NULL,
+      to_pub TEXT NOT NULL,
+      window TEXT NOT NULL,
+      count INTEGER NOT NULL,
+      confidence_sum REAL NOT NULL,
+      last_seen TEXT,
+      PRIMARY KEY(from_pub, to_pub, window)
+    );
+    CREATE INDEX IF NOT EXISTS idx_geoscore_edges_window ON geoscore_edges(window);
+    CREATE TABLE IF NOT EXISTS geoscore_routes (
+      msg_key TEXT PRIMARY KEY,
+      ts TEXT,
+      ts_ms INTEGER,
+      observer_id TEXT,
+      path_tokens TEXT,
+      inferred_pubs TEXT,
+      hop_confidences TEXT,
+      route_confidence REAL,
+      unresolved INTEGER,
+      candidates_json TEXT,
+      teleport_max_km REAL
+    );
+    CREATE TABLE IF NOT EXISTS geoscore_metrics_daily (
+      day_yyyymmdd TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      routes_scored INTEGER NOT NULL,
+      hops_resolved_pct REAL,
+      mean_confidence REAL,
+      teleport_outliers INTEGER,
+      notes TEXT
+    );
     CREATE TABLE IF NOT EXISTS site_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -711,9 +904,29 @@ function getDb() {
       updated_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_observers_last_seen ON observers(last_seen);
+    CREATE TABLE IF NOT EXISTS rejected_adverts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pub TEXT,
+      observer_id TEXT,
+      heard_ms INTEGER,
+      reason TEXT,
+      sample_json TEXT
+    );
+    CREATE TABLE IF NOT EXISTS ingest_metrics (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT
+    );
   `);
+  ensureColumn(db, "users", "display_name", "TEXT");
   ensureColumn(db, "messages", "path_text", "TEXT");
   ensureColumn(db, "message_observers", "path_text", "TEXT");
+  ensureColumn(db, "message_observers", "ts_ms", "INTEGER");
+  ensureColumn(db, "geoscore_routes", "ts_ms", "INTEGER");
+  ensureColumn(db, "geoscore_routes", "teleport_max_km", "REAL");
+  ensureColumn(db, "channels_catalog", "allow_popular", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "devices", "last_advert_heard_ms", "INTEGER");
+  resetUserChannelsToFixed(db);
   return db;
 }
 
@@ -755,7 +968,11 @@ function hydrateRepeaterRankCache() {
     const parsed = JSON.parse(row.payload);
     if (!parsed || !Array.isArray(parsed.items)) return;
     const updatedAt = row.updated_at || parsed.updatedAt || new Date().toISOString();
-    rankCache = { ...parsed, cachedAt: updatedAt };
+    rankCache = {
+      ...parsed,
+      excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
+      cachedAt: updatedAt
+    };
     updateRankSummary(parsed.items, updatedAt);
   } catch {}
 }
@@ -764,13 +981,17 @@ function persistRepeaterRankCache(payload) {
   try {
     if (!payload) return;
     const updatedAt = payload.updatedAt || new Date().toISOString();
+    const normalized = {
+      ...payload,
+      excluded: Array.isArray(payload.excluded) ? payload.excluded : []
+    };
     getDb()
       .prepare(`
         INSERT INTO repeater_rank_cache (id, updated_at, payload)
         VALUES (1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload
       `)
-      .run(updatedAt, JSON.stringify(payload));
+      .run(updatedAt, JSON.stringify(normalized));
   } catch {}
 }
 
@@ -841,7 +1062,7 @@ function getSessionUser(req) {
   if (!token) return null;
   const db = getDb();
   const row = db.prepare(`
-    SELECT u.id, u.username, u.is_admin, s.expires_at
+    SELECT u.id, u.username, u.display_name, u.is_admin, s.expires_at
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ?
@@ -852,7 +1073,7 @@ function getSessionUser(req) {
     db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
     return null;
   }
-  return { id: row.id, username: row.username, isAdmin: !!row.is_admin };
+  return { id: row.id, username: row.username, displayName: row.display_name || null, isAdmin: !!row.is_admin };
 }
 
 function createSession(db, userId) {
@@ -860,6 +1081,26 @@ function createSession(db, userId) {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expiresAt);
   return { token, expiresAt };
+}
+
+function buildSessionCookie(req, token) {
+  const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+  const secure = proto.includes("https");
+  return `mesh_session=${token}; Path=/; Max-Age=2592000; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+const oauthStates = new Map();
+function createOauthState(payload = {}) {
+  const state = crypto.randomBytes(16).toString("hex");
+  oauthStates.set(state, { ...payload, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return state;
+}
+function consumeOauthState(state) {
+  const entry = oauthStates.get(state);
+  if (!entry) return null;
+  oauthStates.delete(state);
+  if (entry.expiresAt < Date.now()) return null;
+  return entry;
 }
 
 function readJsonSafe(p, def) {
@@ -875,6 +1116,49 @@ function writeJsonSafe(p, data) {
   const tmp = p + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
   fs.renameSync(tmp, p);
+}
+
+async function verifyGoogleIdToken(idToken) {
+  if (!idToken) throw new Error("missing id token");
+  if (!GOOGLE_CLIENT_ID) throw new Error("google oauth not configured");
+  const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+  const tokenInfo = await verifyRes.json().catch(() => ({}));
+  if (!verifyRes.ok || String(tokenInfo.aud || "") !== GOOGLE_CLIENT_ID) {
+    throw new Error("google token validation failed");
+  }
+  return tokenInfo;
+}
+
+function ensureGoogleUser(db, tokenInfo) {
+  const email = String(tokenInfo?.email || "").trim();
+  if (!email) throw new Error("google account missing email");
+  const displayName = String(tokenInfo?.name || "").trim() || null;
+  const subKey = String(tokenInfo?.sub || "").trim() || crypto.randomBytes(6).toString("hex");
+  const user = db.prepare(`
+    SELECT id, username, display_name, is_admin
+    FROM users
+    WHERE lower(username) = lower(?)
+  `).get(email);
+  if (!user) {
+    const hash = `oauth:google:${subKey}`;
+    const now = new Date().toISOString();
+    const info = db.prepare("INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)")
+      .run(email, hash, displayName || null, now);
+    return { id: info.lastInsertRowid, username: email, display_name: displayName, is_admin: 0 };
+  }
+  if (displayName && displayName !== user.display_name) {
+    db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(displayName, user.id);
+    user.display_name = displayName;
+  }
+  return user;
+}
+
+function createGoogleSession(db, tokenInfo, req, res) {
+  const user = ensureGoogleUser(db, tokenInfo);
+  const session = createSession(db, user.id);
+  db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(new Date().toISOString(), user.id);
+  res.setHeader("Set-Cookie", buildSessionCookie(req, session.token));
+  return { session, user };
 }
 
 function readDevicesJson() {
@@ -915,6 +1199,22 @@ function normalizeRotmHandle(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function extractRotmCallsign(value) {
+  const text = String(value || "").toUpperCase();
+  const match = text.match(/[A-Z0-9]{1,3}\d[A-Z0-9/]{1,6}/);
+  return match ? match[0] : "";
+}
+
+function buildRotmKeys(value) {
+  const keys = new Set();
+  const direct = normalizeRotmHandle(value);
+  if (direct) keys.add(direct);
+  const call = extractRotmCallsign(value);
+  const callNorm = normalizeRotmHandle(call);
+  if (callNorm) keys.add(callNorm);
+  return Array.from(keys);
+}
+
 function extractRotmMentions(body) {
   const text = String(body || "");
   const out = new Set();
@@ -932,6 +1232,7 @@ function buildRotmCandidatesByHash(devices) {
   const map = new Map(); // hash -> [{pub, name, gps}]
   for (const d of Object.values(byPub)) {
     if (!d?.isRepeater) continue;
+    if (isCompanionDevice(d)) continue;
     if (d.hiddenOnMap || d.gpsImplausible || d.gpsFlagged) continue;
     if (!d.gps || !isValidGps(d.gps.lat, d.gps.lon)) continue;
     const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || null;
@@ -1075,6 +1376,21 @@ function resolveRotmRepeaterFromPath(path, candidatesByHash) {
   return best;
 }
 
+function isCompanionDevice(d) {
+  if (!d) return false;
+  const role = String(d.role || "").toLowerCase();
+  if (role === "companion") return true;
+  const roleName = String(d.appFlags?.roleName || "").toLowerCase();
+  if (roleName === "companion") return true;
+  const roleCode = Number.isFinite(d.appFlags?.roleCode) ? d.appFlags.roleCode : null;
+  if (roleCode === 0) return true;
+  const geoRole = Number.isFinite(d.raw?.lastAdvert?.appData?.deviceRole)
+    ? Number(d.raw.lastAdvert.appData.deviceRole)
+    : null;
+  if (geoRole === 4) return true; // sensors & non-repeater companions
+  return false;
+}
+
 function readDevices() {
   const now = Date.now();
   if (devicesCache.data && (now - devicesCache.readAt) < DEVICES_CACHE_MS) {
@@ -1087,7 +1403,7 @@ function readDevices() {
     if (!has) return fallback;
     const rows = db.prepare(`
       SELECT pub, name, is_repeater, is_observer, last_seen, observer_last_seen,
-             gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
+             last_advert_heard_ms, gps_lat, gps_lon, raw_json, hidden_on_map, updated_at
       FROM devices
     `).all();
     if (!rows.length) return fallback;
@@ -1106,6 +1422,8 @@ function readDevices() {
         const gps = isValidGps(row.gps_lat, row.gps_lon)
           ? { lat: row.gps_lat, lon: row.gps_lon }
           : null;
+        const entryMeta = entryRaw?.meta || {};
+        const nameValid = typeof entryMeta.nameValid === "boolean" ? entryMeta.nameValid : null;
         const entry = {
           pub,
           name: row.name || null,
@@ -1113,10 +1431,16 @@ function readDevices() {
           isObserver: !!row.is_observer,
           lastSeen: row.last_seen || null,
           observerLastSeen: row.observer_last_seen || null,
+          lastAdvertHeardMs: Number.isFinite(row.last_advert_heard_ms) ? row.last_advert_heard_ms : null,
+          verifiedAdvert: !!entryMeta.verifiedAdvert,
+          nameValid: nameValid === true,
+          nameInvalidReason: entryMeta.nameInvalidReason || null,
+          gpsInvalidReason: entryMeta.gpsInvalidReason || null,
           gps,
           raw: entryRaw,
           hiddenOnMap: row.hidden_on_map ? true : false
         };
+        entry.nameInvalid = entry.nameValid === false;
         if (entryRaw?.lastAdvert) {
           entry.gpsReported = normalizeGpsValue(
             entryRaw.lastAdvert.gps ||
@@ -1197,9 +1521,225 @@ function readObservers() {
   }
 }
 
+function safeCount(db, sql, params = []) {
+  try {
+    const stmt = db.prepare(sql);
+    const row = Array.isArray(params) ? stmt.get(...params) : stmt.get(params);
+    return row ? Number(row.count || 0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function buildHealthPayload() {
+  const db = getDb();
+  const now = Date.now();
+  const last24h = now - 24 * 60 * 60 * 1000;
+  const last3d = now - 3 * 24 * 60 * 60 * 1000;
+  const last10m = now - 10 * 60 * 1000;
+  const totalRepeaters = safeCount(db, "SELECT COUNT(*) AS count FROM devices WHERE is_repeater = 1");
+  const repeatersLast24h = safeCount(db, "SELECT COUNT(*) AS count FROM devices WHERE is_repeater = 1 AND last_advert_heard_ms >= ?", [last24h]);
+  const repeatersLast3d = safeCount(db, "SELECT COUNT(*) AS count FROM devices WHERE is_repeater = 1 AND last_advert_heard_ms >= ?", [last3d]);
+  const stale1dTo3d = safeCount(
+    db,
+    "SELECT COUNT(*) AS count FROM devices WHERE is_repeater = 1 AND last_advert_heard_ms >= ? AND last_advert_heard_ms < ?",
+    [last3d, last24h]
+  );
+  const ingestRows = db.prepare(
+    "SELECT key, value FROM ingest_metrics WHERE key IN (?, ?)"
+  ).all("countAdvertsSeenLast10m", "lastAdvertSeenAtIso");
+  const ingestMetrics = {};
+  ingestRows.forEach((row) => {
+    if (row?.key) ingestMetrics[row.key] = row.value;
+  });
+  const rejectedAdvertsLast10m = safeCount(
+    db,
+    "SELECT COUNT(*) AS count FROM rejected_adverts WHERE heard_ms >= ?",
+    [last10m]
+  );
+  const rankItems = Array.isArray(rankCache.items) ? rankCache.items : [];
+  const excludedItems = Array.isArray(rankCache.excluded) ? rankCache.excluded : [];
+  const observersJson = readObserversJson();
+  const observerIds = Object.keys(observersJson.byId || {});
+  const sampleObserverIds = observerIds.slice(0, 3);
+  return {
+    nowIso: new Date().toISOString(),
+    dbPath: getDbPath(),
+    dbDatabaseList: (db.pragma("database_list") || []).map((entry) => entry || {}),
+    ingest: {
+      advertsLast10m: Number.parseInt(ingestMetrics.countAdvertsSeenLast10m || "0", 10) || 0,
+      lastAdvertHeardIso: ingestMetrics.lastAdvertSeenAtIso || null,
+      rejectedAdvertsLast10m
+    },
+    repeaters: {
+      totalRepeaters,
+      repeatersLast24h,
+      repeatersLast3d,
+      stale1dTo3d
+    },
+    rankCache: {
+      updatedAtIso: rankCache.updatedAt || rankCache.cachedAt || null,
+      includedCount: rankItems.length,
+      excludedCount: excludedItems.length
+    },
+    observerAnchoring: {
+      observersJsonLoaded: observerIds.length > 0,
+      observersCount: observerIds.length,
+      sampleObserverIds
+    }
+  };
+}
+
+function getObserverLink(observerId) {
+  const rawId = String(observerId || "").trim();
+  if (!rawId) return { linkedPub: null, linkedHash: null, source: "missing" };
+  const normalizedId = rawId.toUpperCase();
+  const observersJson = readObserversJson();
+  const entry = (observersJson.byId?.[normalizedId] || observersJson.byId?.[rawId]) || null;
+  if (!entry) return { linkedPub: null, linkedHash: null, source: "missing" };
+  const pub = sanitizeRepeaterPub(entry.bestRepeaterPub || entry.bestRepeaterPubKey || entry.bestRepeater || "");
+  if (!pub) return { linkedPub: null, linkedHash: null, source: "observers.json:no_pub" };
+  return { linkedPub: pub, linkedHash: nodeHashFromPub(pub), source: "observers.json" };
+}
+
 function parseIso(ts) {
   const d = new Date(ts);
   return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function buildRepeatersWithinWindow(byPub, windowMs) {
+  const now = Date.now();
+  const repeaters = new Map();
+  for (const [pub, heardMs] of getRepeatersLastAdvertHeardMsMap(byPub)) {
+    if (!Number.isFinite(heardMs)) continue;
+    if (heardMs < now - windowMs || heardMs > now) continue;
+    const entry = byPub[pub];
+    if (!entry) continue;
+    repeaters.set(pub, {
+      pub,
+      entry,
+      lastAdvertHeardMs: heardMs,
+      lastAdvertHeardIso: new Date(heardMs).toISOString()
+    });
+  }
+  return repeaters;
+}
+
+function getRepeaterLastAdvertHeardMs(device) {
+  if (!device) return null;
+  return Number.isFinite(device.lastAdvertHeardMs) ? device.lastAdvertHeardMs : null;
+}
+
+function getRepeatersLastAdvertHeardMsMap(byPub) {
+  const map = new Map();
+  for (const entry of Object.values(byPub || {})) {
+    if (!entry?.isRepeater) continue;
+    const pubKey = String(
+      entry.pub ||
+      entry.publicKey ||
+      entry.pubKey ||
+      entry.raw?.lastAdvert?.publicKey ||
+      ""
+    ).toUpperCase();
+    if (!pubKey) continue;
+    const heardMs = getRepeaterLastAdvertHeardMs(entry);
+    if (!Number.isFinite(heardMs)) continue;
+    map.set(pubKey, heardMs);
+  }
+  return map;
+}
+
+function buildRepeatEvidenceMap(windowMs) {
+  const db = getDb();
+  const map = new Map();
+  if (!hasMessageObserversDb(db)) return map;
+  const sinceIso = new Date(Date.now() - windowMs).toISOString();
+  try {
+    const rows = db.prepare(`
+      SELECT path_json, path_text
+      FROM message_observers
+      WHERE ts >= ?
+        AND (path_json IS NOT NULL OR path_text IS NOT NULL)
+    `).all(sinceIso);
+    rows.forEach((row) => {
+      const tokens = row.path_json
+        ? parsePathJsonTokens(row.path_json)
+        : parsePathTokens(row.path_text);
+      if (!Array.isArray(tokens) || !tokens.length) return;
+      tokens.forEach((token, idx) => {
+        if (!token) return;
+        let entry = map.get(token);
+        if (!entry) {
+          entry = { middleCount: 0, upstream: new Set(), downstream: new Set() };
+          map.set(token, entry);
+        }
+        if (idx > 0) entry.upstream.add(tokens[idx - 1]);
+        if (idx < tokens.length - 1) entry.downstream.add(tokens[idx + 1]);
+        if (idx > 0 && idx < tokens.length - 1) {
+          entry.middleCount += 1;
+        }
+      });
+    });
+  } catch {
+    // best-effort; swallow DB errors
+  }
+  return map;
+}
+
+function summarizeRepeatEvidence(entry) {
+  if (!entry) {
+    return {
+      middleCount: 0,
+      upstreamCount: 0,
+      downstreamCount: 0,
+      isTrueRepeater: false,
+      repeatEvidenceReason: "insufficient_repeat_evidence"
+    };
+  }
+  const middleCount = Number.isFinite(entry.middleCount) ? entry.middleCount : 0;
+  const upstreamCount = entry.upstream ? entry.upstream.size : 0;
+  const downstreamCount = entry.downstream ? entry.downstream.size : 0;
+  const meetsMiddleThreshold = middleCount >= REPEAT_EVIDENCE_MIN_MIDDLE;
+  const meetsNeighborThreshold = upstreamCount >= REPEAT_EVIDENCE_MIN_NEIGHBORS && downstreamCount >= REPEAT_EVIDENCE_MIN_NEIGHBORS;
+  const isTrue = meetsMiddleThreshold || meetsNeighborThreshold;
+  return {
+    middleCount,
+    upstreamCount,
+    downstreamCount,
+    isTrueRepeater: isTrue,
+    repeatEvidenceReason: isTrue ? null : "insufficient_repeat_evidence"
+  };
+}
+
+function classifyRepeaterQuality(entry, stats, lastAdvertHeardMs) {
+  const reasons = [];
+  if (!entry?.verifiedAdvert) {
+    reasons.push("unverified_advert");
+    return { quality: "phantom", reasons };
+  }
+  if (!Number.isFinite(lastAdvertHeardMs)) {
+    reasons.push("missing_heard");
+    return { quality: "phantom", reasons };
+  }
+  const statsTotal = stats?.total24h || 0;
+  const hasGps = isValidGps(entry.gps?.lat, entry.gps?.lon);
+  const nameValid = entry.nameValid === true;
+  const nameInvalid = !nameValid;
+  if (!hasGps && !nameValid && statsTotal === 0) {
+    reasons.push("name_invalid_no_gps_no_activity");
+    return { quality: "phantom", reasons };
+  }
+  if (!nameValid) {
+    const nameReason = entry.nameInvalidReason || "missing";
+    reasons.push(`name_invalid_${nameReason}`);
+  }
+  if (!hasGps) reasons.push("missing_gps");
+  if (entry.hiddenOnMap) reasons.push("hidden_on_map");
+  if (entry.gpsImplausible) reasons.push("gps_implausible");
+  if (entry.gpsFlagged) reasons.push("gps_flagged");
+  if (entry.gpsInvalidReason) reasons.push(`invalid_gps_${entry.gpsInvalidReason}`);
+  if (reasons.length) return { quality: "low_quality", reasons };
+  return { quality: "valid", reasons };
 }
 
 function loadKeys() {
@@ -1285,6 +1825,283 @@ function buildNodeHashMap() {
   return map;
 }
 
+function getCachedNodeHashMap() {
+  const now = Date.now();
+  const cache = meshFlowCache.nodeMap;
+  if (!cache.map || (now - cache.updatedAt) > 30000) {
+    cache.map = buildNodeHashMap();
+    cache.updatedAt = now;
+  }
+  return cache.map;
+}
+
+function buildRepeaterHashMap() {
+  const devices = readDevices();
+  const byPub = devices.byPub || {};
+  const map = new Map();
+  for (const d of Object.values(byPub)) {
+    if (!d?.isRepeater) continue;
+    const pub = String(d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || "").trim().toUpperCase();
+    if (!pub) continue;
+    const hash = nodeHashFromPub(pub);
+    if (!hash) continue;
+    const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? { lat: d.gps.lat, lon: d.gps.lon } : null;
+    if (!gps || (gps.lat === 0 && gps.lon === 0)) continue;
+    const lastSeen = d.lastSeen || d.last_seen || null;
+    const parsedLastSeen = lastSeen ? Date.parse(lastSeen) : NaN;
+    const lastSeenMs = Number.isFinite(parsedLastSeen) ? parsedLastSeen : null;
+    const candidate = {
+      hash,
+      pub,
+      name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
+      gps,
+      lastSeen: d.lastSeen || d.last_seen || null,
+      gpsFlagged: !!d.gpsFlagged,
+      gpsImplausible: !!d.gpsImplausible,
+      hiddenOnMap: !!d.hiddenOnMap
+    };
+    const existing = map.get(hash) || [];
+    existing.push(candidate);
+    map.set(hash, existing);
+  }
+  return map;
+}
+
+function getCachedRepeaterHashMap() {
+  const now = Date.now();
+  const cache = meshFlowCache.repeaterHash;
+  if (!cache.map || (now - cache.updatedAt) > 30000) {
+    cache.map = buildRepeaterHashMap();
+    cache.updatedAt = now;
+  }
+  return cache.map;
+}
+
+function normalizeGeoscoreCandidate(entry) {
+  if (!entry) return null;
+  const pubKey = entry.pub ? String(entry.pub).toUpperCase() : "";
+  const lastSeenMs = Number.isFinite(lastHeardByPub.get(pubKey)) ? lastHeardByPub.get(pubKey) : null;
+  return {
+    hash: entry.hash,
+    pub: pubKey,
+    name: entry.name,
+    gps: entry.gps,
+    lastSeenMs,
+    gpsFlagged: !!entry.gpsFlagged,
+    gpsImplausible: !!entry.gpsImplausible,
+    hiddenOnMap: !!entry.hiddenOnMap
+  };
+}
+
+function buildCandidatesByToken(tokens) {
+  const repeaterMap = getCachedRepeaterHashMap();
+  const map = new Map();
+  if (!tokens || !tokens.length) return map;
+  tokens.forEach((token) => {
+    if (map.has(token)) return;
+    const raw = repeaterMap.get(token) || [];
+    const entries = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const normalized = entries.map(normalizeGeoscoreCandidate).filter(Boolean);
+    if (!normalized.length) {
+      map.set(token, []);
+      return;
+    }
+    const filtered = normalized.filter((cand) => cand.gps && !cand.gpsFlagged && !cand.gpsImplausible && !cand.hiddenOnMap);
+    const candidates = (filtered.length ? filtered : normalized).slice(0, GEO_SCORE_CANDIDATE_K);
+    map.set(token, candidates);
+  });
+  return map;
+}
+
+function refreshLastHeardCache() {
+  try {
+    const db = getDb();
+    const windowMs = Date.now() - GEO_SCORE_LAST_HEARD_WINDOW_MS;
+    const stmt = db.prepare("SELECT ts_ms, path_json, path_text FROM message_observers WHERE ts_ms >= ?");
+    const nextHash = new Map();
+    for (const row of stmt.iterate(windowMs)) {
+      const tsMs = Number.isFinite(row.ts_ms) ? row.ts_ms : NaN;
+      if (!Number.isFinite(tsMs)) continue;
+      let tokens = [];
+      if (row.path_json) {
+        tokens = parsePathJsonTokens(row.path_json);
+      }
+      if (!tokens.length && row.path_text) {
+        tokens = parsePathTokens(row.path_text);
+      }
+      tokens.forEach((token) => {
+        const prev = nextHash.get(token) || 0;
+        if (tsMs > prev) nextHash.set(token, tsMs);
+      });
+    }
+    lastHeardByHash = nextHash;
+    const nextPub = new Map();
+    const repeaterMap = getCachedRepeaterHashMap();
+    for (const [hash, entries] of repeaterMap.entries()) {
+      const heard = nextHash.get(hash);
+      if (!Number.isFinite(heard)) continue;
+      const candidates = Array.isArray(entries) ? entries : entries ? [entries] : [];
+      candidates.forEach((entry) => {
+        if (!entry?.pub) return;
+        const pubKey = String(entry.pub || "").toUpperCase();
+        const prev = nextPub.get(pubKey) || 0;
+        if (heard > prev) nextPub.set(pubKey, heard);
+      });
+    }
+    lastHeardByPub = nextPub;
+  } catch (err) {
+    console.error("(geoscore) last heard refresh failed", err);
+  }
+}
+
+function jitterGps(gps) {
+  if (!gps || !MESHFLOW_JITTER_ENABLED) return gps;
+  const delta = MESHFLOW_JITTER_DEGREES;
+  return {
+    lat: gps.lat + (Math.random() - 0.5) * delta,
+    lon: gps.lon + (Math.random() - 0.5) * delta
+  };
+}
+
+function parseMeshFlowPath(row) {
+  let values = null;
+  if (row.path_text) {
+    values = String(row.path_text).split("|");
+  } else if (row.path_json) {
+    try {
+      values = JSON.parse(row.path_json);
+    } catch {
+      values = null;
+    }
+  }
+  if (!values || !Array.isArray(values)) return [];
+  return values.map(normalizePathHash).filter(Boolean);
+}
+
+function readMeshFlowRows(db, lastRowId, limit = MESHFLOW_READ_LIMIT) {
+  if (!hasMessageObserversDb(db)) return { rows: [], lastRowId };
+  const rows = db.prepare(`
+    SELECT mo.rowid, mo.message_hash, mo.path_text, mo.path_json, mo.channel_name,
+           m.channel_name AS message_channel, m.path_length
+    FROM message_observers mo
+    LEFT JOIN messages m ON m.message_hash = mo.message_hash
+    WHERE mo.rowid > ?
+    ORDER BY mo.rowid ASC
+    LIMIT ?
+  `).all(lastRowId || 0, limit);
+  let next = lastRowId || 0;
+  rows.forEach((row) => {
+    if (row.rowid > next) next = row.rowid;
+  });
+  return { rows, lastRowId: next };
+}
+
+async function collectMeshFlowTick() {
+  try {
+    const db = getDb();
+    const { rows, lastRowId: nextRow } = readMeshFlowRows(db, meshFlowLastRowId, MESHFLOW_READ_LIMIT);
+    if (!rows.length) return;
+    meshFlowLastRowId = nextRow;
+    const nodeMap = getCachedNodeHashMap();
+    const repeaterMap = getCachedRepeaterHashMap();
+    const flowCounts = new Map();
+    const nodes = new Map();
+    rows.forEach((row) => {
+      const path = parseMeshFlowPath(row);
+      if (path.length < 2) return;
+      const channel = String(row.message_channel || row.channel_name || "#public").toLowerCase();
+      for (let idx = 0; idx < path.length - 1; idx += 1) {
+        const fromHash = path[idx];
+        const toHash = path[idx + 1];
+        const fromNode = nodeMap.get(fromHash);
+        const toNode = nodeMap.get(toHash);
+        if (!fromNode?.gps || !toNode?.gps) continue;
+        if (!Number.isFinite(fromNode.gps.lat) || !Number.isFinite(fromNode.gps.lon)) continue;
+        if (!Number.isFinite(toNode.gps.lat) || !Number.isFinite(toNode.gps.lon)) continue;
+        const fromGps = jitterGps(fromNode.gps);
+        const toGps = jitterGps(toNode.gps);
+        const fromLowScoring = !!fromNode.gpsImplausible || !!fromNode.gpsFlagged;
+        const toLowScoring = !!toNode.gpsImplausible || !!toNode.gpsFlagged;
+        const fromName = fromNode.name || fromHash;
+        const toName = toNode.name || toHash;
+        const fromIsRepeater = repeaterMap.has(fromHash);
+        const toIsRepeater = repeaterMap.has(toHash);
+        const key = `${fromHash}|${toHash}|${channel}`;
+        const existing = flowCounts.get(key) || {
+          key,
+          channel,
+          fromHash,
+          toHash,
+          fromName,
+          toName,
+          fromLat: fromGps.lat,
+          fromLon: fromGps.lon,
+          toLat: toGps.lat,
+          toLon: toGps.lon,
+          fromLowScoring,
+          toLowScoring,
+          fromIsRepeater,
+          toIsRepeater,
+          count: 0,
+          pathLength: 0
+        };
+        existing.count += 1;
+        const hopLength = Number.isFinite(row.path_length) ? row.path_length : path.length;
+        existing.pathLength = Math.max(existing.pathLength || 0, hopLength);
+        flowCounts.set(key, existing);
+        nodes.set(fromHash, {
+          hash: fromHash,
+          name: fromName,
+          lat: fromGps.lat,
+          lon: fromGps.lon,
+          lowScoring: fromLowScoring,
+          isRepeater: fromIsRepeater
+        });
+        nodes.set(toHash, {
+          hash: toHash,
+          name: toName,
+          lat: toGps.lat,
+          lon: toGps.lon,
+          lowScoring: toLowScoring,
+          isRepeater: toIsRepeater
+        });
+      }
+    });
+    if (!flowCounts.size) return;
+    const flows = Array.from(flowCounts.values()).map((item) => ({
+      key: item.key,
+      channel: item.channel,
+      count: item.count,
+      fromHash: item.fromHash,
+      toHash: item.toHash,
+      fromName: item.fromName,
+      toName: item.toName,
+      fromLat: item.fromLat,
+      fromLon: item.fromLon,
+      toLat: item.toLat,
+      toLon: item.toLon,
+      fromLowScoring: item.fromLowScoring,
+      toLowScoring: item.toLowScoring,
+      fromIsRepeater: item.fromIsRepeater,
+      toIsRepeater: item.toIsRepeater,
+      pathLength: item.pathLength
+    }));
+    meshFlowHistory.push({
+      ts: Date.now(),
+      flows,
+      nodes: Array.from(nodes.values()),
+      packetCount: rows.length
+    });
+    const retention = MESHFLOW_HISTORY_MAX_SEC * 1000;
+    const cutoff = Date.now() - retention;
+    while (meshFlowHistory.length && meshFlowHistory[0].ts < cutoff) {
+      meshFlowHistory.shift();
+    }
+  } catch (err) {
+    console.error("MeshFlow tick failed:", err?.message || err);
+  }
+}
+
 function mapChannelName(rec, keyMap) {
   const decodedHash = typeof rec.decoded?.channelHash === "string" ? rec.decoded.channelHash.toUpperCase() : null;
   const hashByte = typeof rec.channel?.hashByte === "string" ? rec.channel.hashByte.toUpperCase() : null;
@@ -1322,6 +2139,434 @@ function normalizePathHash(val) {
   }
   if (typeof val === "string") return val.toUpperCase();
   return "??";
+}
+
+function loadJsonFromPaths(paths, defaultValue = {}) {
+  for (const p of paths) {
+    if (!p) continue;
+    const resolved = path.resolve(p);
+    if (!fs.existsSync(resolved)) continue;
+    const data = readJsonSafe(resolved, defaultValue);
+    if (data && typeof data === "object" && Object.keys(data).length) {
+      return { data, path: resolved };
+    }
+  }
+  return { data: defaultValue, path: paths[0] ? path.resolve(paths[0]) : null };
+}
+
+function parsePathTokens(value) {
+  if (!value) return [];
+  const raw = String(value).toUpperCase();
+  const matches = raw.match(/[0-9A-F]{2}/g) || [];
+  return matches.map((token) => normalizePathHash(token)).filter((token) => token && token !== "??");
+}
+
+function parsePathJsonTokens(value) {
+  if (!value) return [];
+  let arr;
+  try {
+    arr = JSON.parse(value);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.map((token) => normalizePathHash(token)).filter((token) => token && token !== "??");
+}
+
+function safeParseCandidates(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildRepeaterPubsByHash(byPub) {
+  const map = new Map();
+  for (const entry of Object.values(byPub || {})) {
+    if (!entry?.isRepeater) continue;
+    const pub = String(
+      entry.pub ||
+      entry.publicKey ||
+      entry.pubKey ||
+      entry.raw?.lastAdvert?.publicKey ||
+      ""
+    ).toUpperCase();
+    if (!pub) continue;
+    const hash = nodeHashFromPub(pub);
+    if (!hash) continue;
+    const list = map.get(hash) || [];
+    if (!list.includes(pub)) list.push(pub);
+    map.set(hash, list);
+  }
+  return map;
+}
+
+function deriveLinkedRepeaterForObserver(observerId, db, repeaterHashMap) {
+  if (!observerId || !db || !repeaterHashMap || !repeaterHashMap.size || !hasMessageObserversDb(db)) return null;
+  const rows = db.prepare(`
+    SELECT path_json, path_text
+    FROM message_observers
+    WHERE observer_id = ?
+    ORDER BY rowid DESC
+    LIMIT 50
+  `).all(observerId);
+  for (const row of rows) {
+    const tokens = row.path_json
+      ? parsePathJsonTokens(row.path_json)
+      : parsePathTokens(row.path_text);
+    if (!tokens.length) continue;
+    for (const token of tokens) {
+      const candidates = repeaterHashMap.get(token);
+      if (candidates && candidates.length) {
+        return { pub: candidates[0], hash: token, source: "derived:message_observers" };
+      }
+    }
+  }
+  return null;
+}
+
+function distanceKm(a, b) {
+  if (!a || !b) return null;
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  return R * c;
+}
+
+function getObserverProfile(observerId) {
+  if (!observerId) return null;
+  return geoscoreObserverProfilesCache.get(String(observerId).toUpperCase()) || null;
+}
+
+function ensureGeoscoreObserverStmt(db) {
+  if (geoscoreObserverProfileUpsertStmt) return geoscoreObserverProfileUpsertStmt;
+  geoscoreObserverProfileUpsertStmt = db.prepare(`
+    INSERT INTO geoscore_observer_profiles (
+      observer_id, linked_repeater_pub, home_lat, home_lon, source, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(observer_id) DO UPDATE SET
+      linked_repeater_pub = excluded.linked_repeater_pub,
+      home_lat = excluded.home_lat,
+      home_lon = excluded.home_lon,
+      source = excluded.source,
+      updated_at = excluded.updated_at
+  `);
+  return geoscoreObserverProfileUpsertStmt;
+}
+
+function ensureGeoscoreRouteStmt(db) {
+  if (geoscoreRouteUpsertStmt) return geoscoreRouteUpsertStmt;
+  geoscoreRouteUpsertStmt = db.prepare(`
+    INSERT INTO geoscore_routes (
+      msg_key, ts, ts_ms, observer_id, path_tokens, inferred_pubs, hop_confidences,
+      route_confidence, unresolved, candidates_json, teleport_max_km
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(msg_key) DO UPDATE SET
+      ts = excluded.ts,
+      ts_ms = excluded.ts_ms,
+      observer_id = excluded.observer_id,
+      path_tokens = excluded.path_tokens,
+      inferred_pubs = excluded.inferred_pubs,
+      hop_confidences = excluded.hop_confidences,
+      route_confidence = excluded.route_confidence,
+      unresolved = excluded.unresolved,
+      candidates_json = excluded.candidates_json,
+      teleport_max_km = excluded.teleport_max_km
+  `);
+  return geoscoreRouteUpsertStmt;
+}
+
+function buildGeoscoreRoutePayload(entry) {
+  const tokens = Array.isArray(entry.pathTokens) ? entry.pathTokens : [];
+  const observerProfile = getObserverProfile(entry.observerId);
+  const observerHome = observerProfile?.home_lat && observerProfile?.home_lon
+    ? { lat: observerProfile.home_lat, lon: observerProfile.home_lon }
+    : null;
+  const candidatesByToken = buildCandidatesByToken(tokens);
+  const fallbackMetadata = tokens.map((token) => ({ token, count: 0, top: [] }));
+  const inference = inferRouteViterbi({
+    tokens,
+    observerHome,
+    ts: entry.ts,
+    now: Date.now(),
+    candidatesByToken,
+    edgePrior: () => 0
+  }) || {
+    inferredPubs: tokens.map(() => null),
+    hopConfidences: tokens.map(() => 0),
+    routeConfidence: 0,
+    unresolved: 1,
+    candidatesJson: JSON.stringify(fallbackMetadata),
+    candidateMetadata: fallbackMetadata,
+    teleportMaxKm: null,
+    diagnostics: {
+      candidateCounts: fallbackMetadata.map((m) => m.count),
+      zeroCandidateTokens: tokens.slice(),
+      bestScore: null,
+      runnerUpScore: null,
+      routeMargin: null
+    }
+  };
+  const tsMs = Number.isFinite(entry.ts) ? entry.ts : Date.now();
+  if (GEO_SCORE_DEBUG && inference.diagnostics && (Date.now() - lastGeoscoreDiagLogMs) >= 60000) {
+    lastGeoscoreDiagLogMs = Date.now();
+    const diag = inference.diagnostics;
+    const counts = (inference.candidateMetadata || []).map((meta) => Number.isFinite(meta.count) ? meta.count : 0);
+    const sortedCounts = counts.length ? [...counts].sort((a, b) => a - b) : [];
+    const countMin = sortedCounts.length ? sortedCounts[0] : 0;
+    const countMax = sortedCounts.length ? sortedCounts[sortedCounts.length - 1] : 0;
+    const countMedian = sortedCounts.length
+      ? sortedCounts[Math.floor(sortedCounts.length / 2)]
+      : 0;
+    const zeroCount = counts.filter((value) => value === 0).length;
+    const hopConf = inference.hopConfidences || [];
+    const hopMin = hopConf.length ? Math.min(...hopConf) : 0;
+    const hopAvg = hopConf.length
+      ? hopConf.reduce((sum, value) => sum + value, 0) / hopConf.length
+      : 0;
+    const reason = diag.routeConfidence < ROUTE_CONF_MIN
+      ? "routeConfidence"
+      : hopMin < HOP_CONF_MIN ? "hopConfidence" : "none";
+    const tokenPreview = tokens.slice(0, 10).join(",");
+    console.log(
+      `(geoscore) diag msg=${entry.msgKey} tokens=${tokens.length}[${tokenPreview}] counts=${countMin}/${countMedian}/${countMax} zero=${zeroCount} best=${diag.bestScore} runnerUp=${diag.runnerUpScore} margin=${diag.routeMargin} conf=${diag.routeConfidence?.toFixed(3) || "null"} hopMin=${hopMin.toFixed(3)} hopAvg=${hopAvg.toFixed(3)} reason=${reason}`
+    );
+  }
+  return {
+    msgKey: entry.msgKey,
+    ts: new Date(tsMs).toISOString(),
+    tsMs,
+    observerId: entry.observerId,
+    pathTokens: tokens,
+    inferredPubs: inference.inferredPubs,
+    hopConfidences: inference.hopConfidences,
+    routeConfidence: inference.routeConfidence,
+    unresolved: inference.unresolved,
+    candidatesJson: inference.candidatesJson,
+    teleportMaxKm: inference.teleportMaxKm
+  };
+}
+
+function enqueueGeoscoreRoute(entry) {
+  geoscoreQueue.push(entry);
+  if (!geoscoreProcessing) processGeoscoreQueue();
+}
+
+function processGeoscoreQueue() {
+  if (geoscoreProcessing) return;
+  geoscoreProcessing = true;
+  setImmediate(() => {
+    try {
+      const batch = geoscoreQueue.splice(0, GEO_SCORE_BATCH_SIZE);
+      if (!batch.length) return;
+      const db = getDb();
+      const stmt = ensureGeoscoreRouteStmt(db);
+      for (const entry of batch) {
+        const payload = buildGeoscoreRoutePayload(entry);
+        stmt.run(
+          payload.msgKey,
+          payload.ts,
+          payload.tsMs,
+          payload.observerId,
+          JSON.stringify(payload.pathTokens),
+          JSON.stringify(payload.inferredPubs),
+          JSON.stringify(payload.hopConfidences),
+          payload.routeConfidence,
+          payload.unresolved,
+          payload.candidatesJson,
+          payload.teleportMaxKm
+        );
+      }
+    } catch (err) {
+      console.error("(geoscore) queue error", err);
+    } finally {
+      geoscoreProcessing = false;
+      if (geoscoreQueue.length) processGeoscoreQueue();
+    }
+  });
+}
+
+async function refreshGeoscoreObserverProfiles() {
+  const observersResult = loadJsonFromPaths([observersPath, observersPathAlt], { byId: {} });
+  const devicesResult = loadJsonFromPaths([devicesPath, devicesPathAlt], { byPub: {} });
+  const observersData = observersResult.data;
+  const devicesData = devicesResult.data;
+  const db = getDb();
+  const stmt = ensureGeoscoreObserverStmt(db);
+  const now = new Date().toISOString();
+  const updated = new Map();
+  let gpsKnown = 0;
+  const repeaterHashMap = buildRepeaterPubsByHash(devicesData.byPub || {});
+  for (const [id, info] of Object.entries(observersData.byId || {})) {
+    const observerId = String(id || "").toUpperCase();
+    if (!observerId) continue;
+    const bestPub = String(info?.bestRepeaterPub || "").toUpperCase();
+    const derived = bestPub ? null : deriveLinkedRepeaterForObserver(observerId, db, repeaterHashMap);
+    const finalPub = bestPub || derived?.pub;
+    if (!finalPub) continue;
+    let home = null;
+    let source = bestPub ? GEO_SCORE_OBSERVER_SOURCE : derived?.source || "derived:message_observers";
+    const device = devicesData.byPub ? devicesData.byPub[finalPub] : null;
+    if (device?.gps && isValidGps(device.gps.lat, device.gps.lon) && !device.gpsImplausible && !device.gpsFlagged && !device.hiddenOnMap) {
+      home = normalizeGpsValue(device.gps);
+      source = `${source}->devices`;
+    } else if (info?.gps && isValidGps(info.gps.lat, info.gps.lon)) {
+      home = normalizeGpsValue(info.gps);
+      source = source || "observers.json:gps";
+    }
+    if (home) gpsKnown += 1;
+    stmt.run(
+      observerId,
+      finalPub,
+      home?.lat ?? null,
+      home?.lon ?? null,
+      source,
+      now
+    );
+    updated.set(observerId, {
+      observer_id: observerId,
+      linked_repeater_pub: finalPub,
+      home_lat: home?.lat ?? null,
+      home_lon: home?.lon ?? null,
+      source,
+      updated_at: now
+    });
+  }
+  geoscoreObserverProfilesCache = updated;
+  console.log(`(geoscore) loaded observers from ${observersResult.path}, devices from ${devicesResult.path}`);
+  console.log(`(geoscore) profiles: ${updated.size}, gps known: ${gpsKnown}`);
+  return { count: updated.size, gpsKnown };
+}
+
+function readGeoscoreObserverProfiles() {
+  const db = getDb();
+  const rows = db.prepare("SELECT observer_id, linked_repeater_pub, home_lat, home_lon, source, updated_at FROM geoscore_observer_profiles").all();
+  return rows;
+}
+
+function readIngestMetrics(db) {
+  if (!db) return {};
+  const rows = db.prepare(`
+    SELECT key, value
+    FROM ingest_metrics
+    WHERE key IN (?, ?)
+  `).all("countAdvertsSeenLast10m", "lastAdvertSeenAtIso");
+  const metrics = {};
+  rows.forEach((row) => {
+    if (row?.key) metrics[String(row.key)] = row.value;
+  });
+  return metrics;
+}
+
+function readGeoscoreStatus() {
+  const db = getDb();
+  const counts = db.prepare(`
+    SELECT
+      (SELECT COUNT(1) FROM geoscore_observer_profiles) AS observer_profiles,
+      (SELECT COUNT(1) FROM geoscore_routes) AS routes,
+      (SELECT COUNT(1) FROM geoscore_edges) AS edges,
+      (SELECT COUNT(1) FROM geoscore_metrics_daily) AS metrics
+  `).get();
+  const latestModel = db.prepare("SELECT model_version FROM geoscore_model_versions ORDER BY created_at DESC LIMIT 1").get();
+  const latestMetric = db.prepare("SELECT day_yyyymmdd FROM geoscore_metrics_daily ORDER BY day_yyyymmdd DESC LIMIT 1").get();
+  const lastRoute = db.prepare("SELECT ts, ts_ms FROM geoscore_routes ORDER BY ts_ms DESC LIMIT 1").get();
+  const tenMinutesAgoMs = Date.now() - 10 * 60 * 1000;
+  const recentCount = db.prepare("SELECT COUNT(1) AS c, SUM(CASE WHEN unresolved=1 THEN 1 ELSE 0 END) AS unresolved FROM geoscore_routes WHERE ts_ms >= ?").get(tenMinutesAgoMs);
+  const resolvedRecent = db.prepare("SELECT COUNT(1) AS c FROM geoscore_routes WHERE ts_ms >= ? AND unresolved=0").get(tenMinutesAgoMs);
+  const teleportsLast10m = db.prepare("SELECT COUNT(1) AS c FROM geoscore_routes WHERE ts_ms >= ? AND teleport_max_km > 330").get(tenMinutesAgoMs);
+  const avgConfRow = db.prepare("SELECT AVG(route_confidence) AS avg_conf FROM geoscore_routes WHERE ts_ms >= ?").get(tenMinutesAgoMs);
+  const resolvedTotal = db.prepare("SELECT COUNT(1) AS c FROM geoscore_routes WHERE unresolved=0").get();
+  const messageObserversLast10mRow = db.prepare("SELECT COUNT(1) AS c FROM message_observers WHERE ts_ms >= ?").get(tenMinutesAgoMs);
+  const repeatersTotalRow = db.prepare("SELECT COUNT(1) AS c FROM devices WHERE is_repeater=1").get();
+  const repeaters3dRow = db.prepare("SELECT COUNT(1) AS c FROM devices WHERE is_repeater=1 AND last_advert_heard_ms >= ?").get(Date.now() - (3 * 24 * 60 * 60 * 1000));
+  const ingestMetrics = readIngestMetrics(db);
+  const dbInfo = dbInfoCache || {
+    resolvedPath: path.resolve(dbPath),
+    cwd: process.cwd(),
+    databaseList: db.pragma("database_list") || [],
+    mainFile: db.pragma("database_list")?.[0]?.file || null
+  };
+  const unresolvedRate = recentCount?.c ? Number(((recentCount.unresolved / recentCount.c) * 100).toFixed(1)) : 0;
+  const resolvedRate = recentCount?.c
+    ? Number(((resolvedRecent?.c || 0) / recentCount.c * 100).toFixed(1))
+    : 0;
+  const avgRouteConfidence = avgConfRow?.avg_conf ? Number(avgConfRow.avg_conf.toFixed(3)) : 0;
+  const queryResults = {
+    messageObserversLast10m: messageObserversLast10mRow?.c || 0,
+    repeatersTotal: repeatersTotalRow?.c || 0,
+    repeatersWithin3d: repeaters3dRow?.c || 0
+  };
+  return {
+    observerProfiles: counts.observer_profiles,
+    routes: counts.routes,
+    edges: counts.edges,
+    metrics: counts.metrics,
+    latestModel: latestModel?.model_version || null,
+    latestMetricDay: latestMetric?.day_yyyymmdd || null,
+    dbInfo,
+    queryResults,
+    ingestMetrics,
+    lastRouteTs: lastRoute?.ts || null,
+    lastRouteMs: lastRoute?.ts_ms || null,
+    totalRoutes: counts.routes,
+    resolvedRoutes: resolvedTotal?.c || 0,
+    routesLast10mCount: recentCount?.c || 0,
+    unresolvedRateLast10m: unresolvedRate,
+    resolvedRateLast10m: resolvedRate,
+    avgRouteConfidenceLast10m: avgRouteConfidence,
+    teleportsLast10mCount: teleportsLast10m?.c || 0
+  };
+}
+
+function readGeoscoreDiagnostics() {
+  const db = getDb();
+  const rows = db.prepare("SELECT candidates_json FROM geoscore_routes WHERE candidates_json IS NOT NULL ORDER BY ts_ms DESC LIMIT 50").all();
+  let totalTokens = 0;
+  let totalCandidates = 0;
+  let zeroTokens = 0;
+  const zeroFreq = new Map();
+  rows.forEach((row) => {
+    const metadata = safeParseCandidates(row.candidates_json);
+    metadata.forEach((entry) => {
+      const count = Number.isFinite(entry.count) ? entry.count : 0;
+      totalTokens += 1;
+      totalCandidates += count;
+      if (!count) {
+        zeroTokens += 1;
+        zeroFreq.set(entry.token, (zeroFreq.get(entry.token) || 0) + 1);
+      }
+    });
+  });
+  const avgCandidatesPerToken = totalTokens ? Number((totalCandidates / totalTokens).toFixed(2)) : 0;
+  const pctTokensZeroCandidates = totalTokens ? Number(((zeroTokens / totalTokens) * 100).toFixed(1)) : 0;
+  const zeroTokenList = Array.from(zeroFreq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([token, count]) => ({ token, count }));
+  const observerStats = db.prepare(`
+    SELECT COUNT(1) AS total,
+           SUM(CASE WHEN home_lat IS NOT NULL AND home_lon IS NOT NULL THEN 1 ELSE 0 END) AS with_home
+    FROM geoscore_observer_profiles
+  `).get();
+  const pctObserversWithHomeCoords = observerStats.total
+    ? Number(((observerStats.with_home || 0) / observerStats.total * 100).toFixed(1))
+    : 0;
+  return {
+    avgCandidatesPerToken,
+    pctTokensZeroCandidates,
+    pctObserversWithHomeCoords,
+    top10MostCommonTokensWithZeroCandidates: zeroTokenList
+  };
 }
 
 function sanitizeRepeaterPub(val) {
@@ -1412,6 +2657,8 @@ async function buildObserverRank() {
 
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
+  const windowHours = windowMs / 3600000;
+  const rankWindowMs = windowMs * 3;
   const stats = new Map();
 
   for (const entry of Object.values(byId)) {
@@ -2021,6 +3268,7 @@ async function buildRepeaterRank() {
 
   const now = Date.now();
   const windowMs = 24 * 60 * 60 * 1000;
+  const rankWindowMs = windowMs * 3;
 
   const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, neighborRssi, clockDriftMs}
   const ensureRepeaterStat = (pub) => {
@@ -2049,7 +3297,6 @@ async function buildRepeaterRank() {
       for (const pub of pubs) {
         const s = ensureRepeaterStat(pub);
         for (const neighbor of neighbors) {
-          s.zeroHopNeighbors.add(neighbor);
           if (Number.isFinite(rssi)) {
             const entry = s.neighborRssi.get(neighbor) || { sum: 0, count: 0, max: -999 };
             entry.sum += rssi;
@@ -2063,8 +3310,14 @@ async function buildRepeaterRank() {
   };
 
   const NEIGHBOR_RADIUS_KM = 200;
+  const NEIGHBOR_CLUSTER_RADIUS_KM = 60;
   const GREEN_RSSI_MIN = -75;
-  const resolveZeroHopNeighbors = (targetGps, neighborHashes, targetPub, overrides) => {
+  const getStatsForPub = (pubKey) => {
+    if (!pubKey) return null;
+    const key = String(pubKey).toUpperCase();
+    return stats.get(key) || stats.get(pubKey) || null;
+  };
+  const resolveZeroHopNeighbors = (targetGps, neighborHashes, targetPub, targetHash, overrides) => {
     if (!targetGps || !Number.isFinite(targetGps.lat) || !Number.isFinite(targetGps.lon)) return [];
     if (!Array.isArray(neighborHashes) || neighborHashes.length === 0) return [];
 
@@ -2087,23 +3340,41 @@ async function buildRepeaterRank() {
         const options = repeaterCandidatesByHash.get(hash) || [];
         const match = options.find((opt) => opt.pub === override.pub);
         if (match) {
-          results.push({ hash, ...match });
+          results.push({ hash, ...match, override: true, mutual: true, relation: "reciprocal" });
           return;
         }
       }
       const candidates = localCandidatesByHash.get(hash) || [];
-      if (candidates.length === 1) {
-        results.push({ hash, ...candidates[0] });
+      if (!candidates.length) return;
+      const mutualCandidates = targetHash
+        ? candidates.filter((cand) => {
+          const candStat = getStatsForPub(cand.pub);
+          if (!candStat?.zeroHopNeighbors) return false;
+          return candStat.zeroHopNeighbors.has(targetHash);
+        })
+        : [];
+      const pool = mutualCandidates.length ? mutualCandidates : candidates;
+      const mutualFlag = mutualCandidates.length > 0;
+      if (pool.length === 1) {
+        results.push({ hash, ...pool[0], mutual: mutualFlag, relation: mutualFlag ? "reciprocal" : "handoff" });
         return;
       }
-      if (!candidates.length) return;
       let best = null;
       let bestDist = Infinity;
-      candidates.forEach((cand) => {
+      let bestCluster = -Infinity;
+      pool.forEach((cand) => {
         const dist = haversineKm(targetGps.lat, targetGps.lon, cand.gps.lat, cand.gps.lon);
-        if (Number.isFinite(dist) && dist < bestDist) {
+        if (!Number.isFinite(dist)) return;
+        const clusterCount = (candidates || []).reduce((sum, other) => {
+          if (!other?.gps) return sum;
+          const d = haversineKm(cand.gps.lat, cand.gps.lon, other.gps.lat, other.gps.lon);
+          if (Number.isFinite(d) && d <= NEIGHBOR_CLUSTER_RADIUS_KM) return sum + 1;
+          return sum;
+        }, 0);
+        if (clusterCount > bestCluster || (clusterCount === bestCluster && dist < bestDist)) {
+          bestCluster = clusterCount;
           bestDist = dist;
-          best = { hash, ...cand };
+          best = { hash, ...cand, mutual: mutualFlag, relation: mutualFlag ? "reciprocal" : "handoff" };
         }
       });
       if (best) results.push(best);
@@ -2281,122 +3552,195 @@ function neighborEstimate(stat, nodeLookup, pubKey) {
   }
 
   const zeroHopOverrides = readZeroHopOverrides();
-  const items = Object.entries(byPub)
-    .filter(([, d]) => d && d.isRepeater)
-    .map(([key, d]) => {
-      const pub = d.pub || d.publicKey || d.pubKey || d.raw?.lastAdvert?.publicKey || key;
-      const s = stats.get(pub) || { total24h: 0, msgCounts: new Map(), rssi: [], snr: [], zeroHopNeighbors: new Set() };
-      const lastSeen = s.lastSeenTs ? s.lastSeenTs.toISOString() : (d.lastSeen || null);
-      const lastSeenDate = parseIso(lastSeen);
-      const ageHours = lastSeenDate ? (now - lastSeenDate.getTime()) / 3600000 : Infinity;
-        const isStale = ageHours > 48;
-        // Keep stale repeaters visible even if lastSeen is old.
-        const uniqueMsgs = s.msgCounts.size || 0;
-        const avgRepeats = uniqueMsgs ? (s.total24h / uniqueMsgs) : 0;
-        const neighborHashes = s.zeroHopNeighbors ? Array.from(s.zeroHopNeighbors) : [];
-        const targetPub = String(pub || "").toUpperCase();
-        const resolvedNeighbors = resolveZeroHopNeighbors(d.gps, neighborHashes, targetPub, zeroHopOverrides);
-        const zeroHopNeighborNames = resolvedNeighbors
-          .map((n) => n.name || n.hash)
-          .filter(Boolean);
-        const zeroHopNeighborDetails = resolvedNeighbors.map((n) => {
-          const rssiEntry = s.neighborRssi ? s.neighborRssi.get(n.hash) : null;
-          const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
-          const rssiAvg = Number.isFinite(avg) ? Number(avg.toFixed(1)) : null;
-          const rssiMax = rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null;
-          const rssiValue = Number.isFinite(rssiAvg) ? rssiAvg : (Number.isFinite(rssiMax) ? rssiMax : null);
-          const options = (repeaterCandidatesByHash.get(n.hash) || []).map((opt) => ({
-            pub: opt.pub,
-            name: opt.name || opt.hash,
-            hash: opt.hash
-          }));
-          return {
-            hash: n.hash,
-            pub: n.pub,
-            name: n.name || n.hash,
-            gps: n.gps,
-            rssiAvg,
-            rssiMax,
-            options,
-            isGreen: Number.isFinite(rssiValue) && rssiValue >= GREEN_RSSI_MIN
-          };
-        }).filter((n) => n.isGreen);
-        const zeroHopNeighbors24h = zeroHopNeighborDetails.length;
+  const repeaters3d = buildRepeatersWithinWindow(byPub, rankWindowMs);
+  const repeatEvidenceMap = buildRepeatEvidenceMap(REPEAT_EVIDENCE_WINDOW_MS);
+  const included = [];
+  const excluded = [];
+  for (const repeater of repeaters3d.values()) {
+    const { pub, entry: d, lastAdvertHeardMs, lastAdvertHeardIso } = repeater;
+    const statsEntry = stats.get(pub) || {
+      total24h: 0,
+      msgCounts: new Map(),
+      rssi: [],
+      snr: [],
+      zeroHopNeighbors: new Set(),
+      neighborRssi: new Map(),
+      bestRssi: null,
+      bestSnr: null,
+      clockDriftMs: null
+    };
+    const lastAdvertAgeHours = Number.isFinite(lastAdvertHeardMs)
+      ? (now - lastAdvertHeardMs) / 3600000
+      : null;
+    const lastSeen = lastAdvertHeardIso || null;
+    const isLive = lastAdvertAgeHours !== null && lastAdvertAgeHours <= windowHours;
+    const isStale = lastAdvertAgeHours !== null && lastAdvertAgeHours >= windowHours;
+    const liveState = isLive ? "live" : "offline";
+    const ageHours = lastAdvertAgeHours !== null ? lastAdvertAgeHours : Infinity;
+    const classification = classifyRepeaterQuality(d, statsEntry, lastAdvertHeardMs);
+    const targetPub = String(pub || "").toUpperCase();
+    const targetHash = nodeHashFromPub(pub);
+    const evidence = summarizeRepeatEvidence(repeatEvidenceMap.get(targetHash));
+    const excludedReasons = [];
+    const addExcludedReason = (reason) => {
+      if (!reason) return;
+      if (excludedReasons.includes(reason)) return;
+      excludedReasons.push(reason);
+    };
+    if (classification.quality !== "valid") {
+      addExcludedReason(classification.quality);
+      (Array.isArray(classification.reasons) ? classification.reasons : []).forEach(addExcludedReason);
+    }
+    if (isCompanionDevice(d)) addExcludedReason("companion_node");
+    if (!evidence.isTrueRepeater) {
+      addExcludedReason(evidence.repeatEvidenceReason || "insufficient_repeat_evidence");
+    }
+    if (excludedReasons.length) {
+      excluded.push({
+        pub: targetPub,
+        hashByte: targetHash,
+        name: d.name || d.raw?.lastAdvert?.appData?.name || null,
+        gps: d.gps || null,
+        lastAdvertIngestMs: Number.isFinite(lastAdvertHeardMs) ? lastAdvertHeardMs : null,
+        lastAdvertIngestIso: lastAdvertHeardIso || null,
+        isLive,
+        liveState,
+        lastAdvertAgeHours: lastAdvertAgeHours !== null ? Number(lastAdvertAgeHours.toFixed(2)) : null,
+        quality: classification.quality,
+        qualityReasons: classification.reasons,
+        excludedReasons,
+        repeatEvidenceMiddleHops24h: evidence.middleCount,
+        repeatEvidenceUpstreamDistinct24h: evidence.upstreamCount,
+        repeatEvidenceDownstreamDistinct24h: evidence.downstreamCount,
+        isTrueRepeater: evidence.isTrueRepeater,
+        repeatEvidenceReason: evidence.repeatEvidenceReason
+      });
+      continue;
+    }
 
-      const avgRssi = trimmedMean(s.rssi, 0.1);
-      const driftMinutes = Number.isFinite(s.clockDriftMs) ? Math.round(s.clockDriftMs / 60000) : null;
-      const avgSnr = trimmedMean(s.snr, 0.1);
-      const bestRssi = Number.isFinite(s.bestRssi) ? s.bestRssi : (Number.isFinite(d.stats?.bestRssi) ? d.stats.bestRssi : -120);
-      const bestSnr = Number.isFinite(s.bestSnr) ? s.bestSnr : (Number.isFinite(d.stats?.bestSnr) ? d.stats.bestSnr : -20);
-
-      const rssiBase = Number.isFinite(avgRssi) ? avgRssi : bestRssi;
-      const snrBase = Number.isFinite(avgSnr) ? avgSnr : bestSnr;
-      const rssiScore = clamp((rssiBase + 120) / 70, 0, 1);
-      const snrScore = clamp((snrBase + 20) / 30, 0, 1);
-      const bestRssiScore = clamp((bestRssi + 120) / 70, 0, 1);
-      const bestSnrScore = clamp((bestSnr + 20) / 30, 0, 1);
-        const throughputScore = clamp(s.total24h / 50, 0, 1);
-        const repeatScore = clamp(avgRepeats / 5, 0, 1);
-        const meshNeighborScore = clamp(zeroHopNeighbors24h / 5, 0, 1);
-
-        let score = 100 * clamp(
-          0.30 * rssiScore +
-          0.10 * snrScore +
-          0.10 * bestRssiScore +
-          0.05 * bestSnrScore +
-          0.25 * throughputScore +
-          0.10 * repeatScore +
-          0.10 * meshNeighborScore,
-          0, 1
-        );
-
-      if (isStale) score = 0;
-
-      let color = "#ff3b30";
-      if (!isStale) {
-        if (score >= 70) color = "#34c759";
-        else if (score >= 45) color = "#ffcc00";
-        else color = "#ff9500";
-      }
-
-      const effectiveGps = d.gps || null;
-
+    const uniqueMsgs = statsEntry.msgCounts.size || 0;
+    const avgRepeats = uniqueMsgs ? (statsEntry.total24h / uniqueMsgs) : 0;
+    const neighborHashes = statsEntry.zeroHopNeighbors ? Array.from(statsEntry.zeroHopNeighbors) : [];
+    const resolvedNeighbors = resolveZeroHopNeighbors(d.gps, neighborHashes, targetPub, targetHash, zeroHopOverrides);
+    const zeroHopNeighborNames = resolvedNeighbors
+      .map((n) => n.name || n.hash)
+      .filter(Boolean);
+    const zeroHopNeighborDetails = resolvedNeighbors.map((n) => {
+      const rssiEntry = statsEntry.neighborRssi ? statsEntry.neighborRssi.get(n.hash) : null;
+      const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+      const rssiAvg = Number.isFinite(avg) ? Number(avg.toFixed(1)) : null;
+      const rssiMax = rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null;
+      const rssiValue = Number.isFinite(rssiAvg) ? rssiAvg : (Number.isFinite(rssiMax) ? rssiMax : null);
+      const options = (repeaterCandidatesByHash.get(n.hash) || []).map((opt) => ({
+        pub: opt.pub,
+        name: opt.name || opt.hash,
+        hash: opt.hash
+      }));
       return {
-        pub,
-        hashByte: nodeHashFromPub(pub),
-        name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
-        gps: effectiveGps,
-        lastSeen,
-        isObserver: !!d.isObserver,
-        bestRssi,
-        bestSnr,
-        avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
-        avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
-          total24h: s.total24h,
-        zeroHopNeighbors24h,
-        zeroHopNeighborNames,
-        zeroHopNeighborDetails,
-        uniqueMsgs,
-          avgRepeats: Number(avgRepeats.toFixed(2)),
-        score: Math.round(score),
-        stale: isStale,
-        color,
-        hiddenOnMap: !!d.hiddenOnMap,
-        gpsImplausible: !!d.gpsImplausible,
-        gpsFlagged: !!d.gpsFlagged,
-        gpsEstimated: !!d.gpsEstimated,
-        gpsEstimateReason: d.gpsEstimateReason || null,
-        gpsEstimateNeighbors: d.gpsEstimateNeighbors || null,
-        clockDriftMinutes: driftMinutes
+        hash: n.hash,
+        pub: n.pub,
+        name: n.name || n.hash,
+        gps: n.gps,
+        rssiAvg,
+        rssiMax,
+        options,
+        isGreen: Number.isFinite(rssiValue) && rssiValue >= GREEN_RSSI_MIN,
+        mutual: n.mutual !== false,
+        override: !!n.override,
+        relation: n.relation || (n.mutual ? "reciprocal" : "handoff")
       };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score);
+    });
+    const zeroHopNeighbors24h = zeroHopNeighborDetails.length;
+
+    const avgRssi = trimmedMean(statsEntry.rssi, 0.1);
+    const driftMinutes = Number.isFinite(statsEntry.clockDriftMs) ? Math.round(statsEntry.clockDriftMs / 60000) : null;
+    const avgSnr = trimmedMean(statsEntry.snr, 0.1);
+    const bestRssi = Number.isFinite(statsEntry.bestRssi) ? statsEntry.bestRssi : (Number.isFinite(d.stats?.bestRssi) ? d.stats.bestRssi : -120);
+    const bestSnr = Number.isFinite(statsEntry.bestSnr) ? statsEntry.bestSnr : (Number.isFinite(d.stats?.bestSnr) ? d.stats.bestSnr : -20);
+
+    const rssiBase = Number.isFinite(avgRssi) ? avgRssi : bestRssi;
+    const snrBase = Number.isFinite(avgSnr) ? avgSnr : bestSnr;
+    const rssiScore = clamp((rssiBase + 120) / 70, 0, 1);
+    const snrScore = clamp((snrBase + 20) / 30, 0, 1);
+    const bestRssiScore = clamp((bestRssi + 120) / 70, 0, 1);
+    const bestSnrScore = clamp((bestSnr + 20) / 30, 0, 1);
+    const throughputScore = clamp(statsEntry.total24h / 50, 0, 1);
+    const repeatScore = clamp(avgRepeats / 5, 0, 1);
+    const meshNeighborScore = clamp(zeroHopNeighbors24h / 5, 0, 1);
+
+    let score = 100 * clamp(
+      0.30 * rssiScore +
+      0.10 * snrScore +
+      0.10 * bestRssiScore +
+      0.05 * bestSnrScore +
+      0.25 * throughputScore +
+      0.10 * repeatScore +
+      0.10 * meshNeighborScore,
+      0, 1
+    );
+
+    if (isStale) score = 0;
+
+    let color = "#ff3b30";
+    if (!isStale) {
+      if (score >= 70) color = "#34c759";
+      else if (score >= 45) color = "#ffcc00";
+      else color = "#ff9500";
+    }
+
+    const effectiveGps = d.gps || null;
+
+    included.push({
+      pub,
+      hashByte: targetHash,
+      name: d.name || d.raw?.lastAdvert?.appData?.name || "Unknown",
+      gps: effectiveGps,
+      lastSeen,
+      lastAdvertIngestMs: Number.isFinite(lastAdvertHeardMs) ? lastAdvertHeardMs : null,
+      lastAdvertIngestIso: lastAdvertHeardIso || null,
+      lastAdvertAgeHours: lastAdvertAgeHours !== null ? Number(lastAdvertAgeHours.toFixed(2)) : null,
+      isLive,
+      liveState,
+      quality: classification.quality,
+      qualityReason: classification.reasons,
+      isObserver: !!d.isObserver,
+      bestRssi,
+      bestSnr,
+      avgRssi: Number.isFinite(avgRssi) ? Number(avgRssi.toFixed(2)) : null,
+      avgSnr: Number.isFinite(avgSnr) ? Number(avgSnr.toFixed(2)) : null,
+      total24h: statsEntry.total24h,
+      zeroHopNeighbors24h,
+      zeroHopNeighborNames,
+      zeroHopNeighborDetails,
+      uniqueMsgs,
+      avgRepeats: Number(avgRepeats.toFixed(2)),
+      score: Math.round(score),
+      stale: isStale,
+      color,
+      hiddenOnMap: !!d.hiddenOnMap,
+      gpsImplausible: !!d.gpsImplausible,
+      gpsFlagged: !!d.gpsFlagged,
+      gpsEstimated: !!d.gpsEstimated,
+      gpsEstimateReason: d.gpsEstimateReason || null,
+      gpsEstimateNeighbors: d.gpsEstimateNeighbors || null,
+      clockDriftMinutes: driftMinutes,
+      repeatEvidenceMiddleHops24h: evidence.middleCount,
+      repeatEvidenceUpstreamDistinct24h: evidence.upstreamCount,
+      repeatEvidenceDownstreamDistinct24h: evidence.downstreamCount,
+      isTrueRepeater: evidence.isTrueRepeater,
+      repeatEvidenceReason: evidence.repeatEvidenceReason,
+      excludedReasons: []
+    });
+  }
+
+  const items = included
+    .sort((a, b) => (b.score - a.score) || (b.total24h - a.total24h));
 
   return {
     updatedAt: new Date().toISOString(),
     count: items.length,
-    items
+    items,
+    excluded
   };
 }
 
@@ -2849,6 +4193,392 @@ async function buildChannelSummary() {
   return payload.channels || [];
 }
 
+function normalizeChannelName(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return null;
+  return raw.startsWith("#") ? raw : `#${raw}`;
+}
+
+function normalizeChannelId(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  return raw.replace(/^#/, "").toLowerCase();
+}
+
+function loadBlockedChannels(db) {
+  const rows = db.prepare("SELECT name FROM channel_blocks").all();
+  const set = new Set();
+  rows.forEach((row) => {
+    const name = normalizeChannelName(row.name);
+    if (name) set.add(name);
+  });
+  return set;
+}
+
+function isChannelBlocked(name, blockedSet) {
+  if (!name) return false;
+  const normalized = normalizeChannelName(name);
+  return !!(normalized && blockedSet?.has(normalized));
+}
+
+function recordPacketEvents(count) {
+  if (!Number.isFinite(count) || count <= 0) return;
+  const now = Date.now();
+  packetTimeline.push({ ts: now, count });
+  const cutoff = now - PACKET_TREND_WINDOW_MS;
+  while (packetTimeline.length && packetTimeline[0].ts < cutoff) {
+    packetTimeline.shift();
+  }
+}
+
+function getRecentPacketRate(durationMs = PACKET_RATE_DURATION_MS) {
+  const now = Date.now();
+  const cutoff = now - durationMs;
+  let sum = 0;
+  for (const entry of packetTimeline) {
+    if (entry.ts >= cutoff) sum += entry.count;
+  }
+  const rate = durationMs ? (sum * 60000) / durationMs : sum;
+  return Math.round(rate);
+}
+
+function getDailyMeshTrendPayload() {
+  const now = Date.now();
+  if (meshTrendCache.payload && (now - meshTrendCache.updatedAt) < MESH_TREND_CACHE_MS) {
+    return meshTrendCache.payload;
+  }
+  const db = getDb();
+  let payload = { today: null, yesterday: null, diff: {} };
+  try {
+    const rows = db.prepare(`
+      SELECT day, score, messages, avg_repeats
+      FROM meshscore_daily
+      ORDER BY day DESC
+      LIMIT 2
+    `).all();
+    const today = rows[0] || null;
+    const yesterday = rows[1] || null;
+    const diff = {
+      score: Number.isFinite(today?.score) && Number.isFinite(yesterday?.score)
+        ? Number((today.score - yesterday.score).toFixed(1))
+        : null,
+      messages: Number.isFinite(today?.messages) && Number.isFinite(yesterday?.messages)
+        ? today.messages - yesterday.messages
+        : null,
+      avgRepeats: Number.isFinite(today?.avg_repeats) && Number.isFinite(yesterday?.avg_repeats)
+        ? Number((today.avg_repeats - yesterday.avg_repeats).toFixed(2))
+        : null
+    };
+    payload = { today, yesterday, diff };
+  } catch {}
+  meshTrendCache = { payload, updatedAt: now };
+  return payload;
+}
+
+async function buildMeshHeatPayload() {
+  const rank = rankCache.items || [];
+  const repeaters = rank
+    .filter((item) => item.gps && Number.isFinite(item.gps.lat) && Number.isFinite(item.gps.lon))
+    .slice(0, 220)
+    .map((item) => ({
+      pub: item.pub,
+      hash: item.hashByte || null,
+      name: item.name,
+      lat: item.gps.lat,
+      lon: item.gps.lon,
+      score: item.score,
+      total24h: item.total24h,
+      avgRssi: item.avgRssi,
+      bestRssi: item.bestRssi,
+      lastSeen: item.lastSeen,
+      zeroHopNeighbors: item.zeroHopNeighbors24h,
+      color: item.color
+    }));
+  const packetRate = getRecentPacketRate();
+  const daily = getDailyMeshTrendPayload();
+  return {
+    ts: Date.now(),
+    repeaters,
+    packetRate,
+    daily
+  };
+}
+
+const NEW_CHANNEL_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
+const CHANNEL_GROUPS = [
+  "General Chat",
+  "Regional",
+  "Specialist",
+  "Clubs & Societies",
+  "Testing",
+  "Ham Radio",
+  "Comedy",
+  "Sports",
+  "Music",
+  "Other"
+];
+
+const FIXED_CHANNELS = ["#public", "#meshranksuggestions"];
+
+function resetUserChannelsToFixed(db) {
+  const marker = path.join(dataDir, "channels_default_v3.flag");
+  if (fs.existsSync(marker)) return;
+  const lowered = FIXED_CHANNELS.map((ch) => ch.toLowerCase());
+  const placeholders = lowered.map(() => "?").join(",");
+  db.prepare(`DELETE FROM user_channels WHERE lower(channel_name) NOT IN (${placeholders})`).run(...lowered);
+  fs.writeFileSync(marker, new Date().toISOString());
+}
+
+function ensureDefaultUserChannels(userId) {
+  if (!userId) return;
+  const db = getDb();
+  const existing = db.prepare("SELECT channel_name FROM user_channels WHERE user_id = ? LIMIT 1").get(userId);
+  if (existing) return;
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR IGNORE INTO user_channels (user_id, channel_name, created_at) VALUES (?, ?, ?)")
+    .run(userId, "#public", now);
+  db.prepare("INSERT OR IGNORE INTO user_channels (user_id, channel_name, created_at) VALUES (?, ?, ?)")
+    .run(userId, "#meshranksuggestions", now);
+}
+
+function getUserChannels(userId) {
+  if (!userId) return [];
+  const db = getDb();
+  const rows = db.prepare("SELECT channel_name FROM user_channels WHERE user_id = ? ORDER BY channel_name ASC").all(userId);
+  return rows.map((row) => row.channel_name).filter(Boolean);
+}
+
+async function buildUserChannelSummary(userId) {
+  ensureDefaultUserChannels(userId);
+  const userChannels = new Set(getUserChannels(userId));
+  const channels = await buildChannelSummary();
+  const filtered = channels.filter((ch) => userChannels.has(normalizeChannelName(ch.name)));
+  return filtered;
+}
+
+function buildDefaultChannelGroups() {
+  return {
+    "General Chat": [
+      { name: "#chat", emoji: "💬", description: "" },
+      { name: "#hashtags", emoji: "🏷️", description: "" }
+    ],
+    Regional: [
+      { name: "#yorkshire", emoji: "📍", description: "" },
+      { name: "#northwest", emoji: "📍", description: "" },
+      { name: "#london", emoji: "📍", description: "" },
+      { name: "#reddirch-hams", emoji: "📍", description: "" },
+      { name: "#eastofengland", emoji: "📍", description: "" },
+      { name: "#isleofwight", emoji: "📍", description: "" },
+      { name: "#morley", emoji: "📍", description: "" },
+      { name: "#leeds", emoji: "📍", description: "" },
+      { name: "#walesandwest-chat", emoji: "📍", description: "" }
+    ],
+    Specialist: [],
+    "Clubs & Societies": [
+      { name: "#oarc", emoji: "🎯", description: "" }
+    ],
+    Specialist: [],
+    Testing: [
+      { name: "#test", emoji: "🧪", description: "" },
+      { name: "#m3sh", emoji: "🧪", description: "" }
+    ],
+    "Ham Radio": [
+      { name: "#hamradio", emoji: "📻", description: "" },
+      { name: "#hubnet", emoji: "🛰️", description: "" }
+    ],
+    Comedy: [
+      { name: "#jokes", emoji: "😂", description: "" }
+    ],
+    Sports: [
+      { name: "#football", emoji: "⚽", description: "" },
+      { name: "#lufc", emoji: "⚽", description: "" }
+    ],
+    Music: [
+      { name: "#midi", emoji: "🎵", description: "" }
+    ],
+    Other: []
+  };
+}
+
+function loadChannelCatalog() {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT name, code, emoji, group_name, allow_popular, created_at
+    FROM channels_catalog
+    ORDER BY group_name, name
+  `).all();
+  return rows.map((row) => ({
+    name: row.name,
+    code: row.code,
+    emoji: row.emoji,
+    group: row.group_name,
+    allowPopular: row.allow_popular !== 0,
+    createdAt: row.created_at
+  }));
+}
+
+async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocked = false) {
+  const defaults = buildDefaultChannelGroups();
+  const keys = loadKeys();
+  const keyMap = new Map((keys.channels || []).map((row) => [normalizeChannelName(row.name), row.secretHex || row.hashByte || ""]));
+  const catalog = loadChannelCatalog();
+  const counts24h = getChannelCounts24h();
+  const grouped = {};
+  const groupFlags = {};
+  CHANNEL_GROUPS.forEach((g) => {
+    grouped[g] = [];
+    groupFlags[g] = { newChannelCount: 0 };
+  });
+  const now = Date.now();
+  const markNew = (group, createdAt) => {
+    if (!group || !createdAt) return;
+    const ts = Date.parse(createdAt);
+    if (Number.isNaN(ts)) return;
+    if ((now - ts) <= NEW_CHANNEL_WINDOW_MS) {
+      if (!groupFlags[group]) groupFlags[group] = { newChannelCount: 0 };
+      groupFlags[group].newChannelCount += 1;
+    }
+  };
+  Object.entries(defaults).forEach(([group, list]) => {
+    grouped[group] = (grouped[group] || []).concat(list.map((item) => ({
+      ...item,
+      code: item.code || keyMap.get(normalizeChannelName(item.name)) || "",
+      allowPopular: true,
+      blocked: isChannelBlocked(item.name, blockedSet),
+      messageCount24h: counts24h[normalizeChannelId(item.name)] || 0
+    })));
+  });
+
+  const fixedChannels = new Set(["#public", "#meshranksuggestions"]);
+  const summary = await buildChannelSummary();
+  summary.forEach((ch) => {
+    const name = normalizeChannelName(ch.name || "");
+    if (!name || fixedChannels.has(name)) return;
+    if (!includeBlocked && isChannelBlocked(name, blockedSet)) return;
+    const listed = Object.values(defaults).some((list) =>
+      list.some((item) => normalizeChannelName(item.name) === name)
+    );
+    if (listed) return;
+    if (!grouped.Other) grouped.Other = [];
+    const exists = grouped.Other.some((item) => normalizeChannelName(item.name) === name);
+    if (!exists) {
+      grouped.Other.push({
+        name,
+        emoji: "💬",
+        code: keyMap.get(name) || "",
+        description: "",
+        allowPopular: true,
+        blocked: isChannelBlocked(name, blockedSet),
+        messageCount24h: counts24h[normalizeChannelId(name)] || 0
+      });
+    }
+  });
+  catalog.forEach((entry) => {
+    if (fixedChannels.has(normalizeChannelName(entry.name))) return;
+    if (!includeBlocked && isChannelBlocked(entry.name, blockedSet)) return;
+    const group = CHANNEL_GROUPS.includes(entry.group) ? entry.group : "Other";
+    const exists = grouped[group].some((item) => normalizeChannelName(item.name) === normalizeChannelName(entry.name));
+    if (!exists) {
+      grouped[group].push({
+        name: entry.name,
+        emoji: entry.emoji || "💬",
+        code: entry.code || keyMap.get(normalizeChannelName(entry.name)) || "Custom channel",
+        description: entry.code || "Custom channel",
+        allowPopular: entry.allowPopular !== false,
+        blocked: isChannelBlocked(entry.name, blockedSet),
+        messageCount24h: counts24h[normalizeChannelId(entry.name)] || 0
+      });
+      markNew(group, entry.createdAt);
+    } else {
+      grouped[group] = grouped[group].map((item) => {
+        if (normalizeChannelName(item.name) !== normalizeChannelName(entry.name)) return item;
+        return {
+          ...item,
+          emoji: entry.emoji || item.emoji || "💬",
+          code: entry.code || item.code || keyMap.get(normalizeChannelName(entry.name)) || item.description || "",
+          description: entry.code || item.description || "",
+          allowPopular: entry.allowPopular !== false,
+          blocked: isChannelBlocked(entry.name, blockedSet),
+          messageCount24h: counts24h[normalizeChannelId(entry.name)] || item.messageCount24h || 0
+        };
+      });
+    }
+  });
+
+  return { groups: grouped, groupFlags };
+}
+
+function buildPopularChannels(limit = 10, excludeChannels = [], blockedSet = new Set()) {
+  const db = getDb();
+  if (!hasMessagesDb(db)) return [];
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const exclude = (excludeChannels || []).map(normalizeChannelName).filter(Boolean);
+  const placeholders = exclude.length ? exclude.map(() => "?").join(",") : "";
+  const rows = db.prepare(`
+    SELECT channel_name, COUNT(1) AS messages, MAX(ts) AS last_ts
+    FROM messages
+    WHERE channel_name IS NOT NULL AND ts >= ?
+    ${exclude.length ? `AND channel_name NOT IN (${placeholders})` : ""}
+    GROUP BY channel_name
+    ORDER BY messages DESC
+    LIMIT ?
+  `).all(cutoff, ...(exclude.length ? exclude : []), limit);
+  const catalog = loadChannelCatalog();
+  const allowMap = new Map(
+    catalog.map((entry) => [normalizeChannelName(entry.name), entry.allowPopular !== false])
+  );
+  return rows.filter((row) => {
+    const name = normalizeChannelName(row.channel_name);
+    if (!name) return false;
+    if (blockedSet.has(name)) return false;
+    if (!allowMap.has(name)) return true;
+    return allowMap.get(name) !== false;
+  }).map((row) => ({
+    name: row.channel_name,
+    emoji: catalog.find((c) => normalizeChannelName(c.name) === normalizeChannelName(row.channel_name))?.emoji || "💬",
+    messageCount24h: row.messages || 0,
+    lastMessageAt: row.last_ts || null
+  }));
+}
+
+function getChannelCounts24h() {
+  const db = getDb();
+  if (!hasMessagesDb(db)) return {};
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare(`
+    SELECT channel_name, COUNT(1) AS messages
+    FROM messages
+    WHERE channel_name IS NOT NULL AND ts >= ?
+    GROUP BY channel_name
+  `).all(cutoff);
+  const map = {};
+  rows.forEach((row) => {
+    const id = normalizeChannelId(row.channel_name);
+    if (!id) return;
+    map[id] = row.messages || 0;
+  });
+  return map;
+}
+
+async function buildChannelDirectory(userChannels = [], includeBlocked = false) {
+  const db = getDb();
+  const blockedSet = loadBlockedChannels(db);
+  const popular = buildPopularChannels(12, [
+    ...(userChannels || []),
+    ...FIXED_CHANNELS
+  ], blockedSet);
+  const { groups, groupFlags } = await buildChannelDirectoryGroups(blockedSet, includeBlocked);
+  const channelCounts24h = getChannelCounts24h();
+  return { popular, groups, channelCounts24h, groupFlags };
+}
+
+function claimUserNode(db, userId, pub, nickname) {
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR IGNORE INTO user_nodes (user_id, public_id, nickname, created_at) VALUES (?, ?, ?, ?)")
+    .run(userId, pub, nickname || null, now);
+  return db.prepare("SELECT public_id, nickname, created_at FROM user_nodes WHERE user_id = ? ORDER BY created_at DESC").all(userId);
+}
+
 async function refreshNodeRankCache(force) {
   const now = Date.now();
   const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
@@ -3207,7 +4937,7 @@ async function buildRotmData() {
     .filter((m) => m && m.ts)
     .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
 
-  const cqBySender = new Map(); // senderNorm -> [{ msg, ts, confidenceOk, repeater }]
+  const cqBySender = new Map(); // senderKey -> [{ msg, ts, confidenceOk, repeater }]
   const infoById = new Map(); // msgId -> info
   const qsos = [];
   const qsoLogByNode = new Map(); // nodeKey -> [{ts, cq, response, repeater}]
@@ -3243,7 +4973,8 @@ async function buildRotmData() {
   const overrides = readRotmOverrides();
   for (const msg of messagesAsc) {
     const sender = String(msg.sender || "unknown");
-    const senderKey = normalizeRotmHandle(sender);
+    const senderKeys = buildRotmKeys(sender);
+    const senderKey = senderKeys[0] || "";
     const body = String(msg.body || "");
     const isCq = /^CQ\b/i.test(body.trim());
     const mentions = extractRotmMentions(body);
@@ -3253,6 +4984,7 @@ async function buildRotmData() {
     infoById.set(msg.id, {
       sender,
       senderKey,
+      senderKeys,
       body,
       isCq,
       mentions,
@@ -3264,9 +4996,11 @@ async function buildRotmData() {
       repeaterOptions: repeater?.hash ? (rotmCandidatesByHash.get(repeater.hash) || []) : []
     });
 
-    if (isCq && senderKey) {
-      if (!cqBySender.has(senderKey)) cqBySender.set(senderKey, []);
-      cqBySender.get(senderKey).push({ msg, ts, confidenceOk, repeater });
+    if (isCq && senderKeys.length) {
+      senderKeys.forEach((key) => {
+        if (!cqBySender.has(key)) cqBySender.set(key, []);
+        cqBySender.get(key).push({ msg, ts, confidenceOk, repeater });
+      });
       continue;
     }
   }
@@ -3275,13 +5009,13 @@ async function buildRotmData() {
     const info = infoById.get(msg.id);
     if (!info || info.isCq) continue;
     const ts = info.ts;
-    if (!info.mentions.length || !info.senderKey) continue;
+    if (!info.mentions.length || !info.senderKeys?.length) continue;
     info.response = true;
 
     let matched = null;
     let matchedSenderKey = null;
     for (const mention of info.mentions) {
-      if (mention === info.senderKey) continue;
+      if (info.senderKeys.includes(mention)) continue;
       const cqList = cqBySender.get(mention) || [];
       for (let i = cqList.length - 1; i >= 0; i -= 1) {
         const candidate = cqList[i];
@@ -3770,7 +5504,7 @@ async function readBody(req) {
   });
 }
 
-async function buildMessagesPayload({ channel, limit, beforeTs }) {
+async function buildMessagesPayload({ channel, limit, beforeTs, restrictChannels, blockedSet, includeBlocked }) {
   const payload = await buildChannelMessages();
   const channelName = channel ? (String(channel).startsWith("#") ? channel : `#${channel}`) : null;
   let list = payload.messages;
@@ -3778,6 +5512,9 @@ async function buildMessagesPayload({ channel, limit, beforeTs }) {
   let max = Number.isFinite(limit) ? limit : null;
 
   if (channelName) {
+    if (!includeBlocked && blockedSet && blockedSet.has(normalizeChannelName(channelName))) {
+      return { channels: [], messages: [] };
+    }
     const channelLimit = channelHistoryLimit(channelName);
     if (!Number.isFinite(max) || max <= 0 || max < channelLimit) {
       max = channelLimit;
@@ -3792,6 +5529,14 @@ async function buildMessagesPayload({ channel, limit, beforeTs }) {
       });
     }
     list.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+  }
+
+  if (!channelName && Array.isArray(restrictChannels) && restrictChannels.length) {
+    const allowed = new Set(restrictChannels.map(normalizeChannelName).filter(Boolean));
+    list = list.filter((m) => allowed.has(normalizeChannelName(m.channelName)));
+  }
+  if (!includeBlocked && blockedSet && blockedSet.size) {
+    list = list.filter((m) => !blockedSet.has(normalizeChannelName(m.channelName)));
   }
 
   if (!channelName) {
@@ -3813,7 +5558,15 @@ async function buildMessagesPayload({ channel, limit, beforeTs }) {
     list = list.slice(Math.max(0, list.length - max));
   }
 
-  return { channels: payload.channels, messages: list };
+  let channels = payload.channels;
+  if (Array.isArray(restrictChannels) && restrictChannels.length) {
+    const allowed = new Set(restrictChannels.map(normalizeChannelName).filter(Boolean));
+    channels = (channels || []).filter((ch) => allowed.has(normalizeChannelName(ch.name || ch.id)));
+  }
+  if (!includeBlocked && blockedSet && blockedSet.size) {
+    channels = (channels || []).filter((ch) => !blockedSet.has(normalizeChannelName(ch.name || ch.id)));
+  }
+  return { channels, messages: list };
 }
 
 function send(res, status, contentType, body) {
@@ -3836,6 +5589,9 @@ function contentTypeFor(filePath) {
   if (ext === ".js") return "application/javascript; charset=utf-8";
   return "application/octet-stream";
 }
+
+refreshLastHeardCache();
+setInterval(refreshLastHeardCache, GEO_SCORE_LAST_HEARD_REFRESH_MS);
 
 const server = http.createServer(async (req, res) => {
   let perfStart = null;
@@ -3864,7 +5620,8 @@ const server = http.createServer(async (req, res) => {
   }
   const u = new URL(req.url, `http://${req.headers.host}`);
   if (u.pathname === "/") {
-    const html = fs.readFileSync(indexPath, "utf8");
+    let html = fs.readFileSync(indexPath, "utf8");
+    html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
     return send(res, 200, "text/html; charset=utf-8", html);
   }
   const rawPath = decodeURIComponent(u.pathname || "");
@@ -3875,6 +5632,16 @@ const server = http.createServer(async (req, res) => {
     if (absPath.startsWith(staticDir) && fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
       const body = fs.readFileSync(absPath);
       return send(res, 200, contentTypeFor(absPath), body);
+    }
+  }
+
+  if (u.pathname === "/api/health") {
+    try {
+      await refreshRankCache(false);
+      const payload = buildHealthPayload();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, ...payload }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
     }
   }
 
@@ -3892,8 +5659,22 @@ const server = http.createServer(async (req, res) => {
 
     const user = getSessionUser(req);
     const db = getDb();
+    const blockedSet = loadBlockedChannels(db);
     const row = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
-    const messagesPayload = await buildMessagesPayload({ channel, limit, beforeTs });
+    let userChannels = [];
+    let channelsPayload = null;
+    if (user) {
+      userChannels = getUserChannels(user.id);
+      channelsPayload = await buildUserChannelSummary(user.id);
+    }
+    const messagesPayload = await buildMessagesPayload({
+      channel,
+      limit,
+      beforeTs,
+      restrictChannels: userChannels.length ? userChannels : null,
+      blockedSet,
+      includeBlocked: !!user?.isAdmin
+    });
     maybeUpdateStatsRollup();
     const stats = readLatestStatsRollup();
     const meshscore = await refreshMeshScoreCache(false);
@@ -3905,13 +5686,114 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       user,
       hasAdmin: !!row,
-      channels: messagesPayload.channels,
+      channels: channelsPayload || messagesPayload.channels,
       messages: messagesPayload.messages,
+      userChannels,
+      channelCounts24h: getChannelCounts24h(),
       stats,
       meshscore,
       rotm,
       rotmConfig
     }));
+  }
+
+  if (u.pathname === "/api/auth/exists") {
+    const email = String(u.searchParams.get("email") || "").trim();
+    if (!email) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "email required" }));
+    }
+    const db = getDb();
+    const row = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(email);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, exists: !!row }));
+  }
+
+  if (u.pathname === "/api/auth/oauth/google") {
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "google oauth not configured" }));
+    }
+    const state = createOauthState();
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      response_type: "code",
+      scope: "openid email profile",
+      state,
+      include_granted_scopes: "true",
+      prompt: "consent"
+    });
+    res.statusCode = 302;
+    res.setHeader("Location", `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+    return res.end();
+  }
+
+  if (u.pathname === "/api/auth/oauth/google/callback") {
+    const code = String(u.searchParams.get("code") || "");
+    const state = String(u.searchParams.get("state") || "");
+    if (!code || !state) {
+      res.statusCode = 302;
+      res.setHeader("Location", "/?auth=failed");
+      return res.end();
+    }
+    const stateEntry = consumeOauthState(state);
+    if (!stateEntry) {
+      res.statusCode = 302;
+      res.setHeader("Location", "/?auth=expired");
+      return res.end();
+    }
+    try {
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: GOOGLE_REDIRECT_URI,
+          grant_type: "authorization_code"
+        })
+      });
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      if (!tokenRes.ok || !tokenData.id_token) throw new Error("OAuth token exchange failed.");
+      const tokenInfo = await verifyGoogleIdToken(tokenData.id_token);
+      const db = getDb();
+      createGoogleSession(db, tokenInfo, req, res);
+      res.statusCode = 302;
+      res.setHeader("Location", "/?auth=google");
+      return res.end();
+    } catch {
+      res.statusCode = 302;
+      res.setHeader("Location", "/?auth=failed");
+      return res.end();
+    }
+  }
+
+  if (u.pathname === "/api/auth/google-id-token" && req.method === "POST") {
+    if (!GOOGLE_CLIENT_ID) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "google oauth not configured" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const credential = String(body.credential || "").trim();
+      if (!credential) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "credential missing" }));
+      }
+      const tokenInfo = await verifyGoogleIdToken(credential);
+      const db = getDb();
+      const { session, user } = createGoogleSession(db, tokenInfo, req, res);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+        ok: true,
+        token: session.token,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.display_name || null,
+          isAdmin: !!user.is_admin
+        }
+      }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
   }
 
   if (u.pathname === "/api/auth/me") {
@@ -3949,6 +5831,37 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (u.pathname === "/api/auth/register" && req.method === "POST") {
+    try {
+      const db = getDb();
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const username = String(body.username || body.email || "").trim();
+      const displayName = String(body.displayName || "").trim();
+      const password = String(body.password || "");
+      if (!username || password.length < 8) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid credentials" }));
+      }
+      const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+      if (existing) {
+        return send(res, 409, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "username already exists" }));
+      }
+      const hash = bcrypt.hashSync(password, 10);
+      const now = new Date().toISOString();
+      const info = db.prepare("INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)")
+        .run(username, hash, displayName || null, now);
+      const session = createSession(db, info.lastInsertRowid);
+      res.setHeader("Set-Cookie", buildSessionCookie(req, session.token));
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+        ok: true,
+        token: session.token,
+        user: { id: info.lastInsertRowid, username, displayName: displayName || null, isAdmin: false }
+      }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
   if (u.pathname === "/api/auth/login" && req.method === "POST") {
     try {
       const db = getDb();
@@ -3956,17 +5869,17 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse(raw || "{}");
       const username = String(body.username || "").trim();
       const password = String(body.password || "");
-      const user = db.prepare("SELECT id, username, password_hash, is_admin FROM users WHERE username = ?").get(username);
+      const user = db.prepare("SELECT id, username, display_name, password_hash, is_admin FROM users WHERE username = ?").get(username);
       if (!user || !bcrypt.compareSync(password, user.password_hash)) {
         return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid credentials" }));
       }
       const session = createSession(db, user.id);
       db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(new Date().toISOString(), user.id);
-      res.setHeader("Set-Cookie", `mesh_session=${session.token}; Path=/; Max-Age=2592000; SameSite=Lax`);
+      res.setHeader("Set-Cookie", buildSessionCookie(req, session.token));
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
         ok: true,
         token: session.token,
-        user: { id: user.id, username: user.username, isAdmin: !!user.is_admin }
+        user: { id: user.id, username: user.username, displayName: user.display_name || null, isAdmin: !!user.is_admin }
       }));
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
@@ -4029,9 +5942,464 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (u.pathname === "/api/user/nodes" && req.method === "GET") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    const db = getDb();
+    const rows = db.prepare("SELECT public_id, nickname, created_at FROM user_nodes WHERE user_id = ? ORDER BY created_at DESC").all(user.id);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, nodes: rows }));
+  }
+
+  if (u.pathname === "/api/user/nodes/claim" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const pub = String(body.publicNodeId || body.pub || "").trim().toUpperCase();
+      const nickname = String(body.nickname || "").trim();
+      if (!pub || pub.length < 6) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "public id required" }));
+      }
+      const db = getDb();
+      const rows = claimUserNode(db, user.id, pub, nickname);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, nodes: rows }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/user/nodes/unclaim" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const pub = String(body.publicNodeId || body.pub || "").trim().toUpperCase();
+      if (!pub) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "public id required" }));
+      }
+      const db = getDb();
+      db.prepare("DELETE FROM user_nodes WHERE user_id = ? AND public_id = ?").run(user.id, pub);
+      const rows = db.prepare("SELECT public_id, nickname, created_at FROM user_nodes WHERE user_id = ? ORDER BY created_at DESC").all(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, nodes: rows }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/node-claim" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const pub = String(body.publicNodeId || body.pub || "").trim().toUpperCase();
+      const nickname = String(body.nickname || "").trim();
+      if (!pub || pub.length < 6) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "public id required" }));
+      }
+      const db = getDb();
+      const rows = claimUserNode(db, user.id, pub, nickname);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, nodes: rows }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/channels/popular") {
+    const limit = Number(u.searchParams.get("limit") || 6);
+    const user = getSessionUser(req);
+    const exclude = user ? getUserChannels(user.id) : [];
+    const blockedSet = loadBlockedChannels(getDb());
+    const popular = buildPopularChannels(limit, exclude, blockedSet);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, popular }));
+  }
+
+  if (u.pathname === "/api/channels/create" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const group = String(body.group || "").trim();
+      const name = normalizeChannelName(body.name || "");
+      const code = String(body.code || "").trim();
+      const emojiRaw = String(body.emoji || "").trim();
+      const emoji = emojiRaw || "💬";
+      const allowPopular = user.isAdmin ? (body.allowPopular !== false) : true;
+      if (!CHANNEL_GROUPS.includes(group)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid group" }));
+      }
+      if (!name || !code) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "name and code required" }));
+      }
+      const blockedSet = loadBlockedChannels(getDb());
+      if (blockedSet.has(name) && !user.isAdmin) {
+        return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel is blocked" }));
+      }
+      const db = getDb();
+      const existing = db.prepare("SELECT name FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
+      if (existing) {
+        return send(res, 409, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel already exists" }));
+      }
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO channels_catalog (name, code, emoji, group_name, allow_popular, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(name, code, emoji, group, allowPopular ? 1 : 0, user.id, now);
+      const payload = await buildChannelDirectory(getUserChannels(user.id));
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, directory: payload }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/channel-directory") {
+    const user = getSessionUser(req);
+    const payload = await buildChannelDirectory(user ? getUserChannels(user.id) : [], !!user?.isAdmin);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
+
+  if (u.pathname === "/api/geoscore/observers") {
+    const profiles = readGeoscoreObserverProfiles();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, profiles, count: profiles.length }));
+  }
+
+  if (u.pathname === "/api/geoscore/status") {
+    const status = readGeoscoreStatus();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, status }));
+  }
+
+  if (u.pathname === "/api/geoscore/diagnostics") {
+    const diagnostics = readGeoscoreDiagnostics();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, diagnostics }));
+  }
+
+  if (u.pathname === "/api/health") {
+    try {
+      const db = getDb();
+      const metrics = readIngestMetrics(db);
+      const parsedMetrics = {
+        countAdvertsSeenLast10m: metrics.countAdvertsSeenLast10m ? Number(metrics.countAdvertsSeenLast10m) : 0,
+        lastAdvertSeenAtIso: metrics.lastAdvertSeenAtIso || null
+      };
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+        ok: true,
+        dbInfo: dbInfoCache || {
+          resolvedPath: path.resolve(dbPath),
+          cwd: process.cwd(),
+          databaseList: db.pragma("database_list") || [],
+          mainFile: db.pragma("database_list")?.[0]?.file || null
+        },
+        ingestMetrics: parsedMetrics
+      }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/geoscore/rebuild-observer-profiles" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user?.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+    }
+    try {
+      const result = refreshGeoscoreObserverProfiles();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, rebuilt: result.count }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/geoscore/debug") {
+    const targets = [
+      { key: "observers", primary: observersPath, fallback: observersPathAlt },
+      { key: "devices", primary: devicesPath, fallback: devicesPathAlt },
+      { key: "db", primary: dbPath }
+    ];
+    const detail = targets.map((target) => {
+      const primary = path.resolve(target.primary || "");
+      const fallback = target.fallback ? path.resolve(target.fallback) : null;
+      const nodes = [primary];
+      if (fallback && fallback !== primary) nodes.push(fallback);
+      return nodes.map((filePath) => {
+        const exists = fs.existsSync(filePath);
+        const stats = exists ? fs.statSync(filePath) : null;
+        let head = null;
+        if (exists && (target.key === "observers" || target.key === "devices")) {
+          const json = readJsonSafe(filePath, {});
+          head = Array.isArray(json)
+            ? json.slice(0, 2)
+            : Object.keys(json).slice(0, 2);
+        }
+        return {
+          path: filePath,
+          exists,
+          size: stats ? stats.size : null,
+          head
+        };
+      });
+    });
+    return send(
+      res,
+      200,
+      "application/json; charset=utf-8",
+      JSON.stringify({
+        ok: true,
+        cwd: process.cwd(),
+        dir: __dirname,
+        targets: detail
+      })
+    );
+  }
+
+  if (u.pathname === "/api/channels/update" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const name = normalizeChannelName(body.name || "");
+      const group = String(body.group || "").trim();
+      const code = String(body.code || "").trim();
+      const emojiRaw = String(body.emoji || "").trim();
+      const emoji = emojiRaw || "💬";
+      const allowPopular = body.allowPopular !== false;
+      if (!name || !CHANNEL_GROUPS.includes(group)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid channel or group" }));
+      }
+      const db = getDb();
+      const existing = db.prepare("SELECT name, code FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
+      const now = new Date().toISOString();
+      if (existing) {
+        const nextCode = code || existing.code || "unknown";
+        db.prepare(`
+          UPDATE channels_catalog
+          SET code = ?, emoji = ?, group_name = ?, allow_popular = ?
+          WHERE lower(name) = lower(?)
+        `).run(nextCode, emoji, group, allowPopular ? 1 : 0, name);
+      } else {
+        db.prepare(`
+          INSERT INTO channels_catalog (name, code, emoji, group_name, allow_popular, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(name, code || "unknown", emoji, group, allowPopular ? 1 : 0, user.id, now);
+      }
+      const payload = await buildChannelDirectory(getUserChannels(user.id));
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, directory: payload }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/user/channels") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    if (req.method === "GET") {
+      const blockedSet = loadBlockedChannels(getDb());
+      let channels = await buildUserChannelSummary(user.id);
+      if (!user.isAdmin) {
+        channels = (channels || []).filter((ch) => !blockedSet.has(normalizeChannelName(ch.name || ch.id)));
+      }
+      const names = getUserChannels(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+    }
+    return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+  }
+
+  if (u.pathname === "/api/user/channels/join" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const channelName = normalizeChannelName(body.channelName || body.channel);
+      if (!channelName) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+      }
+      const blockedSet = loadBlockedChannels(getDb());
+      if (blockedSet.has(channelName) && !user.isAdmin) {
+        return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel is blocked" }));
+      }
+      const now = new Date().toISOString();
+      const db = getDb();
+      db.prepare("INSERT OR IGNORE INTO user_channels (user_id, channel_name, created_at) VALUES (?, ?, ?)")
+        .run(user.id, channelName, now);
+      const channels = await buildUserChannelSummary(user.id);
+      const names = getUserChannels(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/user/channels/leave" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const channelName = normalizeChannelName(body.channelName || body.channel);
+      if (!channelName) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+      }
+      if (channelName === "#public" || channelName === "#meshranksuggestions") {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "#public cannot be removed" }));
+      }
+      const db = getDb();
+      db.prepare("DELETE FROM user_channels WHERE user_id = ? AND lower(channel_name) = lower(?)")
+        .run(user.id, channelName);
+      const channels = await buildUserChannelSummary(user.id);
+      const names = getUserChannels(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/user-channels") {
+    // Backward-compatible alias
+    const user = getSessionUser(req);
+    if (!user) {
+      return send(res, 401, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "login required" }));
+    }
+    if (req.method === "GET") {
+      const channels = await buildUserChannelSummary(user.id);
+      const names = getUserChannels(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+    }
+    if (req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        const body = JSON.parse(raw || "{}");
+        const channelName = normalizeChannelName(body.channel || body.channelName);
+        if (!channelName) {
+          return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+        }
+        const now = new Date().toISOString();
+        const db = getDb();
+        db.prepare("INSERT OR IGNORE INTO user_channels (user_id, channel_name, created_at) VALUES (?, ?, ?)")
+          .run(user.id, channelName, now);
+        const channels = await buildUserChannelSummary(user.id);
+        const names = getUserChannels(user.id);
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+      } catch (err) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+      }
+    }
+    if (req.method === "DELETE") {
+      const channelName = normalizeChannelName(u.searchParams.get("channel"));
+      if (!channelName) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+      }
+      const db = getDb();
+      db.prepare("DELETE FROM user_channels WHERE user_id = ? AND channel_name = ?").run(user.id, channelName);
+      const channels = await buildUserChannelSummary(user.id);
+      const names = getUserChannels(user.id);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, channels, userChannels: names }));
+    }
+    return send(res, 405, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "method not allowed" }));
+  }
+
+  if (u.pathname === "/api/channels/move" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const name = normalizeChannelName(body.name || "");
+      const group = String(body.group || "").trim();
+      if (!name || !CHANNEL_GROUPS.includes(group)) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid channel or group" }));
+      }
+      const db = getDb();
+      const existing = db.prepare("SELECT name FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
+      const now = new Date().toISOString();
+      if (existing) {
+        db.prepare("UPDATE channels_catalog SET group_name = ? WHERE lower(name) = lower(?)").run(group, name);
+      } else {
+        db.prepare(`
+          INSERT INTO channels_catalog (name, code, emoji, group_name, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(name, "unknown", "💬", group, user.id, now);
+      }
+      const payload = await buildChannelDirectory(getUserChannels(user.id));
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, directory: payload }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/channels/block" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const name = normalizeChannelName(body.name || body.channelName || body.channel);
+      if (!name) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+      }
+      const db = getDb();
+      const now = new Date().toISOString();
+      db.prepare("INSERT OR REPLACE INTO channel_blocks (name, blocked_by, created_at) VALUES (?, ?, ?)")
+        .run(name, user.id, now);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
+  if (u.pathname === "/api/channels/unblock" && req.method === "POST") {
+    const user = getSessionUser(req);
+    if (!user || !user.isAdmin) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "admin required" }));
+    }
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw || "{}");
+      const name = normalizeChannelName(body.name || body.channelName || body.channel);
+      if (!name) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel required" }));
+      }
+      const db = getDb();
+      db.prepare("DELETE FROM channel_blocks WHERE lower(name) = lower(?)").run(name);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
+    } catch (err) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
+
   if (u.pathname === "/api/channels") {
     if (req.method === "GET") {
-      const channels = await buildChannelSummary();
+      const user = getSessionUser(req);
+      const blockedSet = loadBlockedChannels(getDb());
+      let channels = await buildChannelSummary();
+      if (!user?.isAdmin) {
+        channels = (channels || []).filter((ch) => !blockedSet.has(normalizeChannelName(ch.name || ch.id)));
+      }
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels }));
     }
     if (req.method === "DELETE") {
@@ -4166,6 +6534,24 @@ const server = http.createServer(async (req, res) => {
         );
         if (updates.length) {
           lastRowId = nextRowId;
+          const hashes = updates.map((u) => String(u.messageHash || "").toUpperCase()).filter(Boolean);
+          const pathRows = fetchGeoscorePathRows(db, hashes);
+          pathRows.forEach((row) => {
+            const tokens = row.path_text
+              ? parsePathTokens(row.path_text)
+              : parsePathJsonTokens(row.path_json);
+            if (!tokens.length) return;
+            const msgKey = String(row.message_hash || row.frame_hash || "").toUpperCase();
+            if (!msgKey) return;
+            const tsMs = Number.isFinite(row.ts_ms) ? row.ts_ms : (row.ts ? Date.parse(row.ts) : null);
+            enqueueGeoscoreRoute({
+              msgKey,
+              ts: Number.isFinite(tsMs) ? tsMs : Date.now(),
+              observerId: String(row.observer_id || "").toUpperCase(),
+              pathTokens: tokens
+            });
+          });
+          recordPacketEvents(updates.length);
           sendEvent("packet", { updates, lastRowId });
         } else {
           lastRowId = nextRowId;
@@ -4198,7 +6584,18 @@ const server = http.createServer(async (req, res) => {
       const beforeDate = parseIso(beforeRaw);
       if (beforeDate) beforeTs = beforeDate.getTime();
     }
-    const payload = await buildMessagesPayload({ channel, limit, beforeTs });
+    const user = getSessionUser(req);
+    const db = getDb();
+    const blockedSet = loadBlockedChannels(db);
+    const restrictChannels = !channel && user ? getUserChannels(user.id) : null;
+    const payload = await buildMessagesPayload({
+      channel,
+      limit,
+      beforeTs,
+      restrictChannels,
+      blockedSet,
+      includeBlocked: !!user?.isAdmin
+    });
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
@@ -4279,6 +6676,25 @@ const server = http.createServer(async (req, res) => {
       : rankCache;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
+  if (u.pathname === "/api/repeater-rank-excluded") {
+    const now = Date.now();
+    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+    const force = u.searchParams.get("refresh") === "1";
+    const limitRaw = u.searchParams.get("limit");
+    const limit = limitRaw ? Number(limitRaw) : 100;
+    if (force || !last) {
+      await refreshRankCache(true);
+    } else if (now - last >= RANK_REFRESH_MS) {
+      refreshRankCache(false).catch(() => {});
+    }
+    const excluded = Array.isArray(rankCache.excluded) ? rankCache.excluded : [];
+    const payload = {
+      updatedAt: rankCache.updatedAt,
+      count: excluded.length,
+      excluded: limit > 0 ? excluded.slice(0, limit) : excluded
+    };
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+  }
   if (u.pathname === "/api/node-rank") {
     const now = Date.now();
     const last = nodeRankCache.updatedAt ? new Date(nodeRankCache.updatedAt).getTime() : 0;
@@ -4339,6 +6755,102 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
     }
+  }
+
+  if (u.pathname === "/api/observer-hop-diagnostics") {
+    const observerId = String(u.searchParams.get("observerId") || "").trim().toUpperCase();
+    if (!observerId) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "observerId required" }));
+    }
+    const limitRaw = Number(u.searchParams.get("limit") || 50);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50;
+    const db = getDb();
+    if (!hasMessageObserversDb(db)) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "message_observers table unavailable" }));
+    }
+  let { linkedPub, linkedHash, source: linkSource } = getObserverLink(observerId);
+  if (!linkedPub) {
+    const profileRow = db.prepare("SELECT linked_repeater_pub, source FROM geoscore_observer_profiles WHERE observer_id = ? LIMIT 1").get(observerId);
+    const fallbackPub = sanitizeRepeaterPub(profileRow?.linked_repeater_pub || "");
+    if (fallbackPub) {
+      linkedPub = fallbackPub;
+      linkedHash = nodeHashFromPub(fallbackPub);
+      linkSource = profileRow?.source || "geoscore_observer_profiles";
+    } else {
+      linkSource = linkSource || "missing";
+    }
+  }
+  const rows = db.prepare(`
+    SELECT mo.message_hash, mo.ts, mo.path_json, mo.path_text, mo.path_length, m.frame_hash
+    FROM message_observers mo
+      LEFT JOIN messages m ON m.message_hash = mo.message_hash
+      WHERE mo.observer_id = ?
+      ORDER BY mo.rowid DESC
+      LIMIT ?
+    `).all(observerId, limit);
+    const events = rows.map((row) => {
+      const tokens = row.path_json
+        ? parsePathJsonTokens(row.path_json)
+        : parsePathTokens(row.path_text);
+      const hasLinkedHash = Boolean(linkedHash);
+      let computedHopCount = null;
+      let directHeard = false;
+      let hopNote = null;
+      if (!tokens.length) {
+        computedHopCount = 0;
+        directHeard = true;
+        hopNote = "empty_path";
+      } else if (hasLinkedHash && tokens[0] === linkedHash) {
+        computedHopCount = 0;
+        directHeard = true;
+        hopNote = "linked_first";
+      } else if (hasLinkedHash) {
+        const idx = tokens.indexOf(linkedHash);
+        if (idx >= 0) {
+          computedHopCount = Math.max(0, idx);
+          directHeard = idx === 0;
+        } else {
+          computedHopCount = tokens.length;
+          hopNote = "linked_missing";
+        }
+      } else {
+        computedHopCount = tokens.length;
+        hopNote = "no_linked_hash";
+      }
+      return {
+        msg_key: String((row.message_hash || row.frame_hash || "")).toUpperCase(),
+        ts: row.ts || null,
+        pathTokens: tokens,
+        pathLength: Number.isFinite(row.path_length) ? row.path_length : tokens.length,
+        linkedPub,
+        linkedHash,
+        computedHopCount,
+        directHeard,
+        hopNote
+      };
+    });
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+      ok: true,
+      observerId,
+      linkedPub,
+      linkedHash,
+      linkSource,
+      count: events.length,
+      events
+    }));
+  }
+
+  if (u.pathname === "/api/mesh-live") {
+    const now = Date.now();
+    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
+    const force = u.searchParams.get("refresh") === "1";
+    if (force || !last) {
+      await refreshRankCache(true);
+    } else if (now - last >= RANK_REFRESH_MS) {
+      refreshRankCache(false).catch(() => {});
+    }
+    const payload = await buildMeshHeatPayload();
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, ...payload }));
   }
 
   if (u.pathname === "/api/repeater-hide" && req.method === "POST") {
@@ -4469,7 +6981,7 @@ const server = http.createServer(async (req, res) => {
         `).run(pub, flagged ? 1 : 0, devices.updatedAt);
       } catch {}
       devicesCache = { readAt: 0, data: null };
-      rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+      rankCache = { updatedAt: null, count: 0, items: [], excluded: [], cachedAt: null };
       rankSummaryCache = { updatedAt: null, totals: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, flagged }));
     } catch (err) {
@@ -4533,7 +7045,7 @@ const server = http.createServer(async (req, res) => {
         );
       } catch {}
       devicesCache = { readAt: 0, data: null };
-      rankCache = { updatedAt: null, count: 0, items: [], cachedAt: null };
+      rankCache = { updatedAt: null, count: 0, items: [], excluded: [], cachedAt: null };
       rankSummaryCache = { updatedAt: null, totals: null };
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true }));
     } catch (err) {
@@ -4750,12 +7262,46 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, "text/plain; charset=utf-8", "Not found");
 });
 
-server.listen(port, host, () => {
-  console.log(`(observer-demo) http://${host}:${port}`);
-  startObserverHitsTailer();
-  startStatsRollupUpdater();
-  hydrateRepeaterRankCache();
-  hydrateObserverRankCache();
-  hydrateMeshScoreCache();
-  scheduleAutoRefresh().catch(() => {});
-});
+const exported = {
+  refreshGeoscoreObserverProfiles,
+  buildRepeaterRank,
+  buildRepeatEvidenceMap,
+  summarizeRepeatEvidence,
+  classifyRepeaterQuality,
+  isCompanionDevice,
+  sanitizeRepeaterPub,
+  nodeHashFromPub,
+  buildGeoscoreRoutePayload,
+  readGeoscoreStatus,
+  parsePathTokens,
+  parsePathJsonTokens,
+  ensureGeoscoreRouteStmt,
+  getDb,
+  loadJsonFromPaths,
+  devicesPath,
+  observersPath,
+  dbPath,
+  isValidGps
+};
+
+if (require.main === module) {
+  server.listen(port, host, () => {
+    console.log(`(observer-demo) http://${host}:${port}`);
+    startObserverHitsTailer();
+    startStatsRollupUpdater();
+    hydrateRepeaterRankCache();
+    hydrateObserverRankCache();
+    refreshRankCache(true).catch(() => {});
+    hydrateMeshScoreCache();
+    try {
+      const updated = refreshGeoscoreObserverProfiles();
+      console.log("(geoscore) observer profiles loaded", updated.count);
+    } catch (err) {
+      console.error("(geoscore) observer profile load failed", err);
+    }
+    // TODO M4: nightly recalibration + systemd timer hook
+    scheduleAutoRefresh().catch(() => {});
+  });
+}
+
+module.exports = exported;

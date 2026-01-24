@@ -14,6 +14,16 @@
       "hashByte": "04",
       "name": "#stu",
       "secretHex": "e394644fa9c1dac1a38b55bf42747c09"
+    },
+    {
+      "hashByte": "1C",
+      "name": "#oarc",
+      "secretHex": "489a22cf5596535383b468d31a694cbf"
+    },
+    {
+      "hashByte": "09",
+      "name": "#swsw",
+      "secretHex": "4056f15c64f4fa6c9e5f83e46600ffd7"
     }
   ]
 }
