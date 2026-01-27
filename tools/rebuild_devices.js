@@ -31,7 +31,7 @@ function decodeAppFlags(flags) {
   else if (roleCode === 0x02) roleName = "repeater";
   else if (roleCode === 0x03) roleName = "room_server";
 
-  const isRepeater = roleCode === 0x02 || roleCode === 0x03;
+  const isRepeater = roleCode === 0x02;
 
   return {
     raw: flags,

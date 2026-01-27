@@ -1,19 +1,64 @@
 {
   "channels": [
     {
-      "hashByte": "11",
-      "name": "#public",
-      "secretHex": "8b3387e9c5cdea6ac9e5edbaa115cd72"
+      "hashByte": "69",
+      "name": "#eastofengland",
+      "secretHex": "c859543af54be262711c352baa8e79b5"
     },
     {
-      "hashByte": "D9",
-      "name": "#test",
-      "secretHex": "9cd8fcf22a47333b591d96a2b848b73f"
+      "hashByte": "66",
+      "name": "#football",
+      "secretHex": "c0c8297537560a98317646b1665b417c"
     },
     {
-      "hashByte": "04",
-      "name": "#stu",
-      "secretHex": "e394644fa9c1dac1a38b55bf42747c09"
+      "hashByte": "B3",
+      "name": "#hamradio",
+      "secretHex": "83c8b01997654265938da8765cbc7db9"
+    },
+    {
+      "hashByte": "34",
+      "name": "#hashtags",
+      "secretHex": "88c15b16b2b54bbd53dbbfef457bf38b"
+    },
+    {
+      "hashByte": "00",
+      "name": "#hubnet",
+      "secretHex": "e032f63e30471460847dfdfe5e46e971"
+    },
+    {
+      "hashByte": "D1",
+      "name": "#humber",
+      "secretHex": "6c64b39a45ff1922dfff84e6b180128b"
+    },
+    {
+      "hashByte": "6B",
+      "name": "#isleofwight",
+      "secretHex": "61c443367875ab5fed500c6c7d88b6ae"
+    },
+    {
+      "hashByte": "9F",
+      "name": "#jokes",
+      "secretHex": "abe610d61dee508c0ac18793c36c41c3"
+    },
+    {
+      "hashByte": "D5",
+      "name": "#london",
+      "secretHex": "9881d2b7ab9105a41a8d0f6ba449447e"
+    },
+    {
+      "hashByte": "C0",
+      "name": "#m3sh",
+      "secretHex": "af1981365329eba8f68b82fb61346777"
+    },
+    {
+      "hashByte": "3B",
+      "name": "#meshranksuggestions",
+      "secretHex": "374f7725cdac8bef749400076cdae269"
+    },
+    {
+      "hashByte": "81",
+      "name": "#northwest",
+      "secretHex": "bd7631b07e8a3e59d0d3b74d87761e26"
     },
     {
       "hashByte": "1C",
@@ -21,9 +66,44 @@
       "secretHex": "489a22cf5596535383b468d31a694cbf"
     },
     {
+      "hashByte": "11",
+      "name": "#public",
+      "secretHex": "8b3387e9c5cdea6ac9e5edbaa115cd72"
+    },
+    {
+      "hashByte": "7F",
+      "name": "#reddirch-hams",
+      "secretHex": "b0033ca82c3c13bd1c07a971b65ed1e6"
+    },
+    {
+      "hashByte": "38",
+      "name": "#rotm",
+      "secretHex": "262ea57e4a87e95ee4d154a59eb9125e"
+    },
+    {
+      "hashByte": "04",
+      "name": "#stu",
+      "secretHex": "e394644fa9c1dac1a38b55bf42747c09"
+    },
+    {
       "hashByte": "09",
       "name": "#swsw",
       "secretHex": "4056f15c64f4fa6c9e5f83e46600ffd7"
+    },
+    {
+      "hashByte": "D9",
+      "name": "#test",
+      "secretHex": "9cd8fcf22a47333b591d96a2b848b73f"
+    },
+    {
+      "hashByte": "BB",
+      "name": "#walesandwest-chat",
+      "secretHex": "1c75eceabf9cc4f72c838b51e7f7c3ff"
+    },
+    {
+      "hashByte": "80",
+      "name": "#yorkshire",
+      "secretHex": "ea19e9567eec1b148c174f0cb9d04dd7"
     }
   ]
 }

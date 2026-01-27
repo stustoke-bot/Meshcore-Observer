@@ -79,6 +79,12 @@ const CONFIDENCE_DEAD_END_LIMIT = 20;
 const messageRouteCache = new Map();
 
 const packetTimeline = [];
+const visitorConnections = new Set();
+const visitorTimeline = [];
+const VISITOR_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
+const VISITOR_RATE_MINUTE_MS = 60 * 1000;
+const VISITOR_RATE_HOUR_MS = 60 * 60 * 1000;
+let visitorPeakConnections = 0;
 let meshTrendCache = { updatedAt: 0, payload: null };
 
 const OBSERVER_HITS_MAX_BYTES = 2 * 1024 * 1024;
@@ -302,7 +308,10 @@ const OBSERVER_OFFLINE_MINUTES = 24 * 60;
 const OBSERVER_OFFLINE_HOURS = OBSERVER_OFFLINE_MINUTES / 60;
 const OBSERVER_LOW_PACKET_MINUTES = 15;
 const OBSERVER_MAX_REPEATER_KM = 300;
-const REPEAT_EVIDENCE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REPEATER_ACTIVE_WINDOW_DAYS = 3;
+const REPEATER_ACTIVE_WINDOW_HOURS = REPEATER_ACTIVE_WINDOW_DAYS * 24;
+const REPEATER_ACTIVE_WINDOW_MS = REPEATER_ACTIVE_WINDOW_HOURS * 60 * 60 * 1000;
+const REPEAT_EVIDENCE_WINDOW_MS = REPEATER_ACTIVE_WINDOW_MS;
 const REPEAT_EVIDENCE_MIN_MIDDLE = 5;
 const REPEAT_EVIDENCE_MIN_NEIGHBORS = 2;
 
@@ -2668,9 +2677,9 @@ async function buildObserverRank() {
   }
 
   const now = Date.now();
-  const windowMs = 24 * 60 * 60 * 1000;
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
   const windowHours = windowMs / 3600000;
-  const rankWindowMs = windowMs * 3;
+  const rankWindowMs = windowMs;
   const stats = new Map();
 
   for (const entry of Object.values(byId)) {
@@ -3279,9 +3288,9 @@ async function buildRepeaterRank() {
   }
 
   const now = Date.now();
-  const windowMs = 24 * 60 * 60 * 1000;
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
   const windowHours = windowMs / 3600000;
-  const rankWindowMs = windowMs * 3;
+  const rankWindowMs = windowMs;
 
   const stats = new Map(); // pub -> {total24h, msgCounts: Map, rssi: [], snr: [], bestRssi, bestSnr, zeroHopNeighbors, neighborRssi, clockDriftMs}
   const ensureRepeaterStat = (pub) => {
@@ -4249,6 +4258,41 @@ function isChannelBlocked(name, blockedSet) {
   if (!name) return false;
   const normalized = normalizeChannelName(name);
   return !!(normalized && blockedSet?.has(normalized));
+}
+
+function pruneVisitorTimeline(now = Date.now()) {
+  const cutoff = now - VISITOR_HISTORY_WINDOW_MS;
+  while (visitorTimeline.length && visitorTimeline[0] < cutoff) {
+    visitorTimeline.shift();
+  }
+}
+
+function countVisitorConnectionsSince(cutoff) {
+  let count = 0;
+  for (let i = visitorTimeline.length - 1; i >= 0; i -= 1) {
+    if (visitorTimeline[i] < cutoff) break;
+    count += 1;
+  }
+  return count;
+}
+
+function recordVisitorConnection(now = Date.now()) {
+  visitorTimeline.push(now);
+  pruneVisitorTimeline(now);
+}
+
+function buildVisitorStats(now = Date.now()) {
+  pruneVisitorTimeline(now);
+  const active = visitorConnections.size;
+  const rate1m = countVisitorConnectionsSince(now - VISITOR_RATE_MINUTE_MS);
+  const rate1h = countVisitorConnectionsSince(now - VISITOR_RATE_HOUR_MS);
+  return {
+    active,
+    rate1m,
+    rate1h,
+    peak: visitorPeakConnections,
+    lastUpdated: now
+  };
 }
 
 function recordPacketEvents(count) {
@@ -6497,6 +6541,10 @@ const server = http.createServer(async (req, res) => {
     });
     res.write("\n");
     let closed = false;
+    const visitorId = Symbol("visitor");
+    visitorConnections.add(visitorId);
+    visitorPeakConnections = Math.max(visitorPeakConnections, visitorConnections.size);
+    recordVisitorConnection();
     const db = getDb();
     let lastRowId = 0;
     try {
@@ -6519,7 +6567,8 @@ const server = http.createServer(async (req, res) => {
         const channels = await buildChannelSummary();
         const rotm = await buildRotmData();
         const stats = readLatestStatsRollup();
-        sendEvent("counters", { ts: Date.now(), channels, rotm, stats });
+        const visitors = buildVisitorStats();
+        sendEvent("counters", { ts: Date.now(), channels, rotm, stats, visitors });
       } catch (err) {
         sendEvent("error", { error: String(err?.message || err) });
       } finally {
@@ -6594,6 +6643,7 @@ const server = http.createServer(async (req, res) => {
       if (!closed) res.write("event: ping\ndata: {}\n\n");
     }, MESSAGE_OBSERVER_STREAM_PING_MS);
     req.on("close", () => {
+      visitorConnections.delete(visitorId);
       closed = true;
       clearInterval(countersInterval);
       clearInterval(ranksInterval);

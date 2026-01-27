@@ -112,7 +112,7 @@
     }
     .mesh-live-grid {
       display: grid;
-      grid-template-columns: 260px 1fr;
+      grid-template-columns: minmax(280px, 1fr) minmax(220px, 320px);
       gap: 16px;
     }
     .mesh-live-stats {
@@ -141,38 +141,38 @@
       letter-spacing: 0.08em;
       color: var(--muted);
     }
-    .mesh-live-map-wrapper {
-      position: relative;
-      border-radius: 18px;
-      overflow: hidden;
-      min-height: 420px;
+    /* Map removed: stats-only view */
+    .mesh-live-right-pane {
+      display: grid;
+      gap: 16px;
+    }
+    .mesh-live-visitor-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+    .visitor-card {
       border: 1px solid var(--line);
-      background: var(--panel);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.02);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
-    .mesh-live-map {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      min-height: 420px;
+    .visitor-card strong {
+      font-size: 26px;
+      line-height: 1.1;
     }
-    .mesh-live-pulse-layer {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
+    .visitor-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
-    .mesh-live-pulse-layer span {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(0, 122, 255, 0.8);
-      box-shadow: 0 0 12px rgba(0, 122, 255, 0.6);
-      animation: meshLivePulse 1s ease-out forwards;
-      transform: translate(-50%, -50%);
-    }
-    @keyframes meshLivePulse {
-      0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-      100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+    .visitor-note {
+      font-size: 13px;
+      color: var(--muted);
     }
     .mesh-live-list-wrapper {
       background: rgba(0, 122, 255, 0.03);
@@ -1400,12 +1400,23 @@
       border: 1px solid var(--line);
       overflow: hidden;
       min-height: 360px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .rank-map-note {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 12px 16px 0;
+      line-height: 1.4;
+      text-align: center;
     }
 
     #rankMap {
       width: 100%;
-      height: 100%;
-      min-height: 360px;
+      flex: 1;
+      min-height: 320px;
+      height: auto;
     }
 
     #observerRankMap {
@@ -3569,9 +3580,16 @@
         <button class="link-btn" id="rankFlaggedLink" type="button">
           Can't see your repeater? Check the implausible GPS list.
         </button>
+        <button class="link-btn" id="rankExplainLink" type="button">
+          How repeater scores are calculated
+        </button>
       </div>
       <div class="rank-body">
         <div class="rank-map">
+          <div class="rank-map-note">
+            Repeaters marked with 🚫 in their names are hidden from the map.
+            If you’d prefer not to share your exact location with anyone, you should set your GPS to 00°00′N 00°00′E.
+          </div>
           <div id="rankMap"></div>
         </div>
         <div class="rank-list">
@@ -3714,9 +3732,26 @@
             <span class="muted">MeshRank / msgs</span>
           </div>
         </div>
-        <div class="mesh-live-map-wrapper">
-          <div class="mesh-live-map" id="meshLiveMap"></div>
-          <div class="mesh-live-pulse-layer" id="meshLivePulseLayer"></div>
+        <div class="mesh-live-right-pane">
+          <div class="mesh-live-visitor-grid">
+            <div class="visitor-card">
+              <div class="visitor-label">Active visitors</div>
+              <strong id="visitorActive">0</strong>
+            </div>
+            <div class="visitor-card">
+              <div class="visitor-label">Connections (1m)</div>
+              <strong id="visitorRate1m">0</strong>
+            </div>
+            <div class="visitor-card">
+              <div class="visitor-label">Connections (1h)</div>
+              <strong id="visitorRate1h">0</strong>
+            </div>
+            <div class="visitor-card">
+              <div class="visitor-label">Peak concurrent</div>
+              <strong id="visitorPeak">0</strong>
+            </div>
+          </div>
+          <div class="visitor-note">Counts reflect open listeners on the live stream.</div>
         </div>
       </div>
       <div class="mesh-live-list-wrapper">
@@ -4361,9 +4396,13 @@
             maxNewMessages: 2
           },
         meshLive: {
-          polling: null,
-          markers: [],
-          boundsSet: false
+          polling: null
+        },
+        visitorStats: {
+          active: 0,
+          rate1m: 0,
+          rate1h: 0,
+          peak: 0
         },
         messageStream: {
           es: null,
@@ -4375,6 +4414,7 @@
       };
 
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
+    const MAP_HIDE_EMOJI = "🚫";
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
@@ -4389,6 +4429,11 @@
       if (r.hiddenOnMap) return true;
       if (r.gpsImplausible || r.gpsFlagged) return true;
       return !hasValidGps(r);
+    }
+
+    function hasMapHideEmoji(r) {
+      const name = String(r?.name || "");
+      return name.includes(MAP_HIDE_EMOJI);
     }
 
     function confidence(msg) {
@@ -4761,55 +4806,6 @@
       googleInitTimer = window.setInterval(tryInitGoogleSignin, 500);
     }
 
-    let meshLiveMap;
-    let meshLiveLayer;
-    let meshLivePulseContainer;
-
-    function ensureMeshLiveMap() {
-      if (meshLiveMap) return;
-      if (typeof L === "undefined") return;
-      const el = document.getElementById("meshLiveMap");
-      if (!el) return;
-      meshLiveMap = L.map(el, {
-        zoomControl: true,
-        scrollWheelZoom: false,
-        attributionControl: false
-      }).setView([54.0, -2.5], 6);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors"
-      }).addTo(meshLiveMap);
-      meshLiveLayer = L.layerGroup().addTo(meshLiveMap);
-      meshLivePulseContainer = document.getElementById("meshLivePulseLayer");
-      meshLiveMap.on("moveend zoomend resize", () => refreshMeshLivePulsePositions());
-    }
-
-    function refreshMeshLivePulsePositions() {
-      if (!meshLiveMap || !meshLivePulseContainer) return;
-      meshLivePulseContainer.querySelectorAll("span").forEach((pulse) => {
-        const lat = Number(pulse.dataset.lat);
-        const lon = Number(pulse.dataset.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-        const point = meshLiveMap.latLngToLayerPoint([lat, lon]);
-        pulse.style.left = `${point.x}px`;
-        pulse.style.top = `${point.y}px`;
-      });
-    }
-
-    function spawnMeshLivePulse(latlng) {
-      if (!meshLiveMap || !meshLivePulseContainer) return;
-      const lat = latlng[0];
-      const lon = latlng[1];
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      const point = meshLiveMap.latLngToLayerPoint(latlng);
-      const pulse = document.createElement("span");
-      pulse.dataset.lat = String(lat);
-      pulse.dataset.lon = String(lon);
-      pulse.style.left = `${point.x}px`;
-      pulse.style.top = `${point.y}px`;
-      meshLivePulseContainer.appendChild(pulse);
-      setTimeout(() => pulse.remove(), 1100);
-    }
 
     function renderMeshLivePayload(payload) {
       if (!payload) return;
@@ -4857,34 +4853,6 @@
           `;
         }).join("");
       }
-      if (meshLiveLayer) {
-        meshLiveLayer.clearLayers();
-      }
-      if (meshLiveMap && repeaters.length) {
-        const points = [];
-        repeaters.forEach((item) => {
-          const lat = Number(item.lat);
-          const lon = Number(item.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-          points.push([lat, lon]);
-          const radius = clamp(Math.sqrt((item.total24h || 1)) * 2, 6, 28);
-          const fillColor = item.color || "var(--blue)";
-          L.circleMarker([lat, lon], {
-            radius,
-            fillColor,
-            color: fillColor,
-            weight: 1.5,
-            fillOpacity: 0.65,
-            stroke: true
-          }).bindTooltip(`${item.name || item.pub || item.hash || "Unnamed"}<br/>Score ${item.score ?? "--"}`, { direction: "top" }).addTo(meshLiveLayer);
-        });
-        if (points.length && !appData.meshLive.boundsSet) {
-          meshLiveMap.fitBounds(points, { padding: [40, 40], maxZoom: 10 });
-          appData.meshLive.boundsSet = true;
-        }
-        const pulses = repeaters.slice(0, 5);
-        pulses.forEach((item) => spawnMeshLivePulse([Number(item.lat), Number(item.lon)]));
-      }
     }
 
     async function loadMeshLivePayload() {
@@ -4900,7 +4868,6 @@
 
     function startMeshLivePolling() {
       if (appData.meshLive.polling) return;
-      ensureMeshLiveMap();
       loadMeshLivePayload();
       appData.meshLive.polling = window.setInterval(loadMeshLivePayload, 8000);
     }
@@ -4909,6 +4876,37 @@
       if (!appData.meshLive.polling) return;
       clearInterval(appData.meshLive.polling);
       appData.meshLive.polling = null;
+    }
+
+    function formatVisitorNumber(value) {
+      if (!Number.isFinite(value)) return "0";
+      return value.toLocaleString();
+    }
+
+    function updateVisitorDisplay() {
+      const stats = appData.visitorStats || {};
+      const entries = [
+        { id: "visitorActive", value: stats.active },
+        { id: "visitorRate1m", value: stats.rate1m },
+        { id: "visitorRate1h", value: stats.rate1h },
+        { id: "visitorPeak", value: stats.peak }
+      ];
+      entries.forEach(({ id, value }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = formatVisitorNumber(value);
+      });
+    }
+
+    function applyVisitorStats(payload) {
+      if (!payload) return;
+      appData.visitorStats = {
+        active: Number.isFinite(payload.active) ? payload.active : 0,
+        rate1m: Number.isFinite(payload.rate1m) ? payload.rate1m : 0,
+        rate1h: Number.isFinite(payload.rate1h) ? payload.rate1h : 0,
+        peak: Number.isFinite(payload.peak) ? payload.peak : 0
+      };
+      updateVisitorDisplay();
     }
 
     async function handleGoogleCredentialResponse(response) {
@@ -6142,6 +6140,13 @@
         openImplausibleList();
       });
     }
+    const rankExplainLink = document.getElementById("rankExplainLink");
+    if (rankExplainLink) {
+      rankExplainLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        openRankExplain();
+      });
+    }
     window.addEventListener("resize", () => {
       if (!window.matchMedia?.("(max-width: 860px)")?.matches) {
         document.body.classList.remove("route-open");
@@ -7122,6 +7127,7 @@
           const data = JSON.parse(event.data);
           if (!appData.authUser && Array.isArray(data.channels)) applyChannels(data.channels);
           if (data.rotm) applyRotmPayload(data.rotm);
+          if (data.visitors) applyVisitorStats(data.visitors);
         } catch {}
       });
       es.addEventListener("ranks", (event) => {
@@ -7353,6 +7359,7 @@
       }, 15 * 60 * 1000);
     }
 
+    updateVisitorDisplay();
     boot();
 
     let rankMap;
@@ -8371,9 +8378,30 @@
         content.innerHTML = buildImplausibleSkeleton(`Unable to load flagged repeaters: ${err?.message || err}`);
       }
     }
-
     function closeImplausibleList() {
       const overlay = document.getElementById("repeaterFlaggedOverlay");
+      if (overlay) overlay.classList.remove("open");
+    }
+
+    function openRankExplain() {
+      const overlay = document.getElementById("rankExplainOverlay");
+      const content = document.getElementById("rankExplainContent");
+      if (!overlay || !content) return;
+      overlay.classList.add("open");
+      content.innerHTML = `
+        <div class="rank-detail-close">
+          <button type="button" onclick="closeRankExplain()">✕</button>
+        </div>
+        <div class="rank-detail-title">How repeater scores are calculated</div>
+        <p>Rankers combine live RF events, decoded MeshCORE packets, and AI-assisted path validation to reward real-world contribution.</p>
+        <p>Each packet contributes toward a score for the candidate repeater, weighted by repeat density, confidence from multiple observers, and hop consistency. The AI helps decide whether those paths look like genuine mesh propagation or just isolated broadcasts.</p>
+        <p>This overlay is designed to be transparent: the AI does not guess your repeater's ability — it learns from observer hits, decoded traffic, and neighbor density, with a human-curated quality check.</p>
+        <p>We don't sell the info or route traffic through the internet; we just help you understand how the mesh sees your node.</p>
+      `;
+    }
+
+    function closeRankExplain() {
+      const overlay = document.getElementById("rankExplainOverlay");
       if (overlay) overlay.classList.remove("open");
     }
 
@@ -9141,8 +9169,9 @@
       const visible = sorted;
       const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
       visible.forEach((r) => {
-          const item = document.createElement("div");
-          const isHidden = isRepeaterHidden(r);
+        const item = document.createElement("div");
+        const isHidden = isRepeaterHidden(r);
+        const emojiHidden = hasMapHideEmoji(r);
           const hiddenLabel = r.gpsImplausible ? "GPS implausible" : "GPS unreliable";
           const badges = buildRepeaterBadges(r, nearestObserverSet);
           item.className = "rank-item" + (isHidden ? " hidden" : "");
@@ -9163,7 +9192,7 @@
                 ${r.name} ${code}
               </div>
             <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
-            <div class="row">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+            <div class="row">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
             <div class="row">
               <a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</a>
               <span style="color:var(--muted);">|</span>
@@ -9181,7 +9210,8 @@
         });
         list.appendChild(item);
 
-        if (!onMobile && !isHidden && !r.stale && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
+        const shouldHideFromMap = isHidden || emojiHidden;
+        if (!onMobile && !shouldHideFromMap && !r.stale && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
           const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
             radius: 8,
             color: r.color,
@@ -9201,7 +9231,7 @@
       if (!onMobile && !opts.preserveView && sorted.length) {
         const bounds = sorted
           .filter((r) => {
-            if (isRepeaterHidden(r)) return false;
+            if (isRepeaterHidden(r) || hasMapHideEmoji(r)) return false;
             return r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon);
           })
           .map((r) => [r.gps.lat, r.gps.lon]);
@@ -9238,7 +9268,7 @@
           <div style="font-weight:700;margin-bottom:6px;">${r.name}${code}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${statusLabel}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
-          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 24h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
@@ -10096,7 +10126,17 @@
         if (!btn) return;
         event.preventDefault();
         event.stopPropagation();
-        showZeroHopPlaceholder();
+        const pub = String(btn.getAttribute("data-repeater-neighbors") || "").trim().toUpperCase();
+        if (!pub) {
+          showZeroHopPlaceholder();
+          return;
+        }
+        const entry = (appData.rankData || []).find((r) => String(r.pub || "").toUpperCase() === pub);
+        if (!entry) {
+          showZeroHopPlaceholder();
+          return;
+        }
+        openNeighborMapModal(entry);
       });
     }
 
@@ -10279,6 +10319,11 @@
     });
   </script>
   <script async defer src="https://accounts.google.com/gsi/client"></script>
+  <div id="rankExplainOverlay" class="rank-detail-overlay" onclick="closeRankExplain()">
+    <div class="rank-detail-card" onclick="event.stopPropagation()">
+      <div id="rankExplainContent"></div>
+    </div>
+  </div>
   <div id="repeaterFlaggedOverlay" class="rank-detail-overlay" onclick="closeImplausibleList()">
     <div class="rank-detail-card" onclick="event.stopPropagation()">
       <div id="repeaterFlaggedContent"></div>

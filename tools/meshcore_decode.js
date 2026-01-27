@@ -83,7 +83,7 @@ function hexToBuf(hex) {
 }
 
 // -------------------- App Flags decoding (AUTHORITATIVE) --------------------
-// Chat nodes are NOT repeaters. Repeaters/Room servers are repeaters. Anything else is companion.
+// Chat nodes are NOT repeaters. Repeaters are repeaters; room servers count as companions.
 function decodeAppFlags(flags) {
   if (!Number.isInteger(flags)) return null;
 
@@ -94,7 +94,7 @@ function decodeAppFlags(flags) {
   else if (roleCode === 0x02) roleName = "repeater";
   else if (roleCode === 0x03) roleName = "room_server";
 
-  const isRepeater = roleCode === 0x02 || roleCode === 0x03;
+  const isRepeater = roleCode === 0x02;
 
   return {
     raw: flags,
@@ -394,5 +394,4 @@ process.on("SIGINT", () => {
   try { saveJsonAtomic(devicesDbPath, devices); } catch {}
   process.exit(0);
 });
-
 
