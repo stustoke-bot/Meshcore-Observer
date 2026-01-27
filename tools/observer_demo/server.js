@@ -122,6 +122,13 @@ const MESHFLOW_MAX_NODES = 500;
 const MESHFLOW_READ_LIMIT = 400;
 const MESHFLOW_JITTER_ENABLED = process.env.MESHFLOW_JITTER === "1";
 const MESHFLOW_JITTER_DEGREES = 0.004;
+const SHARE_URL_BASE = "https://meshrank.net/s/";
+const SHARE_TTL_SECONDS = 24 * 60 * 60;
+const SHARE_RATE_LIMIT = 30;
+const SHARE_RATE_WINDOW_MS = 60 * 1000;
+const SHARE_MISS_THRESHOLD = 12;
+const shareRateMap = new Map();
+const shareMissMap = new Map();
 
 const { inferRouteViterbi } = require("./geoscore_infer");
 
@@ -366,6 +373,98 @@ function resolveRecordTimestamp(rec, baseNow, maxNumericTs) {
     return new Date(approx).toISOString();
   }
   return null;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  if (forwarded) {
+    const first = String(forwarded).split(",")[0];
+    if (first) return first.trim();
+  }
+  return req.socket?.remoteAddress || "unknown";
+}
+
+function isShareRequestAllowed(ip) {
+  if (!ip) return true;
+  const now = Date.now();
+  let entry = shareRateMap.get(ip);
+  if (!entry || (now - entry.windowStart) > SHARE_RATE_WINDOW_MS) {
+    entry = { count: 0, windowStart: now };
+  }
+  entry.count += 1;
+  shareRateMap.set(ip, entry);
+  return entry.count <= SHARE_RATE_LIMIT;
+}
+
+function recordShareMiss(ip) {
+  if (!ip) return 0;
+  const now = Date.now();
+  let entry = shareMissMap.get(ip) || { count: 0, resetAt: now + SHARE_RATE_WINDOW_MS };
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + SHARE_RATE_WINDOW_MS;
+  }
+  entry.count += 1;
+  shareMissMap.set(ip, entry);
+  return entry.count;
+}
+
+function clearShareMiss(ip) {
+  if (!ip) return;
+  shareMissMap.delete(ip);
+}
+
+function cleanupExpiredShares(db) {
+  if (!db) return;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const rows = db.prepare("SELECT share_code FROM route_share WHERE expires_at < ? LIMIT 1000").all(now);
+    if (!rows.length) return;
+    const placeholders = rows.map(() => "?").join(",");
+    db.prepare(`DELETE FROM route_share WHERE share_code IN (${placeholders})`).run(...rows.map((row) => row.share_code));
+  } catch (err) {
+    console.log("(observer-demo) share cleanup failed", err?.message || err);
+  }
+}
+
+function findMessageRow(db, key) {
+  if (!db || !hasMessagesDb(db)) return null;
+  const normalized = String(key || "").trim().toUpperCase();
+  if (!normalized) return null;
+  let row = db.prepare("SELECT * FROM messages WHERE message_hash = ?").get(normalized);
+  if (row) return row;
+  row = db.prepare("SELECT * FROM messages WHERE frame_hash = ?").get(normalized);
+  return row || null;
+}
+
+function loadMessageObserversForHash(db, messageHash) {
+  if (!db || !hasMessageObserversDb(db)) return [];
+  const rows = db.prepare("SELECT observer_id, observer_name FROM message_observers WHERE message_hash = ? ORDER BY ts DESC").all(messageHash);
+  return rows.map((row) => row.observer_name || row.observer_id).filter(Boolean);
+}
+
+function buildShareRouteDetails(row) {
+  const tokens = row.path_json
+    ? parsePathJsonTokens(row.path_json)
+    : parsePathTokens(row.path_text);
+  const nodeMap = getCachedNodeHashMap();
+  const pathPoints = tokens.map((hash) => {
+    const entry = nodeMap.get(hash);
+    const gps = entry?.gps;
+    return {
+      hash,
+      name: entry?.name || hash,
+      gps: gps ? { lat: gps.lat, lon: gps.lon } : null,
+      hidden: !!(entry?.hiddenOnMap || entry?.gpsImplausible || entry?.gpsFlagged)
+    };
+  });
+  return {
+    path: tokens,
+    pathNames: pathPoints.map((p) => p.name),
+    pathPoints,
+    pathDepth: Number.isFinite(row.path_length) ? row.path_length : tokens.length,
+    hasPath: tokens.length > 0
+  };
 }
 
 function hasMessagesDb(db) {
@@ -767,6 +866,14 @@ function getDb() {
       created_at TEXT NOT NULL,
       verified_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS route_share (
+      share_code TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_route_share_expires ON route_share(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_route_share_message ON route_share(message_id);
     CREATE TABLE IF NOT EXISTS messages (
       message_hash TEXT PRIMARY KEY,
       frame_hash TEXT,
@@ -5698,6 +5805,11 @@ const server = http.createServer(async (req, res) => {
     html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
     return send(res, 200, "text/html; charset=utf-8", html);
   }
+  if (/^\/s\/[0-9]{5}$/.test(u.pathname)) {
+    let html = fs.readFileSync(indexPath, "utf8");
+    html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+    return send(res, 200, "text/html; charset=utf-8", html);
+  }
   const rawPath = decodeURIComponent(u.pathname || "");
   const trimmed = rawPath.replace(/^[\\/]+/, "");
   const staticPath = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, "");
@@ -7227,6 +7339,73 @@ const server = http.createServer(async (req, res) => {
     const payload = await buildMessageRouteHistory(hash, hours);
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
+  const routeShareMatch = u.pathname.match(/^\/api\/routes\/([^/]+)\/share$/);
+  if (routeShareMatch && req.method === "POST") {
+    try {
+      const rawId = routeShareMatch[1] || "";
+      const messageId = String(rawId).trim();
+      if (!messageId) {
+        return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "message id required" }));
+      }
+      const db = getDb();
+      if (!hasMessagesDb(db)) {
+        return send(res, 503, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "messages database unavailable" }));
+      }
+      cleanupExpiredShares(db);
+      const row = findMessageRow(db, messageId);
+      if (!row) {
+        return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "message not found" }));
+      }
+      const canonicalId = row.message_hash || row.frame_hash || messageId.toUpperCase();
+      const now = Math.floor(Date.now() / 1000);
+      const existing = db.prepare(`
+        SELECT share_code, expires_at
+        FROM route_share
+        WHERE message_id = ? AND expires_at >= ?
+        ORDER BY expires_at DESC
+        LIMIT 1
+      `).get(canonicalId, now);
+      if (existing) {
+        console.info(`[share] reuse code=${existing.share_code} message=${canonicalId}`);
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+          ok: true,
+          code: existing.share_code,
+          url: `${SHARE_URL_BASE}${existing.share_code}`,
+          expiresAt: existing.expires_at
+        }));
+      }
+      let code = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const candidate = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
+        try {
+          db.prepare(`
+            INSERT INTO route_share (share_code, message_id, created_at, expires_at)
+            VALUES (?, ?, ?, ?)
+          `).run(candidate, canonicalId, now, now + SHARE_TTL_SECONDS);
+          code = candidate;
+          break;
+        } catch (err) {
+          if (String(err?.message || "").includes("UNIQUE")) {
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!code) {
+        return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "could not generate share code" }));
+      }
+      cleanupExpiredShares(db);
+      console.info(`[share] created code=${code} message=${canonicalId}`);
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+        ok: true,
+        code,
+        url: `${SHARE_URL_BASE}${code}`,
+        expiresAt: now + SHARE_TTL_SECONDS
+      }));
+    } catch (err) {
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
+  }
   if (u.pathname === "/api/confidence-history") {
     const sender = u.searchParams.get("sender");
     const channel = u.searchParams.get("channel");
@@ -7331,6 +7510,66 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err) }));
     }
+  }
+
+  const shareResolveMatch = u.pathname.match(/^\/api\/share\/([0-9]{5})$/);
+  if (shareResolveMatch) {
+    const code = shareResolveMatch[1];
+    const ip = getClientIp(req);
+    if (!isShareRequestAllowed(ip)) {
+      return send(res, 429, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "rate limit exceeded" }));
+    }
+    const db = getDb();
+    if (!hasMessagesDb(db)) {
+      return send(res, 503, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "messages database unavailable" }));
+    }
+    cleanupExpiredShares(db);
+    const now = Math.floor(Date.now() / 1000);
+    const record = db.prepare("SELECT * FROM route_share WHERE share_code = ?").get(code);
+    if (!record) {
+      const misses = recordShareMiss(ip);
+      console.warn(`[share] miss code=${code} ip=${ip} misses=${misses}`);
+      if (misses >= SHARE_MISS_THRESHOLD) {
+        return send(res, 429, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "too many misses" }));
+      }
+      return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "share code not found" }));
+    }
+    if (record.expires_at < now) {
+      db.prepare("DELETE FROM route_share WHERE share_code = ?").run(code);
+      console.warn(`[share] expired code=${code} ip=${ip}`);
+      return send(res, 410, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "share expired" }));
+    }
+    clearShareMiss(ip);
+    const messageRow = db.prepare("SELECT * FROM messages WHERE message_hash = ?").get(record.message_id);
+    if (!messageRow) {
+      return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "message not found" }));
+    }
+    const routeDetails = buildShareRouteDetails(messageRow);
+    const observers = loadMessageObserversForHash(db, messageRow.message_hash);
+    const response = {
+      ok: true,
+      code,
+      url: `${SHARE_URL_BASE}${code}`,
+      expiresAt: record.expires_at,
+      message: {
+        id: messageRow.message_hash || messageRow.frame_hash || record.message_id,
+        frameHash: messageRow.frame_hash || null,
+        channelName: messageRow.channel_name || null,
+        sender: messageRow.sender || null,
+        body: messageRow.body || null,
+        ts: messageRow.ts || null,
+        pathLength: messageRow.path_length || null,
+        repeats: messageRow.repeats || null
+      },
+      route: {
+        ...routeDetails,
+        packetsHeard: messageRow.repeats || 0,
+        observerCount: observers.length
+      },
+      observers
+    };
+    console.info(`[share] hit code=${code} ip=${ip} message=${record.message_id}`);
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(response));
   }
 
   if (u.pathname === "/api/rf-latest") {

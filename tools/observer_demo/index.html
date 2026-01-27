@@ -1445,6 +1445,117 @@
       margin-bottom: 6px;
     }
 
+    .share-landing {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 7, 12, 0.95);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      z-index: 2000;
+    }
+    body.share-active .share-landing {
+      display: flex;
+    }
+    body.share-active {
+      height: auto;
+      overflow: auto;
+    }
+    body.share-active .app,
+    body.share-active .menu-backdrop,
+    body.share-active .route-backdrop {
+      display: none;
+    }
+    .share-card {
+      width: min(760px, 100%);
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .share-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .share-title {
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .share-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .share-status {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .share-error {
+      color: #ff2d55;
+      font-size: 13px;
+      min-height: 20px;
+    }
+    .share-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .share-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .share-row strong {
+      font-size: 14px;
+      color: var(--ink);
+    }
+    .share-path {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .share-path-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.02);
+    }
+    .share-observers {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .share-observer {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.03);
+    }
+    .share-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .share-close {
+      border: none;
+      background: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+    }
+
     .rank-loading {
       display: none;
       align-items: center;
@@ -3148,15 +3259,28 @@
         z-index: 10;
         display: none;
       }
-      .analysis-panel .title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .analysis-panel .title .route-close {
-        margin-left: auto;
-      }
+    .analysis-panel .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .route-title-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+    }
+    .route-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .route-share {
+      font-size: 13px;
+      padding: 4px 10px;
+    }
       html body.view-rotm { height: auto; overflow: auto; }
       body.view-rotm .app { height: auto; min-height: 100vh; }
       .rotm-grid { grid-template-columns: 1fr; min-height: 0; }
@@ -3514,7 +3638,15 @@
 
     <div class="route-backdrop" id="routeBackdrop"></div>
     <section class="panel analysis-panel">
-      <div class="title">Route Path <span class="chip" id="routeKey">none</span><button class="route-close" id="routeClose" type="button">Close</button></div>
+      <div class="title">
+        <div class="route-title-label">
+          Route Path <span class="chip" id="routeKey">none</span>
+        </div>
+        <div class="route-actions">
+          <button class="link-btn route-share" id="routeShareBtn" type="button">Share</button>
+          <button class="route-close" id="routeClose" type="button">Close</button>
+        </div>
+      </div>
       <div class="analysis">
         <div id="routeMap"></div>
         <div id="routeLegend" class="route-legend"></div>
@@ -7361,6 +7493,11 @@
 
     updateVisitorDisplay();
     boot();
+    window.addEventListener("popstate", handleShareRoute);
+    document.addEventListener("DOMContentLoaded", () => {
+      initShareUi();
+      handleShareRoute();
+    });
 
     let rankMap;
     let rankLayer;
@@ -7741,6 +7878,185 @@
       const modal = document.getElementById("repeaterLocationModal");
       if (!modal) return;
       modal.classList.remove("open");
+    }
+
+    let routeShareBtn;
+    let shareLanding;
+    let shareStatus;
+    let shareError;
+    let shareMessageKey;
+    let shareChannel;
+    let shareSender;
+    let sharePackets;
+    let shareDepth;
+    let sharePathList;
+    let shareObservers;
+    let shareCloseBtn;
+    let shareViewMessagesBtn;
+    let shareActiveCode = null;
+    let shareButtonLabel = "Share";
+
+    async function shareRoutePath() {
+      if (!routeShareBtn || !appData.routeActiveId) {
+        showToast("Open a route before sharing it.");
+        return;
+      }
+      routeShareBtn.disabled = true;
+      routeShareBtn.textContent = "Creating…";
+      try {
+        const res = await fetch(`/api/routes/${encodeURIComponent(appData.routeActiveId)}/share`, { method: "POST" });
+        const payload = await res.json();
+        if (!res.ok || !payload?.ok || !payload.url) {
+          throw new Error(payload?.error || "Unable to create share link.");
+        }
+        const url = payload.url;
+        const copied = await copyTextToClipboard(url);
+        if (!copied) {
+          window.prompt("Copy share link (valid for 24h)", url);
+        }
+        showToast("Link copied — valid for 24 hours");
+        if (payload.code) {
+          const targetPath = `/s/${payload.code}`;
+          if (window.location.pathname !== targetPath) {
+            window.history.pushState({}, "", targetPath);
+          }
+          openShareLanding(payload.code);
+        }
+      } catch (err) {
+        showToast(`Share failed: ${err?.message || "unknown error"}`);
+      } finally {
+        routeShareBtn.disabled = false;
+        routeShareBtn.textContent = shareButtonLabel;
+      }
+    }
+
+    function initShareUi() {
+      routeShareBtn = document.getElementById("routeShareBtn");
+      shareLanding = document.getElementById("shareLanding");
+      shareStatus = document.getElementById("shareStatus");
+      shareError = document.getElementById("shareError");
+      shareMessageKey = document.getElementById("shareMessageKey");
+      shareChannel = document.getElementById("shareChannel");
+      shareSender = document.getElementById("shareSender");
+      sharePackets = document.getElementById("sharePackets");
+      shareDepth = document.getElementById("shareDepth");
+      sharePathList = document.getElementById("sharePathList");
+      shareObservers = document.getElementById("shareObservers");
+      shareCloseBtn = document.getElementById("shareCloseBtn");
+      shareViewMessagesBtn = document.getElementById("shareViewMessagesBtn");
+      shareButtonLabel = routeShareBtn?.textContent?.trim() || "Share";
+      routeShareBtn?.addEventListener("click", shareRoutePath);
+      shareCloseBtn?.addEventListener("click", () => closeShareLanding());
+      shareViewMessagesBtn?.addEventListener("click", () => closeShareLanding(false));
+    }
+
+    async function copyTextToClipboard(text) {
+      if (!text) return false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {}
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      let success = false;
+      try {
+        success = document.execCommand("copy");
+      } catch {}
+      document.body.removeChild(textarea);
+      return success;
+    }
+
+    async function loadSharedRoute(code) {
+      if (!shareStatus || !sharePathList || !shareObservers) return;
+      shareStatus.textContent = "Loading shared route…";
+      shareError.textContent = "";
+      shareMessageKey.textContent = "—";
+      shareChannel.textContent = "—";
+      shareSender.textContent = "—";
+      sharePackets.textContent = "0";
+      shareDepth.textContent = "0 hops";
+      sharePathList.innerHTML = "";
+      shareObservers.innerHTML = "";
+      try {
+        const res = await fetch(`/api/share/${encodeURIComponent(code)}`);
+        const payload = await res.json();
+        if (!res.ok || !payload?.ok) {
+          throw new Error(payload?.error || "Invalid share link.");
+        }
+        const msg = payload.message || {};
+        shareMessageKey.textContent = msg.id || "—";
+        shareChannel.textContent = msg.channelName || "—";
+        shareSender.textContent = msg.sender || "—";
+        sharePackets.textContent = String(payload.route?.packetsHeard || 0);
+        const depth = payload.route?.pathDepth ?? (payload.route?.path?.length || 0);
+        shareDepth.textContent = `${depth || 0} hops`;
+        if (payload.expiresAt) {
+          const until = new Date(payload.expiresAt * 1000);
+          shareStatus.textContent = `Link expires ${until.toLocaleString()}`;
+        } else {
+          shareStatus.textContent = "Valid for 24 hours";
+        }
+        const nodes = payload.route?.pathPoints || [];
+        if (!nodes.length) {
+          sharePathList.innerHTML = `<div class="share-path-item muted">No route path recorded for this message.</div>`;
+        } else {
+          sharePathList.innerHTML = nodes.map((node, idx) => `
+            <div class="share-path-item">
+              <div><strong>${idx + 1}. ${node.name}</strong></div>
+              <div class="muted">${node.hash}${node.gps ? ` · ${node.gps.lat.toFixed(4)}, ${node.gps.lon.toFixed(4)}` : ""}</div>
+            </div>
+          `).join("");
+        }
+        const observers = payload.observers || [];
+        if (!observers.length) {
+          shareObservers.innerHTML = `<div class="muted">No observers recorded.</div>`;
+        } else {
+          shareObservers.innerHTML = [
+            `<div class="share-observer"><strong>${observers.length} observer${observers.length === 1 ? "" : "s"}</strong></div>`,
+            ...observers.slice(0, 6).map((text) => `<div class="share-observer">${text}</div>`)
+          ].join("");
+        }
+      } catch (err) {
+        shareError.textContent = err?.message || "Unable to load this share link.";
+        shareStatus.textContent = "";
+        sharePathList.innerHTML = `<div class="share-path-item muted">Route data unavailable.</div>`;
+        shareObservers.innerHTML = "";
+      }
+    }
+
+    function openShareLanding(code) {
+      if (!shareLanding) return;
+      shareActiveCode = code;
+      document.body.classList.add("share-active");
+      loadSharedRoute(code);
+    }
+
+    function closeShareLanding(clearHistory = true) {
+      if (!shareLanding) return;
+      shareLanding.classList.remove("error");
+      document.body.classList.remove("share-active");
+      shareActiveCode = null;
+      if (clearHistory) {
+        window.history.replaceState({}, "", "/");
+      }
+    }
+
+    function handleShareRoute() {
+      const match = window.location.pathname.match(/^\/s\/([0-9]{5})$/);
+      if (match) {
+        openShareLanding(match[1]);
+        return;
+      }
+      if (document.body.classList.contains("share-active")) {
+        closeShareLanding(false);
+      }
     }
 
     function rssiTone(rssi, relation) {
@@ -10319,6 +10635,46 @@
     });
   </script>
   <script async defer src="https://accounts.google.com/gsi/client"></script>
+  <div id="shareLanding" class="share-landing">
+    <div class="share-card">
+      <div class="share-header">
+        <div>
+          <div class="share-title">Shared route path</div>
+          <div class="share-subtitle" id="shareSubtitle">Valid for 24 hours</div>
+        </div>
+        <button class="share-close" id="shareCloseBtn" type="button" aria-label="Close shared route view">✕</button>
+      </div>
+      <div class="share-status" id="shareStatus">Loading shared route…</div>
+      <div class="share-error" id="shareError"></div>
+      <div class="share-details">
+        <div class="share-row">
+          <span>Message key</span>
+          <strong id="shareMessageKey">—</strong>
+        </div>
+        <div class="share-row">
+          <span>Channel</span>
+          <strong id="shareChannel">—</strong>
+        </div>
+        <div class="share-row">
+          <span>Sender</span>
+          <strong id="shareSender">—</strong>
+        </div>
+        <div class="share-row">
+          <span>Packets heard</span>
+          <strong id="sharePackets">0</strong>
+        </div>
+        <div class="share-row">
+          <span>Path depth</span>
+          <strong id="shareDepth">0 hops</strong>
+        </div>
+      </div>
+      <div class="share-path" id="sharePathList"></div>
+      <div class="share-observers" id="shareObservers"></div>
+      <div class="share-actions">
+        <a href="/messages?channel=public" class="btn" id="shareViewMessagesBtn">View more messages</a>
+      </div>
+    </div>
+  </div>
   <div id="rankExplainOverlay" class="rank-detail-overlay" onclick="closeRankExplain()">
     <div class="rank-detail-card" onclick="event.stopPropagation()">
       <div id="rankExplainContent"></div>
