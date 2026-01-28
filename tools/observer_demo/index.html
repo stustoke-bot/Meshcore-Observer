@@ -10417,6 +10417,7 @@
         if (total && loaded >= total) break;
         await new Promise((resolve) => setTimeout(resolve, STREAM_YIELD_MS));
       }
+      }
 
     function buildVisibleRankItems(items) {
       const needle = (appData.rankFilter || "").toLowerCase();
@@ -12320,34 +12321,25 @@
       </div>
     </div>
   </div>
+  <script>
+    const updateCacheBadge = () => {
+      const badge = document.getElementById("rankCacheBadge");
+      const updatedAt = document.getElementById("rankUpdated")?.textContent;
+      if (badge && updatedAt && updatedAt !== "--") {
+        badge.style.display = "inline-block";
+        badge.textContent = `Cached ${updatedAt}`;
+      } else if (badge) {
+        badge.style.display = "none";
+      }
+    };
+    document.addEventListener("DOMContentLoaded", () => updateCacheBadge());
+    const originalRenderRankSummary = window.renderRankSummary;
+    window.renderRankSummary = function(summary) {
+      if (typeof originalRenderRankSummary === "function") {
+        originalRenderRankSummary(summary);
+        updateCacheBadge();
+      }
+    };
+  </script>
 </body>
 </html>
-      function logFrame(when, start, payload) {
-        if (!debugFrames) return;
-        console.debug("CompanionFrame", when, {
-          start,
-          length: payload?.length || 0,
-          code: payload?.[0],
-          payload
-        });
-      }
-<script>
-  const updateCacheBadge = () => {
-    const badge = document.getElementById("rankCacheBadge");
-    const updatedAt = document.getElementById("rankUpdated")?.textContent;
-    if (badge && updatedAt && updatedAt !== "--") {
-      badge.style.display = "inline-block";
-      badge.textContent = `Cached ${updatedAt}`;
-    } else if (badge) {
-      badge.style.display = "none";
-    }
-  };
-  document.addEventListener("DOMContentLoaded", () => updateCacheBadge());
-  const originalRenderRankSummary = window.renderRankSummary;
-  window.renderRankSummary = function(summary) {
-    if (typeof originalRenderRankSummary === "function") {
-      originalRenderRankSummary(summary);
-      updateCacheBadge();
-    }
-  };
-</script>
