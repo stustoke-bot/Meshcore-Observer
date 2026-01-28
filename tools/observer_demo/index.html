@@ -1789,14 +1789,6 @@
       cursor: pointer;
     }
 
-    .rank-load-more {
-      margin-left: auto;
-    }
-
-    .rank-load-more button {
-      font-size: 12px;
-      padding: 6px 12px;
-    }
 
     .rank-debug {
       display: none;
@@ -4165,9 +4157,6 @@
                 Show all markers
               </label>
             </div>
-            <div class="rank-load-more">
-              <button class="btn ghost" type="button" id="rankLoadMore" style="display:none;">Load more</button>
-            </div>
           </div>
           <div id="rankStatus" class="rank-status"></div>
           <div id="rankDebugOverlay" class="rank-debug"></div>
@@ -4924,7 +4913,6 @@
         rankTotalCount: 0,
         rankFilter: "",
         rankCodeFilter: null,
-        rankPaging: null,
         rankVisibleItems: [],
         rankRenderedCount: 0,
         rankMarkerNextIndex: 0,
@@ -4939,6 +4927,7 @@
           loadedCount: 0,
           markerCount: 0
         },
+        rankLoadToken: null,
         rankShowAllMarkers: false,
         nodeRankSummary: null,
         nodeRank: null,
@@ -10309,8 +10298,11 @@
       return badges;
     }
 
-    const MOBILE_RANK_PAGE_SIZE = 40;
-    const RANK_PAGE_SIZE_DESKTOP = 100;
+    const STREAM_PAGE_SIZE_MOBILE = 50;
+    const STREAM_PAGE_SIZE_DESKTOP = 220;
+    const STREAM_MAX_ROWS_MOBILE = 600;
+    const STREAM_MAX_ROWS_DESKTOP = 1200;
+    const STREAM_YIELD_MS = 25;
 
     async function fetchRank(opts = {}) {
       const params = new URLSearchParams();
@@ -10360,34 +10352,9 @@
       return `${Math.round(value)}ms`;
     }
 
-    function resetRankPaging() {
-      const pageSize = isMobile() ? MOBILE_RANK_PAGE_SIZE : RANK_PAGE_SIZE_DESKTOP;
-      appData.rankPaging = {
-        pageSize,
-        skip: 0,
-        done: false,
-        inflight: false
-      };
-      return pageSize;
-    }
-
-    function updateLoadMoreButton() {
-      const btn = document.getElementById("rankLoadMore");
-      if (!btn) return;
-      const paging = appData.rankPaging || {};
-      const dataLength = (appData.rankData || []).length;
-      const total = Number.isFinite(appData.rankTotalCount) ? appData.rankTotalCount : Infinity;
-      const hasMore = dataLength && dataLength < total;
-      const canShow = hasMore && !paging.done && dataLength >= (paging.pageSize || 0);
-      btn.style.display = canShow ? "inline-flex" : "none";
-      btn.disabled = !!paging.inflight;
-      btn.textContent = paging.inflight ? "Loading…" : "Load more";
-    }
-
-    async function loadRankDefault() {
-      setRankLoading(true);
-      const pageSize = resetRankPaging();
+    function resetRankRenderState() {
       appData.rankData = [];
+      appData.rankPayload = { items: [] };
       appData.rankRenderedCount = 0;
       appData.rankMarkerNextIndex = 0;
       appData.rankMarkerCount = 0;
@@ -10395,68 +10362,61 @@
       appData.rankPerf.renderMs = null;
       appData.rankPerf.markerCount = 0;
       appData.rankPerf.loadedCount = 0;
-      appData.rankPaging.inflight = true;
-      const fetchStart = performance.now();
+      if (rankLayer) rankLayer.clearLayers();
+      rankMarkers = new Map();
+    }
+
+    async function loadRankDefault() {
+      setRankLoading(true);
+      showRankSkeleton();
+      const token = Symbol("rank-load");
+      appData.rankLoadToken = token;
+      resetRankRenderState();
+      const pageSize = isMobile() ? STREAM_PAGE_SIZE_MOBILE : STREAM_PAGE_SIZE_DESKTOP;
+      const maxRows = isMobile() ? STREAM_MAX_ROWS_MOBILE : STREAM_MAX_ROWS_DESKTOP;
       try {
-        const data = await fetchRank({ limit: pageSize, skip: 0 });
-        const fetchMs = performance.now() - fetchStart;
-        console.log("[perf] rank:fetch", fetchMs, { items: (data?.items || []).length, skip: 0 });
-        appData.rankPerf.fetchMs = fetchMs;
-        appData.rankData = Array.isArray(data?.items) ? data.items.slice() : [];
-        appData.rankPayload = data;
-        appData.rankTotalCount = typeof data?.count === "number" ? data.count : appData.rankTotalCount;
-        appData.rankPerf.loadedCount = appData.rankData.length;
-        updateRankDebugOverlay();
-        appData.rankPaging.skip = appData.rankData.length;
-        appData.rankPaging.done = appData.rankPaging.skip >= (appData.rankTotalCount || Infinity);
-        renderRankWithOptions({ ...data, items: appData.rankData }, { preserveView: true, append: false });
-      } catch (err) {
-        setRankStatus("Unable to load rank.");
-        throw err;
+        await refreshRankSummary().catch(() => {});
+        if (appData.rankLoadToken !== token) return;
+        await loadRankAutoChunks(token, pageSize, maxRows);
       } finally {
-        appData.rankPaging.inflight = false;
-        setRankLoading(false);
-        updateLoadMoreButton();
+        if (appData.rankLoadToken === token) {
+          setRankLoading(false);
+          clearRankStatus();
+        }
       }
     }
 
-    async function loadNextRankPage() {
-      const paging = appData.rankPaging;
-      if (!paging || paging.inflight || paging.done) return;
-      const skip = paging.skip;
-      const limit = paging.pageSize;
-      if (!limit) return;
-      paging.inflight = true;
-      setRankStatus("Loading more repeaters…");
-      updateLoadMoreButton();
-      const fetchStart = performance.now();
-      try {
-        const data = await fetchRank({ limit, skip });
-        const fetchMs = performance.now() - fetchStart;
-        console.log("[perf] rank:fetch", fetchMs, { items: (data?.items || []).length, skip });
-        appData.rankPerf.fetchMs = fetchMs;
-        const newItems = Array.isArray(data?.items) ? data.items : [];
-        if (!newItems.length) {
-          paging.done = true;
-          return;
+    async function loadRankAutoChunks(token, pageSize, maxRows) {
+      let skip = 0;
+      const total = appData.rankSummary?.count;
+      let append = false;
+      while (true) {
+        if (appData.rankLoadToken !== token) break;
+        if (maxRows && appData.rankData.length >= maxRows) break;
+        let data;
+        try {
+          const fetchStart = performance.now();
+          data = await fetchRank({ limit: pageSize, skip });
+          const fetchMs = performance.now() - fetchStart;
+          console.log("[perf] rank:fetch", fetchMs, { items: (data?.items || []).length, skip });
+          appData.rankPerf.fetchMs = fetchMs;
+        } catch (err) {
+          console.warn(err);
+          break;
         }
-        appData.rankData = appData.rankData.concat(newItems);
+        const items = Array.isArray(data?.items) ? data.items : [];
+        if (!items.length) break;
+        skip += items.length;
+        appData.rankData = appData.rankData.concat(items);
         appData.rankPayload = { ...data, items: appData.rankData };
-        appData.rankTotalCount = typeof data?.count === "number" ? data.count : appData.rankTotalCount;
         appData.rankPerf.loadedCount = appData.rankData.length;
-        updateRankDebugOverlay();
-        paging.skip += newItems.length;
-        if (newItems.length < limit || appData.rankData.length >= (appData.rankTotalCount || Infinity)) {
-          paging.done = true;
-        }
-        renderRankWithOptions(appData.rankPayload, { preserveView: true, append: true });
-      } catch (err) {
-        console.warn(err);
-      } finally {
-        paging.inflight = false;
-        updateLoadMoreButton();
+        renderRankWithOptions(appData.rankPayload, { preserveView: true, append });
+        append = true;
+        const loaded = appData.rankData.length;
+        setRankStatus(`Loaded ${loaded}${total ? ` / ${total}` : ""}…`);
+        if (total && loaded >= total) break;
+        await new Promise((resolve) => setTimeout(resolve, STREAM_YIELD_MS));
       }
-    }
 
     function buildVisibleRankItems(items) {
       const needle = (appData.rankFilter || "").toLowerCase();
@@ -11285,18 +11245,16 @@
 
         if (view === "rank") {
           if (!rankMap) setTimeout(() => initRankMap(), 0);
-          try {
-            const clickStart = performance.now();
-            showRankSkeleton();
-            const uiMs = performance.now() - clickStart;
-            console.log("[perf] rank:click->ui", uiMs);
-            appData.rankPerf.uiPaintMs = uiMs;
-            updateRankDebugOverlay();
-            refreshRankSummary().catch((err) => console.warn("rank summary refresh failed", err));
+          const clickStart = performance.now();
+          showRankSkeleton();
+          appData.rankPerf.uiPaintMs = performance.now() - clickStart;
+          console.log("[perf] rank:click->ui", appData.rankPerf.uiPaintMs);
+          updateRankDebugOverlay();
+          setTimeout(() => {
             loadRankDefault().catch((err) => {
+              console.warn(err);
               const list = document.getElementById("rankList");
               if (list) list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
-              console.warn(err);
             });
             setTimeout(async () => {
               try {
@@ -11304,10 +11262,7 @@
                 renderMeshScore(mesh, meshRangeDays);
               } catch {}
             }, 0);
-          } catch (err) {
-            const list = document.getElementById("rankList");
-            list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
-          }
+          }, 0);
         }
 
         if (view === "channel-directory") {
@@ -12054,14 +12009,6 @@
           const payload = appData.rankPayload || { items: appData.rankData };
           renderRankWithOptions({ ...payload, items: appData.rankData }, { preserveView: true });
         }
-      });
-    }
-
-    const rankLoadMore = document.getElementById("rankLoadMore");
-    if (rankLoadMore) {
-      rankLoadMore.addEventListener("click", (event) => {
-        event.preventDefault();
-        loadNextRankPage();
       });
     }
 
