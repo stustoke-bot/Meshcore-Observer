@@ -5774,6 +5774,15 @@ function contentTypeFor(filePath) {
 refreshLastHeardCache();
 setInterval(refreshLastHeardCache, GEO_SCORE_LAST_HEARD_REFRESH_MS);
 
+function safeDecodeURIComponent(value) {
+  if (!value) return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   let perfStart = null;
   if (DEBUG_PERF) {
@@ -5810,7 +5819,7 @@ const server = http.createServer(async (req, res) => {
     html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
     return send(res, 200, "text/html; charset=utf-8", html);
   }
-  const rawPath = decodeURIComponent(u.pathname || "");
+  const rawPath = safeDecodeURIComponent(u.pathname || "");
   const trimmed = rawPath.replace(/^[\\/]+/, "");
   const staticPath = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, "");
   if (staticPath) {
