@@ -29,6 +29,7 @@
       --muted: rgba(60, 60, 67, 0.6);
       --shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
     }
+
     body.theme-dark {
       --ink: #e8eef9;
       --paper: #0b0f15;
@@ -64,7 +65,7 @@
     .app {
       display: grid;
       grid-template-rows: auto 1fr;
-      grid-template-columns: 280px 1fr 420px;
+      grid-template-columns: 420px 1fr;
       gap: 16px;
       padding: 16px;
       height: 100vh;
@@ -79,6 +80,90 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+    }
+    .node-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      transition: opacity 0.15s ease;
+    }
+    .node-controls.hidden {
+      display: none;
+    }
+    .node-connection-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff3b30;
+      display: inline-flex;
+      margin-right: 6px;
+    }
+    .node-connection-dot.connected {
+      background: var(--green);
+    }
+    .node-status-text {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+    .node-composer {
+      border-top: 1px solid var(--line);
+      padding: 12px;
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .node-composer textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 10px;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      min-height: 70px;
+      resize: vertical;
+      background: var(--paper);
+      color: var(--ink);
+    }
+    .node-composer textarea:disabled {
+      opacity: 0.6;
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .node-composer-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .node-composer .composer-status {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .message-mesh .bubble {
+      border-color: var(--green);
+      background: rgba(52, 199, 89, 0.08);
+    }
+    .message-internet .bubble {
+      border-color: var(--blue);
+      background: rgba(0, 122, 255, 0.08);
+    }
+    .message-mesh .meta .badge.mesh-badge,
+    .message-internet .meta .badge.internet-badge {
+      font-size: 10px;
+      letter-spacing: 0.05em;
+    }
+    .badge.mesh-badge {
+      background: var(--green);
+      color: #fff;
+    }
+    .badge.internet-badge {
+      background: var(--blue);
+      color: #fff;
+    }
+    .msg-failed {
+      font-size: 12px;
+      color: #ff3b30;
     }
 
     .mesh-live-panel {
@@ -500,6 +585,15 @@
       background: rgba(0, 122, 255, 0.18);
     }
 
+    .btn.primary {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn.primary:hover {
+      background: var(--blue-dark);
+    }
+
     .channel {
       display: grid;
       grid-template-columns: 44px 1fr auto;
@@ -706,6 +800,9 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .msg-footer a {
+      text-decoration: underline;
+    }
     .observer-tag {
       padding: 2px 8px;
       border-radius: 999px;
@@ -752,17 +849,6 @@
       display: grid;
       grid-template-rows: 240px 1fr;
       min-height: 0;
-    }
-    .route-close {
-      display: none;
-      border: 1px solid var(--line);
-      background: transparent;
-      color: var(--muted);
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
     }
     .route-backdrop {
       display: none;
@@ -950,7 +1036,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 12px;
       padding: 8px 10px;
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -965,6 +1051,44 @@
     .neighbor-map-item .neighbor-meta {
       color: var(--muted);
       font-size: 11px;
+    }
+    .neighbor-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .neighbor-badge-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .neighbor-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .neighbor-badge {
+      margin-left: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .neighbor-badge.reciprocal {
+      background: #34c759;
+    }
+    .neighbor-badge.incoming {
+      background: rgba(0, 122, 255, 0.9);
+    }
+    .neighbor-badge.outgoing {
+      background: rgba(255, 149, 0, 0.95);
     }
     .neighbor-map-legend {
       display: flex;
@@ -1588,6 +1712,108 @@
       to { transform: rotate(360deg); }
     }
 
+    @keyframes pulse {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+
+    .rank-status {
+      display: none;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      margin-top: 8px;
+    }
+
+    .rank-status.active {
+      display: block;
+    }
+
+    .rank-skeleton {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .rank-skeleton-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .rank-skeleton-lines {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .rank-skeleton-lines span {
+      height: 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .rank-skeleton-lines span:nth-child(2) {
+      width: 60%;
+    }
+
+    .rank-skeleton-lines span:nth-child(3) {
+      width: 40%;
+    }
+
+    .rank-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .rank-marker-toggle label {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .rank-load-more {
+      margin-left: auto;
+    }
+
+    .rank-load-more button {
+      font-size: 12px;
+      padding: 6px 12px;
+    }
+
+    .rank-debug {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 1000;
+      padding: 10px 12px;
+      background: rgba(32, 32, 32, 0.9);
+      color: #fff;
+      font-size: 11px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      line-height: 1.4;
+      min-width: 150px;
+    }
+
     .rank-scroll {
       overflow: auto;
       padding-right: 6px;
@@ -1600,6 +1826,12 @@
 
     .rank-search::placeholder {
       color: rgba(60, 60, 67, 0.45);
+    }
+    .rank-search-hint {
+      font-size: 11px;
+      color: var(--muted);
+      min-height: 18px;
+      line-height: 1.3;
     }
 
     .rank-item {
@@ -2190,8 +2422,7 @@
     body.view-channels .rank-panel,
     body.view-channels .meshscore-panel { display: none; }
     body.view-channels .sidebar-panel,
-    body.view-channels .content,
-    body.view-channels .analysis-panel { display: flex; }
+    body.view-channels .content { display: flex; }
     body.view-channel-directory .sidebar-panel,
     body.view-channel-directory .content,
     body.view-channel-directory .analysis-panel,
@@ -2292,6 +2523,74 @@
     body.view-node-rank .repeater-panel,
     body.view-node-rank .why-panel { display: none; }
     body.view-node-rank .node-rank-panel { display: flex; }
+
+    body.route-open {
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+    .analysis-panel {
+      display: none;
+      position: fixed;
+      top: clamp(90px, 12vh, 140px);
+      left: 50%;
+      transform: translate(-50%, 0);
+      width: min(640px, calc(100vw - 32px));
+      max-width: min(640px, calc(100vw - 32px));
+      max-height: calc(100vh - 180px);
+      z-index: 30;
+      border-radius: 32px;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      background: var(--panel);
+      flex-direction: column;
+      touch-action: none;
+      box-sizing: border-box;
+    }
+    .analysis-panel .analysis {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 0 20px 20px;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    .route-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: nowrap;
+      width: 100%;
+    }
+    .route-share {
+      font-size: 13px;
+      padding: 4px 10px;
+      flex-shrink: 0;
+    }
+    .route-close {
+      border: 1px solid var(--line);
+      background: transparent;
+      border-radius: 999px;
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0;
+      color: var(--ink);
+    }
+    body.route-open .analysis-panel {
+      display: flex;
+    }
 
     body.view-rotm .sidebar-panel,
     body.view-rotm .content,
@@ -2787,6 +3086,13 @@
       gap: 6px;
     }
 
+    .badge.badge-coverage {
+      cursor: pointer;
+    }
+    .badge.badge-coverage:hover {
+      filter: brightness(0.92);
+    }
+
     .badge.badge-green { background: rgba(52, 199, 89, 0.16); border-color: rgba(52, 199, 89, 0.28); color: #1b6b35; }
     .badge.badge-blue { background: rgba(0, 122, 255, 0.16); border-color: rgba(0, 122, 255, 0.28); color: #0a60d1; }
     .badge.badge-amber { background: rgba(255, 149, 0, 0.18); border-color: rgba(255, 149, 0, 0.28); color: #9a5b00; }
@@ -2845,6 +3151,30 @@
     }
     body:not(.is-admin) .admin-only {
       display: none !important;
+    }
+    .auto-responder-panel {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-left: 12px;
+    }
+    .auto-responder-panel span,
+    .auto-responder-panel label {
+      font-size: 12px;
+      color: var(--ink);
+    }
+    .auto-responder-panel input[type="range"] {
+      width: 160px;
+    }
+    .auto-responder-status {
+      font-size: 12px;
+      color: var(--ink);
+      margin-left: auto;
     }
     .repeater-location-controls {
       display: flex;
@@ -3250,22 +3580,40 @@
       .message .meta { font-size: 11px; }
       .msg-footer { font-size: 11px; gap: 8px; }
       .analysis-panel {
-        position: fixed;
-        left: 8px;
-        right: 8px;
-        bottom: max(8px, env(safe-area-inset-bottom));
-        height: 60vh;
-        max-width: calc(100vw - 16px);
-        z-index: 10;
+        bottom: max(14px, env(safe-area-inset-bottom, 14px));
+        right: auto;
+        top: calc(env(safe-area-inset-top, 0px) + 64px);
+        left: 50%;
+        transform: translate(-50%, 0);
+        width: min(520px, calc(100vw - 32px));
+        max-height: calc(100vh - 200px);
+        height: auto;
+        z-index: 30;
+        border-radius: 26px;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        box-shadow: var(--shadow);
         display: none;
+        touch-action: none;
+        box-sizing: border-box;
       }
-    .analysis-panel .title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+      .analysis-panel .title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .analysis-panel .analysis {
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 0 16px 16px;
+        touch-action: pan-y;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        box-sizing: border-box;
+      }
     .route-title-label {
       display: flex;
       align-items: center;
@@ -3311,11 +3659,10 @@
       }
       #rotmQsoMap { height: 260px; }
       body.view-channels .analysis-panel { display: none; }
-      body.route-open.view-channels .analysis-panel { display: flex; }
+      body.route-open .analysis-panel { display: flex; }
       body.route-open .route-backdrop { display: block; }
       .analysis { grid-template-rows: 1fr auto; }
       #routeMap { min-height: 200px; }
-      .route-close { display: inline-flex; }
       .rank-body { grid-template-columns: 1fr; }
       .rank-summary { padding: 8px 10px; gap: 8px; }
       .summary-card { padding: 8px 10px; }
@@ -3441,6 +3788,55 @@
       body.view-observer-rank .observer-rank-panel,
       body.view-node-rank .node-rank-panel { overflow: auto; }
     }
+    .coverage-popup {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 11, 14, 0.75);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      z-index: 1100;
+    }
+    .coverage-popup.open {
+      display: flex;
+    }
+    .coverage-popup .coverage-card {
+      max-width: 420px;
+      width: 100%;
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+    }
+    .coverage-popup .coverage-card h3 {
+      margin: 0;
+      font-size: 20px;
+    }
+    .coverage-popup .coverage-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .coverage-popup .coverage-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .coverage-popup .coverage-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      border: none;
+      background: transparent;
+      font-size: 20px;
+      cursor: pointer;
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -3497,12 +3893,29 @@
         <span>Messages <span class="chip">UK Mesh</span></span>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn" id="addChannelBtn">Add Channel</button>
+          <div class="node-controls auth-only" id="nodeControlsContainer">
+            <button class="btn" id="connectNodeBtn" type="button">
+              <span class="node-connection-dot" id="nodeStatusDot"></span>
+              <span id="nodeButtonLabel">Connect node</span>
+            </button>
+            <span class="node-status-text" id="nodeStatusText">Not connected</span>
+          </div>
           <button class="btn btn-ghost" id="leaveChannelBtn">Leave Channels</button>
           <div class="admin-only channel-history-control">
             <span>History</span>
             <select id="channelHistoryLimit" aria-label="Channel history limit"></select>
           </div>
         </div>
+          <div class="node-connection-hint admin-only" id="nodeConnectionHint" style="display:none;">WebSerial is not supported in this browser. Use Chrome or Edge to connect a node.</div>
+          <div class="auto-responder-panel admin-only" id="autoResponderPanel">
+            <label for="autoResponderChannel">Channel</label>
+            <input id="autoResponderChannel" type="text" value="#test" />
+            <label for="autoResponderDelay">Delay</label>
+            <input id="autoResponderDelay" type="range" min="1" max="20" value="5" />
+            <span id="autoResponderDelayValue">5s</span>
+            <button class="btn btn-ghost" id="autoResponderToggle" type="button">Enable auto-responder</button>
+            <span class="auto-responder-status" id="autoResponderStatus">Paused</span>
+          </div>
       </div>
       <div class="sidebar">
         <div class="sidebar-helper" id="channelSidebarHelper">
@@ -3530,6 +3943,13 @@
         Can’t see your channels? Please log in or sign up to manage them.
       </div>
       <div class="messages" id="messages"></div>
+      <div class="node-composer auth-only" id="nodeComposer">
+        <textarea id="nodeComposerInput" placeholder="Connect a node to send a message via mesh…" disabled></textarea>
+        <div class="node-composer-row">
+          <span class="composer-status" id="nodeComposerStatus">Connect a node to send via mesh.</span>
+          <button class="btn primary" id="nodeComposerSend" type="button" disabled>Send</button>
+        </div>
+      </div>
     </section>
 
     <section class="panel directory-panel" id="channelDirectoryPanel">
@@ -3644,7 +4064,7 @@
         </div>
         <div class="route-actions">
           <button class="link-btn route-share" id="routeShareBtn" type="button">Share</button>
-          <button class="route-close" id="routeClose" type="button">Close</button>
+          <button class="route-close" id="routeClose" type="button" aria-label="Close route path"><span aria-hidden="true">✕</span></button>
         </div>
       </div>
       <div class="analysis">
@@ -3692,7 +4112,11 @@
     </section>
 
     <section class="panel rank-panel">
-      <div class="title">Repeater Rank <span class="chip" id="rankUpdated">--</span></div>
+      <div class="title">
+        Repeater Rank
+        <span class="chip" id="rankUpdated">--</span>
+        <span class="rank-cache-badge" id="rankCacheBadge" style="display:none;">Cached —</span>
+      </div>
       <div class="rank-summary">
         <div class="summary-card">
           <div>Total repeaters</div>
@@ -3729,10 +4153,24 @@
             <span class="spinner" aria-hidden="true"></span>
             <span>Running repeater rank, please hold…</span>
           </div>
-          <input class="rank-search" id="rankSearch" type="text" placeholder="Search repeaters"/>
+          <input class="rank-search" id="rankSearch" type="text" placeholder="Search repeaters (name, key, or code [55])"/>
+          <div class="rank-search-hint" id="rankSearchHint"></div>
           <div class="rank-scroll" id="rankScroll">
             <div id="rankList"></div>
           </div>
+          <div class="rank-actions">
+            <div class="rank-marker-toggle">
+              <label>
+                <input type="checkbox" id="rankMarkerToggle"/>
+                Show all markers
+              </label>
+            </div>
+            <div class="rank-load-more">
+              <button class="btn ghost" type="button" id="rankLoadMore" style="display:none;">Load more</button>
+            </div>
+          </div>
+          <div id="rankStatus" class="rank-status"></div>
+          <div id="rankDebugOverlay" class="rank-debug"></div>
         </div>
       </div>
     </section>
@@ -4462,7 +4900,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     document.body.classList.add("view-channels");
-    const FIXED_CHANNELS = ["#public", "#meshranksuggestions"];
+    const FIXED_CHANNELS = ["#public", "#meshranksuggestions", "#test"];
     const appData = {
         channels: [],
         userChannels: [],
@@ -4482,9 +4920,26 @@
         renderedIdsByChannel: {},
         meshScore: null,
         rankSummary: null,
-      rankData: [],
-      rankTotalCount: 0,
-      rankFilter: "",
+        rankData: [],
+        rankTotalCount: 0,
+        rankFilter: "",
+        rankCodeFilter: null,
+        rankPaging: null,
+        rankVisibleItems: [],
+        rankRenderedCount: 0,
+        rankMarkerNextIndex: 0,
+        rankMarkerCount: 0,
+        rankRenderToken: null,
+        rankMarkerToken: null,
+        rankPerf: {
+          uiPaintMs: null,
+          fetchMs: null,
+          renderMs: null,
+          first100Ms: null,
+          loadedCount: 0,
+          markerCount: 0
+        },
+        rankShowAllMarkers: false,
         nodeRankSummary: null,
         nodeRank: null,
         unreadByChannel: {},
@@ -4536,17 +4991,739 @@
           rate1h: 0,
           peak: 0
         },
-        messageStream: {
-          es: null,
-          connected: false,
-          lastHealthAt: 0
-        },
+      messageStream: {
+        es: null,
+        connected: false,
+        lastHealthAt: 0
+      },
+      nodeConnected: false,
+      autoResponderConfig: loadAutoResponderConfig(),
         authToken: null,
         googleInitialized: false
       };
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const rankDebugMode = urlParams.get("debug") === "1";
+    let rankDebugOverlay = null;
+
     const colors = ["#007aff", "#5856d6", "#ff9500", "#34c759"];
     const MAP_HIDE_EMOJI = "🚫";
+
+    const SOURCE_MASK = { INTERNET: 1, MESH: 2 };
+    const SHARE_URL_BASE = "https://meshrank.net/msg/";
+    const TEST_CHANNEL_ID = "test";
+    const AUTO_RESPONDER_STORAGE_KEY = "meshrank.autoResponder";
+
+    const FRAME_START_RADIO = 0x3E;
+    const FRAME_START_APP = 0x3C;
+    const CMD_APP_START = 1;
+    const CMD_SEND_CHANNEL_TXT_MSG = 3;
+    const CMD_SYNC_NEXT_MESSAGE = 10;
+    const CMD_DEVICE_QUERY = 22;
+    const RESP_CODE_OK = 0;
+    const RESP_CODE_ERR = 1;
+    const RESP_CODE_SELF_INFO = 5;
+    const RESP_CODE_NO_MORE_MESSAGES = 10;
+    const RESP_CODE_DEVICE_INFO = 13;
+    const RESP_CODE_CONTACT_MSG_RECV_V3 = 16;
+    const RESP_CODE_CHANNEL_MSG_RECV_V3 = 17;
+    const PUSH_CODE_MSG_WAITING = 0x83;
+
+    const HANDSHAKE_TIMEOUT = 12000;
+    const nodeSerialService = (() => {
+      const supports = !!(navigator?.serial);
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      const multiWaiters = new Set();
+      const listeners = new Set();
+      const debugFrames = true;
+      let port = null;
+      let reader = null;
+      let writer = null;
+      let buffer = new Uint8Array(0);
+      let ready = false;
+      let draining = null;
+      let handshakeInfo = {
+        firmwareVersion: null,
+        protocolVersion: 0,
+        selfName: null
+      };
+
+      function concatBuffer(left, right) {
+        const combined = new Uint8Array(left.length + right.length);
+        combined.set(left);
+        combined.set(right, left.length);
+        return combined;
+      }
+
+      function consumeBuffer(count) {
+        const consumed = buffer.slice(0, count);
+        buffer = buffer.slice(count);
+        return consumed;
+      }
+
+      function triggerWaiters(code, payload) {
+        for (const entry of Array.from(multiWaiters)) {
+          if (entry.codes.has(code)) {
+            entry.resolve(code, payload);
+            clearTimeout(entry.timer);
+            multiWaiters.delete(entry);
+          }
+        }
+      }
+
+      function expectCodes(codes, timeout = 6000) {
+        return new Promise((resolve, reject) => {
+          const entry = {
+            codes: new Set(codes),
+            resolve: (code, payload) => resolve({ code, payload }),
+            reject,
+            timer: setTimeout(() => {
+              multiWaiters.delete(entry);
+              reject(new Error("Timeout waiting for response."));
+            }, timeout)
+          };
+          multiWaiters.add(entry);
+        });
+      }
+
+      function clearWaiters() {
+        multiWaiters.forEach((entry) => {
+          clearTimeout(entry.timer);
+          entry.reject && entry.reject(new Error("Disconnected"));
+        });
+        multiWaiters.clear();
+      }
+
+      function decodeNullTerminated(bytes) {
+        const end = bytes.indexOf(0);
+        const slice = end === -1 ? bytes : bytes.subarray(0, end);
+        return decoder.decode(slice).trim();
+      }
+
+      function handleMessageFrame(code, payload) {
+        const timestampOffset = code === RESP_CODE_CONTACT_MSG_RECV_V3 ? 12 : 7;
+        const textOffset = code === RESP_CODE_CONTACT_MSG_RECV_V3 ? 16 : 11;
+        const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+        const ts = dv.getUint32(timestampOffset, true);
+        const text = decodeNullTerminated(payload.subarray(textOffset));
+        const channelName = code === RESP_CODE_CHANNEL_MSG_RECV_V3
+          ? resolveChannelNameByIndex(payload[4])
+          : "#public";
+        const channelId = normalizeChannelId(channelName);
+        const sender = code === RESP_CODE_CHANNEL_MSG_RECV_V3 ? channelName : formatSenderPrefix(payload.subarray(4, 10));
+        const channelIdx = code === RESP_CODE_CHANNEL_MSG_RECV_V3 ? payload[4] : 0;
+        const nodeMessage = appendNodeMessage(text, "in", {
+          sender,
+          channelId,
+          tsRaw: new Date(ts * 1000).toISOString(),
+          type: "mesh",
+          source: "mesh",
+          channelIdx
+        });
+        maybeAutoRespondToTest(nodeMessage);
+        listeners.forEach((cb) => {
+          try {
+            cb(nodeMessage);
+          } catch (err) {
+            console.error("nodeSerial listener failed", err);
+          }
+        });
+      }
+
+      function formatSenderPrefix(prefixBytes) {
+        if (!prefixBytes || !prefixBytes.length) return "MeshNode";
+        return prefixBytes.map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+      }
+
+      function handleFrame(payload) {
+        const code = payload[0];
+        switch (code) {
+          case RESP_CODE_CONTACT_MSG_RECV_V3:
+          case RESP_CODE_CHANNEL_MSG_RECV_V3:
+            handleMessageFrame(code, payload);
+            break;
+          case PUSH_CODE_MSG_WAITING:
+            drainMessages().catch(() => {});
+            break;
+          default:
+            break;
+        }
+        triggerWaiters(code, payload);
+      }
+
+      function processIncoming(chunk) {
+        buffer = concatBuffer(buffer, chunk);
+        while (true) {
+          if (buffer.length < 3) return;
+          const start = buffer[0];
+          if (start !== FRAME_START_RADIO) {
+            buffer = buffer.slice(1);
+            continue;
+          }
+          const length = buffer[1] | (buffer[2] << 8);
+          if (buffer.length < 3 + length) return;
+          const frame = buffer.subarray(3, 3 + length);
+          handleFrame(frame);
+          buffer = buffer.slice(3 + length);
+        }
+      }
+
+      async function readLoop() {
+        if (!reader) return;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value && value.length) {
+              processIncoming(value);
+            }
+          }
+        } catch (err) {
+          if (err?.message && !err.message.includes("Canceled")) {
+            console.error("nodeSerial read error", err);
+          }
+        } finally {
+          reader?.releaseLock();
+          reader = null;
+        }
+      }
+
+      async function writeFrame(payload) {
+        if (!writer) throw new Error("Serial port not connected.");
+        const frame = new Uint8Array(3 + payload.length);
+        frame[0] = FRAME_START_APP;
+        frame[1] = payload.length & 0xff;
+        frame[2] = (payload.length >> 8) & 0xff;
+        frame.set(payload, 3);
+        await writer.write(frame);
+      }
+
+      async function sendCommandAndWait(payload, waitCodes, timeout = 6000) {
+        const waitPromise = expectCodes([...waitCodes, RESP_CODE_ERR], timeout);
+        await writeFrame(payload);
+        const { code, payload: frame } = await waitPromise;
+        if (code === RESP_CODE_ERR) {
+          const errCode = frame?.[1] ?? -1;
+          throw new Error(`Companion reported error ${errCode}`);
+        }
+        return { code, payload: frame };
+      }
+
+      async function runHandshake(appTargetVersion = 3) {
+        ready = false;
+        clearWaiters();
+        const deviceResp = await sendCommandAndWait(new Uint8Array([CMD_DEVICE_QUERY, appTargetVersion]), [RESP_CODE_DEVICE_INFO], HANDSHAKE_TIMEOUT);
+        handshakeInfo.firmwareVersion = decodeNullTerminated(deviceResp.payload.subarray(1));
+        handshakeInfo.protocolVersion = appTargetVersion;
+        const selfResp = await sendCommandAndWait(new Uint8Array([CMD_APP_START]), [RESP_CODE_SELF_INFO], HANDSHAKE_TIMEOUT);
+        handshakeInfo.selfName = decodeNullTerminated(selfResp.payload.subarray(1));
+        ready = true;
+        drainMessages().catch(() => {});
+        return { ...handshakeInfo };
+      }
+
+      async function drainMessages() {
+        if (!ready) return;
+        if (draining) return draining;
+        draining = (async () => {
+          try {
+            while (ready) {
+              const { code } = await sendCommandAndWait(new Uint8Array([CMD_SYNC_NEXT_MESSAGE]), [
+                RESP_CODE_CONTACT_MSG_RECV_V3,
+                RESP_CODE_CHANNEL_MSG_RECV_V3,
+                RESP_CODE_NO_MORE_MESSAGES
+              ]);
+              if (code === RESP_CODE_NO_MORE_MESSAGES) break;
+            }
+          } catch (err) {
+            console.warn("Mesh drain stopped", err);
+          } finally {
+            draining = null;
+          }
+        })();
+        return draining;
+      }
+
+      async function connect() {
+        if (!supports) throw new Error("WebSerial not supported in this browser.");
+        if (port) await disconnect();
+        const requested = await navigator.serial.requestPort();
+        await requested.open({ baudRate: 115200 });
+        port = requested;
+        const writable = port.writable;
+        const readable = port.readable;
+        writer = writable?.getWriter() ?? null;
+        reader = readable?.getReader() ?? null;
+        if (reader) readLoop().catch(() => {});
+      let info;
+      const versions = [3, 2, 1];
+      for (let idx = 0; idx < versions.length; idx += 1) {
+        const target = versions[idx];
+        try {
+          info = await runHandshake(target);
+          break;
+        } catch (err) {
+          const isLast = idx === versions.length - 1;
+          console.warn(`Protocol ${target} handshake failed${isLast ? "" : ", retrying"}`, err);
+          if (isLast) {
+            await disconnect();
+            console.error("Protocol handshake failed with all versions", err);
+            throw err;
+          }
+        }
+      }
+        return { meta: getMeta(), info };
+      }
+
+      async function disconnect() {
+        ready = false;
+        clearWaiters();
+        if (reader) {
+          try {
+            await reader.cancel();
+          } catch {}
+          reader?.releaseLock();
+          reader = null;
+        }
+        if (writer) {
+          try {
+            await writer.close();
+          } catch {}
+          writer?.releaseLock();
+          writer = null;
+        }
+        if (port && port.readable) {
+          try {
+            await port.close();
+          } catch {}
+        }
+        port = null;
+        buffer = new Uint8Array(0);
+      }
+
+      async function sendMessage(text, channelIdx = 0) {
+        if (!ready) throw new Error("Companion node not ready.");
+        const textBytes = encoder.encode(String(text || ""));
+        const payload = new Uint8Array(1 + 1 + 1 + 4 + textBytes.length);
+        payload[0] = CMD_SEND_CHANNEL_TXT_MSG;
+        payload[1] = 0; // text type plain
+        payload[2] = channelIdx;
+        const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+        dv.setUint32(3, Math.floor(Date.now() / 1000), true);
+        payload.set(textBytes, 7);
+        await sendCommandAndWait(payload, [RESP_CODE_OK]);
+      }
+
+      function onMessage(callback) {
+        if (!callback) return () => {};
+        listeners.add(callback);
+        return () => listeners.delete(callback);
+      }
+
+      function isConnected() {
+        return !!(writer && reader);
+      }
+
+      function isSupported() {
+        return supports;
+      }
+
+      function getMeta() {
+        if (!port) return null;
+        const info = port.getInfo?.() || {};
+        return {
+          vendorId: info.usbVendorId || null,
+          productId: info.usbProductId || null,
+          label: info.usbProductId ? `Node ${info.usbProductId}` : "MeshCore node"
+        };
+      }
+
+      return {
+        connect,
+        disconnect,
+        sendMessage,
+        onMessage,
+        isConnected,
+        isSupported,
+        getMeta
+      };
+    })();
+    let nodeMessageCounter = 0;
+    const nodeComposerDefaultStatus = "Connect a node to send via mesh.";
+
+    function formatTimestamp(tsRaw) {
+      if (!tsRaw) return "--";
+      const parsed = new Date(tsRaw);
+      if (!parsed || Number.isNaN(parsed.getTime())) return "--";
+      return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+
+    function resolveChannelNameByIndex(idx) {
+      const numeric = Number(idx);
+      if (!Number.isFinite(numeric)) return "#public";
+      const fallback = (appData.channels || []).find((ch) => {
+        const candidateIndex = Number(ch.channel_idx ?? ch.idx ?? ch.channelIndex);
+        return candidateIndex === numeric;
+      });
+      if (fallback) {
+        return fallback.name || fallback.id || `#chan${numeric}`;
+      }
+      if (numeric === 0) return "#public";
+      return `#chan${numeric}`;
+    }
+
+    function channelIdToIndex(channelId) {
+      if (!channelId) return 0;
+      const normalized = normalizeChannelId(channelId);
+      if (normalized === "public") return 0;
+      const match = normalized.match(/^chan(\d+)$/);
+      if (match) return Number(match[1]);
+      return 0;
+    }
+
+    function updateChannelTracking(msg, markUnread = false) {
+      if (!msg?.channelId) return;
+      const channelId = msg.channelId;
+      const tsValue = msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0;
+      if (Number.isFinite(tsValue)) {
+        appData.latestByChannel[channelId] = Math.max(appData.latestByChannel[channelId] || 0, tsValue);
+      }
+      if (markUnread && !isChannelMuted(channelId) && activeChannelId !== channelId) {
+        appData.unreadByChannel[channelId] = (appData.unreadByChannel[channelId] || 0) + 1;
+      }
+    }
+
+    function findSimilarMessage(body, channelId, tsRaw) {
+      if (!body) return null;
+      const cleaned = String(body || "").trim().toLowerCase();
+      if (!cleaned) return null;
+      const windowMs = 30 * 1000;
+      const refTime = tsRaw ? new Date(tsRaw).getTime() : Date.now();
+      const candidates = appData.messages || [];
+      for (let msg of candidates) {
+        if (!msg.body || msg.channelId !== channelId) continue;
+        if (String(msg.body || "").trim().toLowerCase() === cleaned) {
+          if (!msg.tsRaw) return msg;
+          const msgTime = new Date(msg.tsRaw).getTime();
+          if (Math.abs(msgTime - refTime) < windowMs) return msg;
+        }
+      }
+      return null;
+    }
+
+    function markMessageMesh(nodeMsg) {
+      const target = nodeMsg || null;
+      if (!target) return null;
+      target.sourceMask = (target.sourceMask || SOURCE_MASK.INTERNET) | SOURCE_MASK.MESH;
+      return target;
+    }
+
+    const autoRespondCache = new Set();
+
+    async function maybeAutoRespondToTest(nodeMsg) {
+      if (!nodeMsg) return;
+      if (!nodeSerialService.isConnected()) return;
+      const config = appData.autoResponderConfig;
+      if (!config.enabled) return;
+      const normalizedChannel = normalizeChannelId(nodeMsg.channelId);
+      const normalizedTrigger = normalizeChannelId(config.channel);
+      if (normalizedChannel !== normalizedTrigger) return;
+      const bodyText = String(nodeMsg.body || "").toLowerCase();
+      if (!bodyText.includes("test")) return;
+      const key = `${nodeMsg.id || ""}:${nodeMsg.tsRaw || ""}`;
+      if (autoRespondCache.has(key)) return;
+      autoRespondCache.add(key);
+      const match = await findMessageRecordForNode(nodeMsg);
+      const shareLink = match ? await createShareLinkForMessage(match) : null;
+      const hops = getHopCount(nodeMsg) || nodeMsg.pathLength || 0;
+      const observerCount = Number.isFinite(nodeMsg.observerCount) ? nodeMsg.observerCount : 0;
+      const mention = String(nodeMsg.sender || "Mesh").split(/\s+/)[0];
+      const link = shareLink || "https://meshrank.net";
+      const reply = `@${mention} ${hops} hops witnessed by ${observerCount} observers ${link}`;
+      const delaySeconds = Math.max(1, Math.min(20, Number(config.delay) || 1));
+      const channelIdx = Number.isFinite(nodeMsg.channelIdx) ? nodeMsg.channelIdx : channelIdToIndex(config.channel || TEST_CHANNEL_ID);
+      if (autoResponderTimers.has(key)) return;
+      const scheduleReply = async () => {
+        autoResponderTimers.delete(key);
+        const outgoing = appendNodeMessage(reply, "out", {
+          sender: nodeSerialService.getMeta()?.label || "MeshRank",
+          channelId: nodeMsg.channelId,
+          failed: false,
+          source: "mesh"
+        });
+        try {
+          await nodeSerialService.sendMessage(reply, channelIdx);
+          outgoing.failed = false;
+        } catch (err) {
+          outgoing.failed = true;
+          console.error("Auto responder failed", err);
+        }
+        renderMessages(false, { preserveScroll: true });
+      };
+      const timer = setTimeout(scheduleReply, delaySeconds * 1000);
+      autoResponderTimers.set(key, timer);
+    }
+
+    async function findMessageRecordForNode(nodeMsg) {
+      if (!nodeMsg) return null;
+      try {
+        const channelName = nodeMsg.channelId || `#${TEST_CHANNEL_ID}`;
+        const url = new URL("/api/messages", window.location.origin);
+        url.searchParams.set("channel", channelName);
+        url.searchParams.set("limit", "20");
+        const res = await fetch(url.toString(), { cache: "no-store" });
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        if (!data || !Array.isArray(data.messages)) return null;
+        return data.messages.find(
+          (entry) => entry.ts === nodeMsg.tsRaw && entry.body === nodeMsg.body
+        );
+      } catch (err) {
+        console.error("Failed to lookup message for auto-response", err);
+        return null;
+      }
+    }
+
+    async function createShareLinkForMessage(record) {
+      if (!record) return null;
+      const canonicalId = (record.messageHash || record.frameHash || record.id || "").toUpperCase();
+      if (!canonicalId) return null;
+      try {
+        const res = await fetch(`/api/routes/${canonicalId}/share`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        if (!data?.ok) return null;
+        if (data.url) return data.url;
+        return data.code ? `${SHARE_URL_BASE}${data.code}` : null;
+      } catch (err) {
+        console.error("Failed to create share link", err);
+        return null;
+      }
+    }
+
+    function appendNodeMessage(body, direction = "in", overrides = {}) {
+      const tsRaw = new Date().toISOString();
+      const messageId = `node_${tsRaw}_${String(++nodeMessageCounter).padStart(3, "0")}`;
+      const channelId = overrides.channelId || activeChannelId;
+      const msg = {
+        id: messageId,
+        channelId,
+        sender: overrides.sender || "MeshNode",
+        body: String(body || ""),
+        tsRaw,
+        ts: formatTimestamp(tsRaw),
+        type: overrides.type || "mesh",
+        source: overrides.source || "mesh",
+        direction,
+        failed: overrides.failed || false,
+        ...overrides
+      };
+      const similar = findSimilarMessage(msg.body, channelId, tsRaw);
+      if (similar) {
+        markMessageMesh(similar);
+        renderMessages(false, { preserveScroll: true });
+        renderChannels();
+        return similar;
+      }
+      msg.sourceMask = SOURCE_MASK.MESH;
+      const merged = mergeMappedMessages(appData.messages || [], [msg]);
+      appData.messages = merged;
+      updateChannelTracking(msg, direction === "in");
+      renderMessages(false, { preserveScroll: true });
+      renderChannels();
+      return msg;
+    }
+
+    function setComposerEnabled(enabled, note) {
+      const composer = document.getElementById("nodeComposerInput");
+      const sendBtn = document.getElementById("nodeComposerSend");
+      const status = document.getElementById("nodeComposerStatus");
+      if (composer) composer.disabled = !enabled;
+      if (sendBtn) sendBtn.disabled = !enabled;
+      if (status) {
+        if (note) status.textContent = note;
+        else status.textContent = enabled
+          ? `Connected to ${nodeSerialService.getMeta()?.label || "node"}.`
+          : nodeComposerDefaultStatus;
+      }
+    }
+
+    function loadAutoResponderConfig() {
+      const defaults = { enabled: false, channel: "#test", delay: 5 };
+      try {
+        const raw = localStorage.getItem(AUTO_RESPONDER_STORAGE_KEY);
+        if (!raw) return defaults;
+        const parsed = JSON.parse(raw);
+        const delayValue = Number.isFinite(Number(parsed.delay)) ? Math.min(20, Math.max(1, Number(parsed.delay))) : defaults.delay;
+        return {
+          enabled: Boolean(parsed.enabled),
+          channel: formatResponderChannel(parsed.channel || defaults.channel),
+          delay: delayValue
+        };
+      } catch (err) {
+        return defaults;
+      }
+    }
+
+    const autoResponderTimers = new Map();
+
+    function saveAutoResponderConfig(config) {
+      try {
+        localStorage.setItem(AUTO_RESPONDER_STORAGE_KEY, JSON.stringify({
+          enabled: !!config.enabled,
+          channel: String(config.channel || "#test"),
+          delay: Number.isFinite(Number(config.delay)) ? Number(config.delay) : 5
+        }));
+      } catch {}
+    }
+
+    function updateAutoResponderControls() {
+      const config = appData.autoResponderConfig;
+      const toggle = document.getElementById("autoResponderToggle");
+      const channelInput = document.getElementById("autoResponderChannel");
+      const delayInput = document.getElementById("autoResponderDelay");
+      const delayLabel = document.getElementById("autoResponderDelayValue");
+      const status = document.getElementById("autoResponderStatus");
+      if (toggle) toggle.textContent = config.enabled ? "Disable auto-responder" : "Enable auto-responder";
+      if (channelInput) channelInput.value = config.channel;
+      if (delayInput) delayInput.value = String(config.delay);
+      if (delayLabel) delayLabel.textContent = `${config.delay}s`;
+      if (status) status.textContent = config.enabled ? "Active" : "Paused";
+    }
+
+    function formatResponderChannel(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "#test";
+      return raw.startsWith("#") ? raw : `#${raw}`;
+    }
+
+    function clearAutoResponderTimers() {
+      autoResponderTimers.forEach((timer) => clearTimeout(timer));
+      autoResponderTimers.clear();
+    }
+
+    function updateNodeConnectionDisplay(isConnected, meta, note) {
+      appData.nodeConnected = !!isConnected;
+      const statusDot = document.getElementById("nodeStatusDot");
+      const connectBtn = document.getElementById("connectNodeBtn");
+      const statusText = document.getElementById("nodeStatusText");
+      const hint = document.getElementById("nodeConnectionHint");
+      if (statusDot) statusDot.classList.toggle("connected", !!isConnected);
+      if (connectBtn) {
+        connectBtn.classList.toggle("primary", !!isConnected);
+        connectBtn.textContent = isConnected ? "Disconnect node" : "Connect node";
+      }
+      if (statusText) {
+        statusText.textContent = note || (isConnected ? "Connected" : "Not connected");
+      }
+      if (hint) {
+        hint.style.display = nodeSerialService.isSupported() ? "none" : "block";
+      }
+      setComposerEnabled(!!isConnected, note);
+      if (!isConnected) {
+        clearAutoResponderTimers();
+      }
+      renderMessages(true);
+    }
+
+    async function handleNodeConnectToggle() {
+      const connectBtn = document.getElementById("connectNodeBtn");
+      if (!nodeSerialService.isSupported()) return;
+      if (nodeSerialService.isConnected()) {
+        await nodeSerialService.disconnect();
+        updateNodeConnectionDisplay(false);
+        return;
+      }
+      if (connectBtn) connectBtn.disabled = true;
+      try {
+        const { meta, info } = await nodeSerialService.connect();
+        const noteParts = [];
+        if (info?.firmwareVersion) noteParts.push(`fw=${info.firmwareVersion}`);
+        if (info?.protocolVersion) noteParts.push(`proto=${info.protocolVersion}`);
+        if (info?.selfName) noteParts.push(info.selfName);
+        const note = noteParts.length ? `Connected (${noteParts.join(", ")})` : "Connected";
+        updateNodeConnectionDisplay(true, meta, note);
+      } catch (err) {
+        const message = err?.message || "Connection failed";
+        updateNodeConnectionDisplay(false, null, message);
+        showToast(`Node connection failed: ${message}`);
+      } finally {
+        if (connectBtn) connectBtn.disabled = false;
+      }
+    }
+
+    async function handleNodeComposerSend() {
+      const composer = document.getElementById("nodeComposerInput");
+      const sendBtn = document.getElementById("nodeComposerSend");
+      if (!composer || !sendBtn) return;
+      const text = composer.value.trim();
+      if (!text) return;
+      composer.value = "";
+      sendBtn.disabled = true;
+      const outgoing = appendNodeMessage(text, "out");
+      try {
+        const channelIdx = channelIdToIndex(activeChannelId);
+        await nodeSerialService.sendMessage(text, channelIdx);
+      } catch (err) {
+        outgoing.failed = true;
+        showToast(`Mesh send failed: ${err?.message || err}`);
+        renderMessages(false, { preserveScroll: true });
+      } finally {
+        sendBtn.disabled = !nodeSerialService.isConnected();
+      }
+    }
+
+    function initNodeSerialControls() {
+      const connectBtn = document.getElementById("connectNodeBtn");
+      connectBtn?.addEventListener("click", handleNodeConnectToggle);
+      const sendBtn = document.getElementById("nodeComposerSend");
+      sendBtn?.addEventListener("click", handleNodeComposerSend);
+      const composer = document.getElementById("nodeComposerInput");
+      composer?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          handleNodeComposerSend();
+        }
+      });
+      const autoToggle = document.getElementById("autoResponderToggle");
+      const autoChannel = document.getElementById("autoResponderChannel");
+      const autoDelay = document.getElementById("autoResponderDelay");
+      autoToggle?.addEventListener("click", () => {
+        appData.autoResponderConfig.enabled = !appData.autoResponderConfig.enabled;
+        if (!appData.autoResponderConfig.enabled) {
+          clearAutoResponderTimers();
+        }
+        saveAutoResponderConfig(appData.autoResponderConfig);
+        updateAutoResponderControls();
+      });
+      autoChannel?.addEventListener("change", () => {
+        appData.autoResponderConfig.channel = formatResponderChannel(autoChannel.value);
+        saveAutoResponderConfig(appData.autoResponderConfig);
+        updateAutoResponderControls();
+      });
+      autoDelay?.addEventListener("input", () => {
+        appData.autoResponderConfig.delay = Number(autoDelay.value);
+        saveAutoResponderConfig(appData.autoResponderConfig);
+        updateAutoResponderControls();
+      });
+      const nodeControls = document.getElementById("nodeControlsContainer");
+      if (!nodeSerialService.isSupported()) {
+        if (connectBtn) connectBtn.disabled = true;
+        if (nodeControls) nodeControls.classList.add("hidden");
+        const hint = document.getElementById("nodeConnectionHint");
+        if (hint) hint.style.display = "block";
+      } else {
+        if (nodeControls) nodeControls.classList.remove("hidden");
+        const hint = document.getElementById("nodeConnectionHint");
+        if (hint) hint.style.display = "none";
+      }
+      updateNodeConnectionDisplay(false);
+      updateAutoResponderControls();
+    }
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
@@ -4566,6 +5743,14 @@
     function hasMapHideEmoji(r) {
       const name = String(r?.name || "");
       return name.includes(MAP_HIDE_EMOJI);
+    }
+
+    function isNeighborHidden(neighbor) {
+      if (!neighbor) return false;
+      const hash = String(neighbor.hash || "").toUpperCase();
+      const hiddenSet = appData.hiddenRepeaterHashes || new Set();
+      if (hash && hiddenSet.has(hash)) return true;
+      return hasMapHideEmoji(neighbor);
     }
 
     function confidence(msg) {
@@ -4870,7 +6055,7 @@
 
     async function syncGuestChannelsToAccount() {
       if (!appData.authUser) return;
-      const fixed = new Set(["#public", "#meshranksuggestions"]);
+      const fixed = new Set(["#public", "#meshranksuggestions", "#test"]);
       const pending = (appData.guestChannels || []).filter((name) => !fixed.has(normalizeChannelName(name)));
       if (!pending.length) return;
       try {
@@ -5390,7 +6575,7 @@
 
     async function joinChannel(channelName) {
       if (!appData.authUser) {
-        const fixed = new Set(["#public", "#meshranksuggestions"]);
+        const fixed = new Set(["#public", "#meshranksuggestions", "#test"]);
         const normalized = normalizeChannelName(channelName);
         if (!normalized || fixed.has(normalized)) return false;
         const blocked = (appData.channelDirectory?.groups && Object.values(appData.channelDirectory.groups).some((list) =>
@@ -5664,7 +6849,7 @@
     function applyChannels(channels) {
       let list = channels || [];
       if (!appData.authUser) {
-        const fixed = new Set(["public", "meshranksuggestions"]);
+        const fixed = new Set(["public", "meshranksuggestions", "test"]);
         const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
         const allowed = new Set([...fixed, ...guest]);
         list = list.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
@@ -5673,7 +6858,7 @@
         ...c,
         id: normalizeChannelId(c.id || c.name)
       }));
-      const fixedNames = ["#public", "#meshranksuggestions"];
+          const fixedNames = ["#public", "#meshranksuggestions", "#test"];
       fixedNames.forEach((name) => {
         const id = normalizeChannelId(name);
         const exists = appData.channels.some((c) => c.id === id);
@@ -5741,6 +6926,26 @@
       window.history.replaceState({}, "", url.toString());
     }
 
+    function setActiveChannelByName(channelName) {
+      const normalizedName = normalizeChannelName(channelName || "#public");
+      const normalizedId = normalizeChannelId(normalizedName);
+      if (!appData.channels?.length) {
+        appData.channels = [{ id: "public", name: "#public", snippet: "Shared route", time: "--" }];
+      }
+      let channel = appData.channels.find((ch) => ch.id === normalizedId);
+      if (!channel) {
+        channel = { id: normalizedId, name: normalizedName, snippet: "Shared route", time: "--" };
+        appData.channels.unshift(channel);
+      }
+      activeChannelId = normalizedId;
+      const activeLabel = document.getElementById("activeChannel");
+      if (activeLabel) activeLabel.textContent = channel.name;
+      updateChannelParam(activeChannelId);
+      renderChannels();
+      renderMessages(true);
+      loadMessages(false, { limit: appData.channelHistoryLimit, replace: true });
+    }
+
     function renderChannels() {
       const el = document.getElementById("channels");
       const tabBadges = document.querySelectorAll(".channels-unread");
@@ -5769,7 +6974,7 @@
         const time = ch.time || "--";
         const count24h = appData.channelCounts24h?.[ch.id] || 0;
         const row = document.createElement("div");
-        const fixedChannels = new Set(["#public", "#meshranksuggestions"]);
+        const fixedChannels = new Set(["#public", "#meshranksuggestions", "#test"]);
         const isFixed = fixedChannels.has(displayName.toLowerCase());
         const rowClasses = [
           "channel",
@@ -5921,6 +7126,7 @@
 
       filtered.forEach((msg, idx) => {
         const keyId = msg.frameHash || msg.id;
+        const conf = confidence(msg);
         if (rendered.has(keyId)) {
           const existing = el.querySelector(`.message[data-id="${keyId}"]`);
           if (existing) {
@@ -5946,10 +7152,14 @@
           }
           return;
         }
+        const mask = msg.sourceMask || (msg.source === "mesh" ? SOURCE_MASK.MESH : SOURCE_MASK.INTERNET);
+        const effectiveMask = appData.nodeConnected ? mask : (mask & ~SOURCE_MASK.INTERNET);
+        const rowClasses = ["message"];
+        if (effectiveMask & SOURCE_MASK.MESH) rowClasses.push("message-mesh");
+        if (effectiveMask & SOURCE_MASK.INTERNET) rowClasses.push("message-internet");
         const row = document.createElement("div");
-        row.className = "message";
+        row.className = rowClasses.join(" ").trim();
         row.dataset.id = keyId;
-        const conf = confidence(msg);
         const observerCount = Number.isFinite(msg.observerCount)
           ? msg.observerCount
           : (Array.isArray(msg.observerHits) ? msg.observerHits.length : 0);
@@ -5958,15 +7168,27 @@
           .filter(Boolean)
           .join("|");
         const hopCount = getHopCount(msg);
+        const badgeParts = [];
+        if (effectiveMask & SOURCE_MASK.MESH) {
+          badgeParts.push('<span class="badge mesh-badge">Mesh</span>');
+        }
+        if (effectiveMask & SOURCE_MASK.INTERNET) {
+          badgeParts.push('<span class="badge internet-badge">Internet</span>');
+        }
+        const badgeHtml = badgeParts.join(" ");
+        const failedIndicator = msg.failed
+          ? '<div class="msg-failed" title="Send failed to node.">Send failed</div>'
+          : "";
         row.innerHTML = `
           <div class="avatar" style="background:${colors[(idx + 1) % colors.length]}">${msg.sender[0]}</div>
           <div>
             <div class="meta">
               <strong>${msg.sender}</strong>
               <span>${msg.ts}</span>
-              <span class="badge">${msg.type}</span>
+              ${badgeHtml}
             </div>
-            <div class="bubble ${msg.type}">${msg.body}</div>
+            <div class="bubble ${msg.type || "mesh"}">${msg.body}</div>
+            ${failedIndicator}
               <div class="msg-footer">
                 <a class="msg-observers" href="#" data-id="${keyId}" data-observers="${observerList.replace(/"/g, "&quot;")}">Observers: ${observerCount}</a>
                 <a class="msg-hops" href="#" data-id="${keyId}">Total hops: ${hopCount}</a>
@@ -6039,12 +7261,10 @@
       if (!map) initMap();
       appData.routeActiveId = msgId;
       appData.routeActiveMsg = msg;
-      if (window.matchMedia?.("(max-width: 860px)")?.matches) {
-        document.body.classList.add("route-open");
-        setTimeout(() => {
-          if (map) map.invalidateSize();
-        }, 120);
-      }
+      document.body.classList.add("route-open");
+      setTimeout(() => {
+        if (map) map.invalidateSize();
+      }, 120);
 
       await ensureRouteSuggestions();
       await ensureObservers();
@@ -6081,8 +7301,8 @@
         list.appendChild(item);
       });
 
-      const observerHits = Array.isArray(msg.observerHits) ? msg.observerHits : [];
-      if (observerHits.length) {
+        const observerHits = Array.isArray(msg.observerHits) ? msg.observerHits : [];
+        if (observerHits.length) {
         const byId = appData.observersById || {};
         const byName = appData.observersByName || {};
         observerHits.forEach((raw) => {
@@ -6199,9 +7419,25 @@
           }
 
         if (latlngs.length >= 2) {
-          map.fitBounds(latlngs, { padding: [20, 20] });
+          const unique = [];
+          const seen = new Set();
+          latlngs.forEach((pt) => {
+            const key = `${pt[0].toFixed(6)}:${pt[1].toFixed(6)}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              unique.push(pt);
+            }
+          });
+          const bounds = unique.length >= 2 ? unique : latlngs;
+          if (bounds.length >= 2) {
+            map.fitBounds(bounds, { padding: [20, 20] });
+          } else {
+            map.setView(latlngs[0], 9);
+          }
         } else if (latlngs.length === 1) {
           map.setView(latlngs[0], 9);
+        } else {
+          map.setView([52.2, -1.5], 6);
         }
         setTimeout(() => {
           if (map) map.invalidateSize();
@@ -6248,22 +7484,29 @@
     const routeBackdrop = document.getElementById("routeBackdrop");
     function closeRouteOverlay() {
       document.body.classList.remove("route-open");
+      preventRouteAutoClose = false;
+      if (window.history.replaceState) {
+        const path = window.location.pathname || "";
+        if (path.startsWith("/msg/") || path.startsWith("/s/")) {
+          window.history.replaceState({}, "", "/");
+        }
+      }
     }
     routeClose?.addEventListener("click", closeRouteOverlay);
     routeBackdrop?.addEventListener("click", closeRouteOverlay);
     const messageList = document.getElementById("messages");
     const isMobile = () => window.matchMedia?.("(max-width: 860px)")?.matches;
     messageList?.addEventListener("scroll", () => {
-      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+      if (isMobile() && document.body.classList.contains("route-open") && !preventRouteAutoClose) closeRouteOverlay();
       if (messageList.scrollTop <= 10) {
         loadMoreHistory();
       }
     });
     messageList?.addEventListener("click", () => {
-      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+      if (isMobile() && document.body.classList.contains("route-open") && !preventRouteAutoClose) closeRouteOverlay();
     });
     messageList?.addEventListener("touchstart", () => {
-      if (isMobile() && document.body.classList.contains("route-open")) closeRouteOverlay();
+      if (isMobile() && document.body.classList.contains("route-open") && !preventRouteAutoClose) closeRouteOverlay();
     }, { passive: true });
     const rankFlaggedLink = document.getElementById("rankFlaggedLink");
     if (rankFlaggedLink) {
@@ -6652,7 +7895,7 @@
     }
 
     async function leaveSelectedChannels(list) {
-      const fixed = new Set(["#public", "#meshranksuggestions"]);
+      const fixed = new Set(["#public", "#meshranksuggestions", "#test"]);
       const targets = (list || [])
         .map((name) => normalizeChannelName(name))
         .filter((name) => name && !fixed.has(name.toLowerCase()));
@@ -6958,7 +8201,7 @@
       }
       const rawChannels = Array.isArray(data.channels) ? data.channels : [];
       if (!appData.authUser) {
-        const fixed = new Set(["public", "meshranksuggestions"]);
+        const fixed = new Set(["public", "meshranksuggestions", "test"]);
         const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
         const allowed = new Set([...fixed, ...guest]);
         const filtered = rawChannels.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
@@ -7051,7 +8294,8 @@
           pathNames: (next.pathNames?.length || 0) > (current.pathNames?.length || 0) ? next.pathNames : current.pathNames,
           pathPoints: (next.pathPoints?.length || 0) > (current.pathPoints?.length || 0) ? next.pathPoints : current.pathPoints,
           observerHits: Array.from(mergedHits),
-          observerCount: mergedHits.size
+          observerCount: mergedHits.size,
+          sourceMask: ((current.sourceMask || SOURCE_MASK.INTERNET) | (next.sourceMask || SOURCE_MASK.INTERNET))
         });
       });
       return Array.from(byId.values()).sort((a, b) => {
@@ -7059,6 +8303,21 @@
         const tb = b.tsRaw ? new Date(b.tsRaw).getTime() : 0;
         return ta - tb;
       });
+    }
+
+    function upsertSharedMessage(entry) {
+      if (!entry?.id) return;
+      appData.messages = Array.isArray(appData.messages) ? appData.messages : [];
+      const targetId = String(entry.id).toUpperCase();
+      const idx = appData.messages.findIndex((msg) => {
+        const msgId = String(msg.id || msg.messageHash || "").toUpperCase();
+        return msgId === targetId;
+      });
+      if (idx >= 0) {
+        appData.messages[idx] = { ...appData.messages[idx], ...entry };
+      } else {
+        appData.messages.unshift(entry);
+      }
     }
 
     async function fetchMessages(params = {}) {
@@ -7085,7 +8344,9 @@
         tsRaw: m.ts || null,
         ts: m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--",
         type: "mesh",
+        source: "internet",
         repeats: m.repeats || 1,
+        sourceMask: SOURCE_MASK.INTERNET,
         pathLength: Number.isFinite(m.pathLength) ? m.pathLength : null,
         uniqueHopCount: Number.isFinite(m.uniqueHopCount) ? m.uniqueHopCount : null,
         path: Array.isArray(m.path) ? m.path : [],
@@ -7124,7 +8385,7 @@
       appData.unreadByChannel = unread;
       if (Array.isArray(data.channels)) {
         if (!appData.authUser) {
-          const fixed = new Set(["public", "meshranksuggestions"]);
+          const fixed = new Set(["public", "meshranksuggestions", "test"]);
           const guest = new Set((appData.guestChannels || []).map((c) => normalizeChannelId(c)));
           const allowed = new Set([...fixed, ...guest]);
           const filtered = data.channels.filter((ch) => allowed.has(normalizeChannelId(ch.id || ch.name)));
@@ -7140,9 +8401,6 @@
         renderChannels();
       }
       renderMessages(!!forceFull, { preserveScroll: !!opts.preserveScroll });
-      if (forceFull && appData.messages.length && !isMobile()) {
-        showRoute(appData.messages[0].id);
-      }
       if (document.body.classList.contains("view-channels")) {
         const prev = previousLatest[activeChannelId] || 0;
         const next = latestByChannel[activeChannelId] || 0;
@@ -7693,7 +8951,7 @@
                     <span class="rank-dot" style="background:${o.scoreColor}">${scoreBadge}</span>
                     <div class="rank-main">
                       <strong>${o.name || o.id}</strong>
-                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets today: ${o.packetsToday}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}</div>
+                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets (24h): ${o.packets24h ?? 0}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}${Number.isFinite(o.lastSeenAgoMinutes) && o.lastSeenAgoMinutes >= 60 && o.lastPacketAt ? ` | Last packet: ${formatDateTime(o.lastPacketAt)}` : ""}</div>
                       <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
                       <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
                       ${o.lowPacketRate ? "<div class=\"rank-meta\" style=\"color:#f2c88b;\">Low packet rate - try moving observer closer to repeater.</div>" : ""}
@@ -7711,7 +8969,7 @@
         : "--";
       document.getElementById("observerRankTotal").textContent = data.items.length;
       document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 24).length;
-      document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + o.packetsToday, 0);
+      document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + (o.packets24h || 0), 0);
     }
 
     function renderObserverRankSummary(summary) {
@@ -7721,7 +8979,7 @@
         : "--";
       document.getElementById("observerRankTotal").textContent = summary.count ?? 0;
       document.getElementById("observerRankActive").textContent = summary.totals?.active ?? 0;
-      document.getElementById("observerRankPackets").textContent = summary.totals?.packetsToday ?? 0;
+      document.getElementById("observerRankPackets").textContent = summary.totals?.packets24h ?? 0;
     }
 
     function renderObserverRankMap(data) {
@@ -7740,7 +8998,7 @@
           color: o.scoreColor,
           fillColor: o.scoreColor,
           fillOpacity: 0.9
-        }).bindPopup(`${o.name || o.id} | ${o.packetsToday} pkts today`);
+        }).bindPopup(`${o.name || o.id} | ${o.packets24h} pkts (24h)`);
         marker.addTo(observerRankLayer);
         if (o.coverageKm > 0) {
           const circle = L.circle(latlng, {
@@ -7896,18 +9154,33 @@
     let shareActiveCode = null;
     let shareButtonLabel = "Share";
 
+    function isFixedChannel(channelName) {
+      const normalized = normalizeChannelName(channelName || "#public");
+      if (!normalized) return false;
+      return FIXED_CHANNELS.some((fixed) => normalizeChannelName(fixed) === normalized);
+    }
+
     async function shareRoutePath() {
       if (!routeShareBtn || !appData.routeActiveId) {
         showToast("Open a route before sharing it.");
+        return;
+      }
+      const channelName = appData.routeActiveMsg?.channelName || appData.routeActiveMsg?.channelId || null;
+      if (!isFixedChannel(channelName)) {
+        showToast("Share links can only be created from #public, #test, or #meshranksuggestions.");
         return;
       }
       routeShareBtn.disabled = true;
       routeShareBtn.textContent = "Creating…";
       try {
         const res = await fetch(`/api/routes/${encodeURIComponent(appData.routeActiveId)}/share`, { method: "POST" });
-        const payload = await res.json();
+        const rawBody = await res.text();
+        let payload = null;
+        try {
+          payload = rawBody ? JSON.parse(rawBody) : null;
+        } catch {}
         if (!res.ok || !payload?.ok || !payload.url) {
-          throw new Error(payload?.error || "Unable to create share link.");
+          throw new Error(payload?.error || rawBody || "Unable to create share link.");
         }
         const url = payload.url;
         const copied = await copyTextToClipboard(url);
@@ -7916,11 +9189,11 @@
         }
         showToast("Link copied — valid for 24 hours");
         if (payload.code) {
-          const targetPath = `/s/${payload.code}`;
+          const targetPath = `/msg/${payload.code}`;
           if (window.location.pathname !== targetPath) {
             window.history.pushState({}, "", targetPath);
           }
-          openShareLanding(payload.code);
+          loadSharedRoute(payload.code, { showOverlay: false, preventAutoClose: true });
         }
       } catch (err) {
         showToast(`Share failed: ${err?.message || "unknown error"}`);
@@ -7973,7 +9246,15 @@
       return success;
     }
 
-    async function loadSharedRoute(code) {
+    let preventRouteAutoClose = false;
+    function holdRouteOpen(duration = 600) {
+      preventRouteAutoClose = true;
+      setTimeout(() => { preventRouteAutoClose = false; }, duration);
+    }
+
+    async function loadSharedRoute(code, options = {}) {
+      const { showOverlay = true, preventAutoClose = false } = options;
+      if (preventAutoClose) holdRouteOpen();
       if (!shareStatus || !sharePathList || !shareObservers) return;
       shareStatus.textContent = "Loading shared route…";
       shareError.textContent = "";
@@ -7984,11 +9265,18 @@
       shareDepth.textContent = "0 hops";
       sharePathList.innerHTML = "";
       shareObservers.innerHTML = "";
+      if (showOverlay && shareLanding) {
+        document.body.classList.add("share-active");
+      }
       try {
         const res = await fetch(`/api/share/${encodeURIComponent(code)}`);
-        const payload = await res.json();
+        const rawBody = await res.text();
+        let payload = null;
+        try {
+          payload = rawBody ? JSON.parse(rawBody) : null;
+        } catch {}
         if (!res.ok || !payload?.ok) {
-          throw new Error(payload?.error || "Invalid share link.");
+          throw new Error(payload?.error || rawBody || "Invalid share link.");
         }
         const msg = payload.message || {};
         shareMessageKey.textContent = msg.id || "—";
@@ -8023,6 +9311,29 @@
             ...observers.slice(0, 6).map((text) => `<div class="share-observer">${text}</div>`)
           ].join("");
         }
+        const channelName = msg.channelName || shareChannel.textContent || "#public";
+        setActiveChannelByName(channelName);
+        const shareEntry = {
+          id: msg.id || msg.messageHash || msg.frameHash || code,
+          frameHash: msg.frameHash || null,
+          messageHash: msg.messageHash || null,
+          channelId: normalizeChannelId(channelName),
+          channelName: normalizeChannelName(channelName),
+          sender: msg.sender || null,
+          body: msg.body || null,
+          tsRaw: msg.ts || new Date().toISOString(),
+          repeats: msg.repeats || payload.route?.packetsHeard || 0,
+          path: Array.isArray(payload.route?.path) ? payload.route.path : [],
+          pathNames: Array.isArray(payload.route?.pathNames) ? payload.route.pathNames : [],
+          pathPoints: Array.isArray(payload.route?.pathPoints) ? payload.route.pathPoints : [],
+          observerHits: Array.isArray(payload.observers) ? payload.observers : [],
+          observerCount: (payload.observers || []).length
+        };
+        upsertSharedMessage(shareEntry);
+        showRoute(shareEntry.id);
+        if (!showOverlay) {
+          closeShareLanding(false);
+        }
       } catch (err) {
         shareError.textContent = err?.message || "Unable to load this share link.";
         shareStatus.textContent = "";
@@ -8049,13 +9360,9 @@
     }
 
     function handleShareRoute() {
-      const match = window.location.pathname.match(/^\/s\/([0-9]{5})$/);
+      const match = window.location.pathname.match(/^\/(?:s|msg)\/([0-9]{5})$/);
       if (match) {
-        openShareLanding(match[1]);
-        return;
-      }
-      if (document.body.classList.contains("share-active")) {
-        closeShareLanding(false);
+        loadSharedRoute(match[1], { showOverlay: false, preventAutoClose: true });
       }
     }
 
@@ -8065,16 +9372,45 @@
       return { color, label };
     }
 
+    function neighborRelationBadge(relation) {
+      if (!relation) return "";
+      const normalized = String(relation).toLowerCase();
+      if (normalized === "reciprocal") {
+        return `<span class="neighbor-badge reciprocal">Reciprocal</span>`;
+      }
+      if (normalized.includes("incoming")) {
+        return `<span class="neighbor-badge incoming">Incoming only</span>`;
+      }
+      if (normalized.includes("outgoing") || normalized === "handoff") {
+        return `<span class="neighbor-badge outgoing">Outgoing only</span>`;
+      }
+      return "";
+    }
+
     function openNeighborMapModal(entry) {
       const modal = document.getElementById("neighborMapModal");
       const title = document.getElementById("neighborMapTitle");
       const meta = document.getElementById("neighborMapMeta");
       if (!modal) return;
+      closeRankDetail();
       appData.neighborEditActiveEntry = entry;
       if (neighborEditToggle) {
         neighborEditToggle.textContent = appData.neighborEditMode ? "Done editing" : "Something not right?";
       }
       const repeaterName = entry?.name || entry?.pub || "Repeater";
+      const suppressedReason = entry?.zeroHopUnavailableReason;
+      if (suppressedReason) {
+        const explanation = suppressedReason === "hidden"
+          ? "Zero-hop neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours."
+          : "Zero-hop neighbour stats are currently unavailable.";
+        if (title) title.textContent = "Zero-hop neighbours unavailable";
+        if (meta) meta.textContent = explanation;
+        if (neighborMapLayer) neighborMapLayer.clearLayers();
+        const list = document.getElementById("neighborMapList");
+        if (list) list.innerHTML = `<div class="neighbor-map-item">${explanation}</div>`;
+        modal.classList.add("open");
+        return;
+      }
       if (title) title.textContent = `Zero-hop neighbours: ${repeaterName}`;
       if (meta) meta.textContent = "Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.";
       modal.classList.add("open");
@@ -8096,9 +9432,19 @@
         const bVal = Number.isFinite(b?.rssiAvg) ? b.rssiAvg : -Infinity;
         return bVal - aVal;
       });
+      const visibleNeighbors = neighbors.filter((neighbor) => !isNeighborHidden(neighbor));
+      const list = document.getElementById("neighborMapList");
+      if (!visibleNeighbors.length) {
+        const explanation = "Zero-hop neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours.";
+        if (title) title.textContent = "Zero-hop neighbours unavailable";
+        if (meta) meta.textContent = explanation;
+        if (neighborMapLayer) neighborMapLayer.clearLayers();
+        if (list) list.innerHTML = `<div class="neighbor-map-item">${explanation}</div>`;
+        modal.classList.add("open");
+        return;
+      }
       const byHash = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
       const points = [];
-      const list = document.getElementById("neighborMapList");
       appData.neighborOverrideOptions = new Map();
       appData.neighborOverrideTargetPub = entry?.pub || entry?.publicKey || entry?.pubKey || null;
 
@@ -8113,7 +9459,7 @@
         points.push([repeaterGps.lat, repeaterGps.lon]);
       }
 
-      neighbors.forEach((n) => {
+      visibleNeighbors.forEach((n) => {
         const candidates = byHash.get(String(n.hash || "").toUpperCase()) || [];
         const target = candidates.find((c) => c?.gps && Number.isFinite(c.gps.lat) && Number.isFinite(c.gps.lon)) || null;
         const gps = n.gps || target?.gps || null;
@@ -8142,10 +9488,10 @@
       });
 
       if (list) {
-        if (!neighbors.length) {
+        if (!visibleNeighbors.length) {
           list.innerHTML = "<div class='neighbor-map-item'>No strong zero-hop neighbours yet.</div>";
         } else {
-          list.innerHTML = neighbors.map((n) => {
+          list.innerHTML = visibleNeighbors.map((n) => {
             const rssi = Number.isFinite(n.rssiAvg) ? `${n.rssiAvg} dBm` : "--";
             const status = n.relation === "reciprocal"
               ? "Reciprocal neighbour"
@@ -8154,13 +9500,19 @@
             if (Array.isArray(n.options) && n.options.length > 1) {
               appData.neighborOverrideOptions.set(String(n.hash || ""), n.options);
             }
+            const relationBadge = neighborRelationBadge(n.relation);
             return `
               <div class="neighbor-map-item" data-neighbor-hash="${n.hash || ""}">
                 <div>
-                  <div><strong>${n.name || n.hash || "Neighbor"}</strong></div>
+                  <div class="neighbor-title-row">
+                    <strong>${n.name || n.hash || "Neighbor"}</strong>
+                  </div>
                   <div class="neighbor-meta">${status} · Avg RSSI: ${rssi}</div>
                 </div>
-                ${canChange ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
+                <div class="neighbor-actions">
+                  ${relationBadge ? `<div class="neighbor-badge-wrap">${relationBadge}</div>` : ""}
+                  ${canChange ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
+                </div>
               </div>
             `;
           }).join("");
@@ -8179,6 +9531,56 @@
       const modal = document.getElementById("neighborMapModal");
       if (!modal) return;
       modal.classList.remove("open");
+    }
+
+    let observerCoveragePopup;
+    let coveragePopupTitle;
+    let coveragePopupBody;
+
+    function openObserverCoveragePopup(repeater, coverageCount) {
+      if (!observerCoveragePopup) return;
+      const name = repeater?.name || "This repeater";
+      if (coveragePopupTitle) {
+        coveragePopupTitle.textContent = coverageCount > 0
+          ? `${name} has observer coverage`
+          : `No observer coverage yet for ${name}`;
+      }
+      if (coveragePopupBody) {
+        if (coverageCount > 0) {
+          coveragePopupBody.innerHTML = `
+            ${name} is covered by ${coverageCount} observer${coverageCount === 1 ? "" : "s"}. Thanks for keeping the mesh connected.
+          `;
+        } else {
+          coveragePopupBody.innerHTML = `
+            We're sorry to hear that you're not covered yet and can't enjoy the same experience as others.
+            If you'd like to become an observer please visit the Become an Observer section.
+            If you don't have a spare Heltec V3, email <strong>stu.stoke@gmail.com</strong> — I have some available free of charge.
+          `;
+        }
+      }
+      observerCoveragePopup.classList.add("open");
+    }
+
+    function closeObserverCoveragePopup() {
+      observerCoveragePopup?.classList.remove("open");
+    }
+
+    function initObserverCoveragePopup() {
+      observerCoveragePopup = document.getElementById("observerCoveragePopup");
+      coveragePopupTitle = document.getElementById("coveragePopupTitle");
+      coveragePopupBody = document.getElementById("coveragePopupBody");
+      const closeBtn = observerCoveragePopup?.querySelector("[data-coverage-close]");
+      closeBtn?.addEventListener("click", closeObserverCoveragePopup);
+      observerCoveragePopup?.addEventListener("click", (event) => {
+        if (event.target === observerCoveragePopup) {
+          closeObserverCoveragePopup();
+        }
+      });
+      const becomeBtn = document.getElementById("coverageBecomeBtn");
+      becomeBtn?.addEventListener("click", () => {
+        closeObserverCoveragePopup();
+        setView("observer");
+      });
     }
 
     let rotmMap;
@@ -8524,7 +9926,13 @@
 
     function badgeHtml(badges) {
       if (!badges.length) return "";
-      return `<div class="badge-row">${badges.map((b) => `<span class="badge badge-${b.tone}">${b.label}</span>`).join("")}</div>`;
+      return `<div class="badge-row">${badges.map((b) => {
+        const coverageAttrs = b.meta?.coverage
+          ? ` data-coverage-count="${b.meta.coverageCount ?? 0}" data-coverage-label="${(b.label || "").replace(/"/g, "&quot;")}"`
+          : "";
+        const coverageClass = b.meta?.coverage ? " badge-coverage" : "";
+        return `<span class="badge badge-${b.tone}${coverageClass}"${coverageAttrs}>${b.label}</span>`;
+      }).join("")}</div>`;
     }
 
     function formatDriftMinutes(minutes) {
@@ -8537,53 +9945,6 @@
       return `${sign}${Math.round(abs / (60 * 24 * 365))}y`;
     }
 
-    function buildNearestObserverRepeaters(repeaters, observers) {
-      const flagged = new Set();
-      if (!Array.isArray(observers) || !Array.isArray(repeaters)) return flagged;
-      const repeaterPoints = repeaters.filter((r) => r?.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon) && !(r.gps.lat === 0 && r.gps.lon === 0));
-      observers.forEach((o) => {
-        if (!o?.gps || !Number.isFinite(o.gps.lat) || !Number.isFinite(o.gps.lon)) return;
-        let best = null;
-        let bestKm = Infinity;
-        repeaterPoints.forEach((r) => {
-          const km = distanceKm(o.gps, r.gps);
-          if (km < bestKm) {
-            bestKm = km;
-            best = r;
-          }
-        });
-        if (best?.pub) flagged.add(String(best.pub).toUpperCase());
-      });
-      return flagged;
-    }
-
-    function buildRepeaterBadges(r, nearestObserverSet) {
-      const badges = [];
-      if (r.stale) {
-        const offlineHours = Number.isFinite(r.lastAdvertAgeHours)
-          ? Math.ceil(r.lastAdvertAgeHours)
-          : null;
-        const offlineLabel = offlineHours
-          ? `No advert in ${offlineHours}h`
-          : "No advert in 24h";
-        badges.push({ label: offlineLabel, tone: "gray" });
-      }
-      if (r.gpsImplausible) badges.push({ label: "GPS implausible", tone: "amber" });
-      if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "blue" });
-      if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
-      if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
-      if (Number(r.zeroHopNeighbors24h || 0) >= 4) badges.push({ label: "Strong Local Mesh", tone: "purple" });
-      if (Number(r.zeroHopNeighbors24h || 0) >= 3) badges.push({ label: "Great Mesh Neighbour", tone: "amber" });
-      if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) badges.push({ label: "Great Throughput", tone: "amber" });
-      if (Number.isFinite(r.clockDriftMinutes) && Math.abs(r.clockDriftMinutes) >= 60) {
-        const driftLabel = formatDriftMinutes(r.clockDriftMinutes);
-        if (driftLabel) badges.push({ label: `Clock drift ${driftLabel}`, tone: "amber" });
-      }
-      if (nearestObserverSet && r.pub && nearestObserverSet.has(String(r.pub).toUpperCase())) {
-        badges.push({ label: "Close to Observer", tone: "green" });
-      }
-      return badges;
-    }
 
     function showRankDetail(repeater) {
       const overlay = document.getElementById("rankDetailOverlay");
@@ -8941,7 +10302,7 @@
       if (Number.isFinite(o.ageHours) && o.ageHours <= 1 && Number(o.uptimeHours || 0) >= 48) {
         badges.push({ label: "Great Uptime", tone: "green" });
       }
-      if (Number(o.packetsToday || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
+      if (Number(o.packets24h || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(o.coverageCount || 0) >= 5) badges.push({ label: "Strong Local Mesh", tone: "purple" });
       if (Number(o.coverageKm || 0) >= 20) badges.push({ label: "Wide Coverage", tone: "amber" });
       if (Number(o.nearestRepeaterKm || 999) <= 5) badges.push({ label: "Close to Repeater", tone: "green" });
@@ -8949,6 +10310,7 @@
     }
 
     const MOBILE_RANK_PAGE_SIZE = 40;
+    const RANK_PAGE_SIZE_DESKTOP = 100;
 
     async function fetchRank(opts = {}) {
       const params = new URLSearchParams();
@@ -8960,57 +10322,377 @@
       return await res.json();
     }
 
-    async function loadRankChunk(limit, skip, replace) {
-      const data = await fetchRank({ limit, skip });
-      if (!data?.items?.length) return 0;
-      if (replace) {
-        appData.rankData = data.items.slice();
-      } else {
-        appData.rankData = appData.rankData.concat(data.items);
+    function setRankStatus(text) {
+      const el = document.getElementById("rankStatus");
+      if (!el) return;
+      el.textContent = text || "";
+      el.classList.toggle("active", !!text);
+    }
+
+    function clearRankStatus() {
+      setRankStatus("");
+    }
+
+    function showRankSkeleton(count = 15) {
+      const list = document.getElementById("rankList");
+      if (!list) return;
+      list.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < count; i += 1) {
+        const skeleton = document.createElement("div");
+        skeleton.className = "rank-skeleton";
+        skeleton.innerHTML = `
+          <div class="rank-skeleton-dot"></div>
+          <div class="rank-skeleton-lines">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        `;
+        frag.appendChild(skeleton);
       }
-      appData.rankTotalCount = typeof data.count === "number" ? data.count : appData.rankTotalCount;
-      renderRank({ ...data, items: appData.rankData });
-      return data.items.length;
+      list.appendChild(frag);
+      setRankStatus("Loading rank…");
     }
 
-    let rankMobileLoadingMore = false;
-
-    function loadMoreRankChunks() {
-      if (rankMobileLoadingMore) return;
-      if (appData.rankData.length >= (appData.rankTotalCount || Infinity)) return;
-      rankMobileLoadingMore = true;
-      loadRankChunk(MOBILE_RANK_PAGE_SIZE, appData.rankData.length, false)
-        .then((count) => {
-          if (count >= MOBILE_RANK_PAGE_SIZE) {
-            setTimeout(loadMoreRankChunks, 200);
-          }
-        })
-        .finally(() => {
-          rankMobileLoadingMore = false;
-        });
+    function formatMs(value) {
+      if (!Number.isFinite(value)) return "--";
+      return `${Math.round(value)}ms`;
     }
 
-    async function loadRankForMobile() {
-      appData.rankData = [];
-      setRankLoading(true);
-      await loadRankChunk(MOBILE_RANK_PAGE_SIZE, 0, true);
-      setRankLoading(false);
-      loadMoreRankChunks();
+    function resetRankPaging() {
+      const pageSize = isMobile() ? MOBILE_RANK_PAGE_SIZE : RANK_PAGE_SIZE_DESKTOP;
+      appData.rankPaging = {
+        pageSize,
+        skip: 0,
+        done: false,
+        inflight: false
+      };
+      return pageSize;
+    }
+
+    function updateLoadMoreButton() {
+      const btn = document.getElementById("rankLoadMore");
+      if (!btn) return;
+      const paging = appData.rankPaging || {};
+      const dataLength = (appData.rankData || []).length;
+      const total = Number.isFinite(appData.rankTotalCount) ? appData.rankTotalCount : Infinity;
+      const hasMore = dataLength && dataLength < total;
+      const canShow = hasMore && !paging.done && dataLength >= (paging.pageSize || 0);
+      btn.style.display = canShow ? "inline-flex" : "none";
+      btn.disabled = !!paging.inflight;
+      btn.textContent = paging.inflight ? "Loading…" : "Load more";
     }
 
     async function loadRankDefault() {
       setRankLoading(true);
+      const pageSize = resetRankPaging();
+      appData.rankData = [];
+      appData.rankRenderedCount = 0;
+      appData.rankMarkerNextIndex = 0;
+      appData.rankMarkerCount = 0;
+      appData.rankPerf.first100Ms = null;
+      appData.rankPerf.renderMs = null;
+      appData.rankPerf.markerCount = 0;
+      appData.rankPerf.loadedCount = 0;
+      appData.rankPaging.inflight = true;
+      const fetchStart = performance.now();
       try {
-        if (isMobile()) {
-          await loadRankForMobile();
-        } else {
-          const data = await fetchRank();
-          renderRank(data);
-        }
+        const data = await fetchRank({ limit: pageSize, skip: 0 });
+        const fetchMs = performance.now() - fetchStart;
+        console.log("[perf] rank:fetch", fetchMs, { items: (data?.items || []).length, skip: 0 });
+        appData.rankPerf.fetchMs = fetchMs;
+        appData.rankData = Array.isArray(data?.items) ? data.items.slice() : [];
+        appData.rankPayload = data;
+        appData.rankTotalCount = typeof data?.count === "number" ? data.count : appData.rankTotalCount;
+        appData.rankPerf.loadedCount = appData.rankData.length;
+        updateRankDebugOverlay();
+        appData.rankPaging.skip = appData.rankData.length;
+        appData.rankPaging.done = appData.rankPaging.skip >= (appData.rankTotalCount || Infinity);
+        renderRankWithOptions({ ...data, items: appData.rankData }, { preserveView: true, append: false });
+      } catch (err) {
+        setRankStatus("Unable to load rank.");
+        throw err;
       } finally {
+        appData.rankPaging.inflight = false;
         setRankLoading(false);
+        updateLoadMoreButton();
       }
     }
+
+    async function loadNextRankPage() {
+      const paging = appData.rankPaging;
+      if (!paging || paging.inflight || paging.done) return;
+      const skip = paging.skip;
+      const limit = paging.pageSize;
+      if (!limit) return;
+      paging.inflight = true;
+      setRankStatus("Loading more repeaters…");
+      updateLoadMoreButton();
+      const fetchStart = performance.now();
+      try {
+        const data = await fetchRank({ limit, skip });
+        const fetchMs = performance.now() - fetchStart;
+        console.log("[perf] rank:fetch", fetchMs, { items: (data?.items || []).length, skip });
+        appData.rankPerf.fetchMs = fetchMs;
+        const newItems = Array.isArray(data?.items) ? data.items : [];
+        if (!newItems.length) {
+          paging.done = true;
+          return;
+        }
+        appData.rankData = appData.rankData.concat(newItems);
+        appData.rankPayload = { ...data, items: appData.rankData };
+        appData.rankTotalCount = typeof data?.count === "number" ? data.count : appData.rankTotalCount;
+        appData.rankPerf.loadedCount = appData.rankData.length;
+        updateRankDebugOverlay();
+        paging.skip += newItems.length;
+        if (newItems.length < limit || appData.rankData.length >= (appData.rankTotalCount || Infinity)) {
+          paging.done = true;
+        }
+        renderRankWithOptions(appData.rankPayload, { preserveView: true, append: true });
+      } catch (err) {
+        console.warn(err);
+      } finally {
+        paging.inflight = false;
+        updateLoadMoreButton();
+      }
+    }
+
+    function buildVisibleRankItems(items) {
+      const needle = (appData.rankFilter || "").toLowerCase();
+      const codeFilter = appData.rankCodeFilter ? String(appData.rankCodeFilter).toUpperCase() : null;
+      const sorted = [...(items || [])]
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .filter((r) => {
+          const name = String(r.name || "").toLowerCase();
+          const pub = String(r.pub || "").toLowerCase();
+          const code = String(r.hashByte || "").toLowerCase();
+          const matchesText = !needle || name.includes(needle) || pub.includes(needle) || code.includes(needle);
+          if (!matchesText) return false;
+          if (!codeFilter) return true;
+          const hash = String(r.hashByte || "").toUpperCase();
+          const pubPrefix = String(r.pub || "").toUpperCase().slice(0, 2);
+          return hash.startsWith(codeFilter) || pubPrefix === codeFilter;
+        });
+      const hiddenSet = new Set();
+      sorted.forEach((item) => {
+        if (isRepeaterHidden(item) || hasMapHideEmoji(item)) {
+          const key = String(item.hashByte || "").toUpperCase();
+          if (key) hiddenSet.add(key);
+        }
+      });
+      appData.hiddenRepeaterHashes = hiddenSet;
+      return sorted;
+    }
+
+    function buildRepeaterBadges(r) {
+      const badges = [];
+      if (r.stale) {
+        const offlineHours = Number.isFinite(r.lastAdvertAgeHours)
+          ? Math.ceil(r.lastAdvertAgeHours)
+          : null;
+        const offlineLabel = offlineHours
+          ? `No advert in ${offlineHours}h`
+          : "No advert in 24h";
+        badges.push({ label: offlineLabel, tone: "gray" });
+      }
+      if (r.gpsImplausible) badges.push({ label: "GPS implausible", tone: "amber" });
+      if (r.gpsEstimated) badges.push({ label: "Location estimated", tone: "blue" });
+      if (Number(r.total24h || 0) >= 10) badges.push({ label: "Great TX", tone: "green" });
+      if (Number.isFinite(r.avgRssi) && r.avgRssi >= -75) badges.push({ label: "Great RX", tone: "blue" });
+      if (Number(r.avgRepeats || 0) >= 3 && Number(r.total24h || 0) >= 10) {
+        badges.push({ label: "Great Throughput", tone: "amber" });
+      }
+      if (Number.isFinite(r.clockDriftMinutes) && Math.abs(r.clockDriftMinutes) >= 60) {
+        const driftLabel = formatDriftMinutes(r.clockDriftMinutes);
+        if (driftLabel) badges.push({ label: `Clock drift ${driftLabel}`, tone: "amber" });
+      }
+      return badges;
+    }
+
+    function buildRankRowElement(r) {
+      const item = document.createElement("div");
+      const isHidden = isRepeaterHidden(r);
+      const hiddenLabel = r.gpsImplausible ? "GPS implausible" : "GPS unreliable";
+      const badges = buildRepeaterBadges(r);
+      const scoreBadge = String(Math.round(r.score || 0)).padStart(2, "0");
+      const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
+      const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
+      const adminControls = `
+        <div class="row repeater-location-controls" data-repeater-controls="${r.pub || ""}">
+          <span class="admin-only">
+            <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
+          </span>
+        </div>
+      `;
+      item.className = "rank-item" + (isHidden ? " hidden" : "");
+      item.dataset.pub = (r.pub || "").toUpperCase();
+      item.innerHTML = `
+        <div class="score">
+          <span class="rank-dot" style="background:${r.color}">${scoreBadge}</span>
+          ${r.name} ${code}
+        </div>
+        <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
+        <div class="row">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
+        <div class="row">
+          <a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">View neighbours</a>
+          <span style="color:var(--muted);">|</span>
+          <a class="link-btn" href="#" data-repeater-pub="${r.pub || ""}">Public key</a>
+        </div>
+        <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
+        <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
+        ${badgeHtml(badges)}
+        ${isHidden ? `<div class="row"><span class="badge">${hiddenLabel}</span></div>` : ""}
+        ${observerBadge}
+        ${adminControls}
+      `;
+      item.addEventListener("click", () => {
+        openRankPopup(r, false);
+      });
+      return item;
+    }
+
+    function renderRankWithOptions(data, opts = {}) {
+      const { preserveView = true, append = false } = opts;
+      const list = document.getElementById("rankList");
+      if (!list) return;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      appData.rankPayload = data;
+      const visible = buildVisibleRankItems(items);
+      if (!append) {
+        appData.rankPerf.first100Ms = null;
+      }
+      appData.rankVisibleItems = visible;
+      const onMobile = isMobile();
+      const total = visible.length;
+      if (!append) {
+        list.innerHTML = "";
+        appData.rankRenderedCount = 0;
+        if (rankLayer) rankLayer.clearLayers();
+        rankMarkers = new Map();
+        appData.rankMarkerNextIndex = 0;
+        appData.rankMarkerCount = 0;
+        appData.rankPerf.markerCount = 0;
+      }
+      const startIndex = append ? (appData.rankRenderedCount || 0) : 0;
+      const renderToken = Symbol("rank-render");
+      appData.rankRenderToken = renderToken;
+      let currentIndex = startIndex;
+      const batchSize = 40;
+      const renderStart = performance.now();
+      function renderBatch() {
+        if (appData.rankRenderToken !== renderToken) return;
+        const frag = document.createDocumentFragment();
+        const end = Math.min(currentIndex + batchSize, total);
+        for (let i = currentIndex; i < end; i += 1) {
+          frag.appendChild(buildRankRowElement(visible[i]));
+        }
+        list.appendChild(frag);
+        currentIndex = end;
+        appData.rankRenderedCount = currentIndex;
+        if (!appData.rankPerf.first100Ms && currentIndex >= 100) {
+          appData.rankPerf.first100Ms = performance.now() - renderStart;
+        }
+        setRankStatus(`Rendering ${currentIndex}/${total}…`);
+        if (currentIndex < total) {
+          requestAnimationFrame(renderBatch);
+        } else {
+          clearRankStatus();
+          const renderMs = performance.now() - renderStart;
+          console.log("[perf] rank:render", renderMs, { rendered: total });
+          appData.rankPerf.renderMs = renderMs;
+          appData.rankPerf.rendered = total;
+          updateRankDebugOverlay();
+          scheduleRankMarkers(visible, { reset: !append, limitMarkers: appData.rankShowAllMarkers ? Infinity : 100 });
+          if (!onMobile && rankMap && !preserveView && total) {
+            const bounds = visible
+              .filter((r) => {
+                if (isRepeaterHidden(r) || hasMapHideEmoji(r)) return false;
+                return r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon);
+              })
+              .map((r) => [r.gps.lat, r.gps.lon]);
+            if (bounds.length) rankMap.fitBounds(bounds, { padding: [30, 30] });
+          }
+        }
+      }
+      requestAnimationFrame(renderBatch);
+    }
+
+    function scheduleRankMarkers(visible, opts = {}) {
+      if (!window.L || !rankLayer || !rankMap) return;
+      const reset = opts.reset ?? false;
+      const limitMarkers = Number.isFinite(opts.limitMarkers) ? opts.limitMarkers : (appData.rankShowAllMarkers ? Infinity : 100);
+      if (reset) {
+        rankLayer.clearLayers();
+        rankMarkers = new Map();
+        appData.rankMarkerNextIndex = 0;
+        appData.rankMarkerCount = 0;
+        appData.rankPerf.markerCount = 0;
+      }
+      if (!Array.isArray(visible) || !visible.length) {
+        updateRankDebugOverlay();
+        return;
+      }
+      if (!appData.rankShowAllMarkers && limitMarkers <= 0) {
+        updateRankDebugOverlay();
+        return;
+      }
+      const token = Symbol("rank-markers");
+      appData.rankMarkerToken = token;
+      let markerIndex = appData.rankMarkerNextIndex || 0;
+      const batchSize = 25;
+      function renderMarkerBatch() {
+        if (appData.rankMarkerToken !== token) return;
+        let added = 0;
+        while (markerIndex < visible.length && added < batchSize) {
+          if (!appData.rankShowAllMarkers && appData.rankMarkerCount >= limitMarkers) {
+            break;
+          }
+          const r = visible[markerIndex++];
+          const shouldHideFromMap = isRepeaterHidden(r) || hasMapHideEmoji(r) || r.stale;
+          if (shouldHideFromMap) continue;
+          const lat = Number(r.gps?.lat);
+          const lon = Number(r.gps?.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+          const marker = L.circleMarker([lat, lon], {
+            radius: 8,
+            color: r.color,
+            fillColor: r.color,
+            fillOpacity: 0.9,
+            weight: 2
+          }).bindPopup(buildRankPopupHtml(r)).addTo(rankLayer)
+            .on("click", () => openRankPopup(r, true));
+          if (r.pub) rankMarkers.set(r.pub, marker);
+          added += 1;
+          appData.rankMarkerCount = rankMarkers.size;
+          appData.rankPerf.markerCount = rankMarkers.size;
+        }
+        appData.rankMarkerNextIndex = markerIndex;
+        updateRankDebugOverlay();
+        if (markerIndex < visible.length && (appData.rankShowAllMarkers || appData.rankMarkerCount < limitMarkers)) {
+          requestAnimationFrame(renderMarkerBatch);
+        }
+      }
+      requestAnimationFrame(renderMarkerBatch);
+    }
+
+    function updateRankDebugOverlay() {
+      if (!rankDebugMode) return;
+      if (!rankDebugOverlay) {
+        rankDebugOverlay = document.getElementById("rankDebugOverlay");
+      }
+      if (!rankDebugOverlay) return;
+      rankDebugOverlay.style.display = "block";
+      const perf = appData.rankPerf || {};
+      const loaded = (appData.rankData || []).length;
+      rankDebugOverlay.innerHTML = `
+        <div>UI paint: ${formatMs(perf.uiPaintMs)}</div>
+        <div>First 100: ${formatMs(perf.first100Ms)}</div>
+        <div>Loaded: ${loaded}</div>
+        <div>Markers: ${perf.markerCount ?? 0}</div>
+      `;
+    }
+
 
     async function fetchNodeRank() {
       const res = await fetch(`/api/node-rank?_ts=${Date.now()}`, { cache: "no-store" });
@@ -9368,6 +11050,27 @@
       renderRankWithOptions({ ...data, items: appData.rankData }, { preserveView: true });
     }
 
+    function hideFlaggedRepeater(pub) {
+      const key = String(pub || "").trim().toUpperCase();
+      if (!key) return false;
+      const entries = appData.rankData || [];
+      let updated = false;
+      entries.forEach((entry) => {
+        if (!entry || String(entry.pub || "").toUpperCase() !== key) return;
+        entry.hiddenOnMap = true;
+        entry.gpsFlagged = true;
+        entry.gpsImplausible = true;
+        updated = true;
+      });
+      if (!updated) return false;
+      const payload = {
+        ...(appData.rankPayload || {}),
+        items: entries.slice()
+      };
+      renderRankWithOptions(payload, { preserveView: true });
+      return true;
+    }
+
     function renderRankSummary(summary) {
       if (!summary) return;
       document.getElementById("rankUpdated").textContent = summary.updatedAt
@@ -9457,104 +11160,6 @@
       scroll.scrollTop = item.offsetTop - scroll.offsetTop;
     }
 
-    function renderRankWithOptions(data, options) {
-      const opts = options || {};
-      appData.rankData = data.items || [];
-      appData.repeatersByCode = buildRepeatersByCode(data);
-      const list = document.getElementById("rankList");
-      list.innerHTML = "";
-      rankLayer.clearLayers();
-      rankMarkers = new Map();
-
-      if (appData.meshScore) {
-        document.getElementById("rankMeshToday").textContent = appData.meshScore.scores?.today ?? 0;
-        document.getElementById("rankMeshYesterday").textContent = appData.meshScore.scores?.yesterday ?? 0;
-      }
-
-      const needle = (appData.rankFilter || "").toLowerCase();
-      const onMobile = isMobile();
-      const sorted = [...data.items]
-        .sort((a, b) => (b.score || 0) - (a.score || 0))
-        .filter((r) => {
-          if (!needle) return true;
-          const name = String(r.name || "").toLowerCase();
-          const pub = String(r.pub || "").toLowerCase();
-          const code = String(r.hashByte || "").toLowerCase();
-          return name.includes(needle) || pub.includes(needle) || code.includes(needle);
-        });
-      const visible = sorted;
-      const nearestObserverSet = buildNearestObserverRepeaters(sorted, appData.observerRank?.items || []);
-      visible.forEach((r) => {
-        const item = document.createElement("div");
-        const isHidden = isRepeaterHidden(r);
-        const emojiHidden = hasMapHideEmoji(r);
-          const hiddenLabel = r.gpsImplausible ? "GPS implausible" : "GPS unreliable";
-          const badges = buildRepeaterBadges(r, nearestObserverSet);
-          item.className = "rank-item" + (isHidden ? " hidden" : "");
-          item.dataset.pub = (r.pub || "").toUpperCase();
-          const observerBadge = r.isObserver ? `<div class="row"><span class="badge">Observer</span></div>` : "";
-          const adminControls = `
-            <div class="row repeater-location-controls" data-repeater-controls="${r.pub || ""}">
-              <span class="admin-only">
-                <button class="btn" type="button" data-repeater-locate="${r.pub || ""}">Set location</button>
-              </span>
-            </div>
-          `;
-          const code = r.hashByte ? `<span class="chip" style="margin-left:6px;">${r.hashByte}</span>` : "";
-            const scoreBadge = String(Math.round(r.score || 0)).padStart(2, "0");
-            item.innerHTML = `
-              <div class="score">
-                <span class="rank-dot" style="background:${r.color}">${scoreBadge}</span>
-                ${r.name} ${code}
-              </div>
-            <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
-            <div class="row">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-            <div class="row">
-              <a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</a>
-              <span style="color:var(--muted);">|</span>
-              <a class="link-btn" href="#" data-repeater-pub="${r.pub || ""}">Public key</a>
-            </div>
-            <div class="row">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
-            <div class="row">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
-            ${badgeHtml(badges)}
-              ${isHidden ? `<div class="row"><span class="badge">${hiddenLabel}</span></div>` : ""}
-            ${observerBadge}
-            ${adminControls}
-          `;
-        item.addEventListener("click", () => {
-          openRankPopup(r, false);
-        });
-        list.appendChild(item);
-
-        const shouldHideFromMap = isHidden || emojiHidden;
-        if (!onMobile && !shouldHideFromMap && !r.stale && r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon)) {
-          const marker = L.circleMarker([r.gps.lat, r.gps.lon], {
-            radius: 8,
-            color: r.color,
-            fillColor: r.color,
-            fillOpacity: 0.9,
-            weight: 2
-          }).bindPopup(buildRankPopupHtml(r)).addTo(rankLayer)
-            .on("click", () => openRankPopup(r, true));
-          if (r.pub) rankMarkers.set(r.pub, marker);
-        }
-      });
-
-      if (onMobile && rankMap) {
-        setTimeout(() => rankMap.invalidateSize(), 80);
-      }
-
-      if (!onMobile && !opts.preserveView && sorted.length) {
-        const bounds = sorted
-          .filter((r) => {
-            if (isRepeaterHidden(r) || hasMapHideEmoji(r)) return false;
-            return r.gps && Number.isFinite(r.gps.lat) && Number.isFinite(r.gps.lon);
-          })
-          .map((r) => [r.gps.lat, r.gps.lon]);
-        if (bounds.length) rankMap.fitBounds(bounds, { padding: [30, 30] });
-      }
-    }
-
     function buildRankPopupHtml(r) {
       const impact = Math.min(100, Math.max(0, r.score || 0));
       const code = r.hashByte ? ` <span class="chip chip-strong">${r.hashByte}</span>` : "";
@@ -9565,6 +11170,9 @@
       const estimatedNote = r.gpsEstimated
         ? `<div style="font-size:12px;color:#356">Location estimated (${r.gpsEstimateNeighbors || "?"} neighbors)</div>`
         : "";
+      const zeroHopPopupLine = r.zeroHopUnavailableReason
+        ? "Zero-hop neighbours stats are unavailable for repeaters hidden from the map."
+        : "View neighbours for more details.";
       const actionButtons = `
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn" type="button" data-repeater-flag="${r.pub}">Flag wrong location</button>
@@ -9585,7 +11193,7 @@
           <div style="font-size:12px;color:rgba(60,60,67,0.6);">Score: <strong>${r.score}</strong> | ${statusLabel}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
-          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Zero-hop neighbours (24hrs): ${r.zeroHopNeighbors24h ?? 0}</div>
+          <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">${zeroHopPopupLine}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Avg RSSI: ${r.avgRssi ?? "?"} | Avg SNR: ${r.avgSnr ?? "?"}</div>
           <div style="font-size:12px;color:rgba(60,60,67,0.6);margin-top:4px;">Best RSSI: ${r.bestRssi} | Best SNR: ${r.bestSnr}</div>
           ${locationNote}
@@ -9599,6 +11207,10 @@
 
     function openRankPopup(r, skipPan) {
       if (!r) return;
+      if (isRepeaterHidden(r) || hasMapHideEmoji(r)) {
+        showToast("Hidden repeaters remain off the map for safety; you can tap the repeater name for more info but the map popup is suppressed.");
+        return;
+      }
       const list = document.getElementById("rankList");
       const listItem = document.querySelector(`.rank-item[data-pub="${(r.pub || "").toUpperCase()}"]`);
       document.querySelectorAll(".rank-item.focused").forEach((el) => el.classList.remove("focused"));
@@ -9635,7 +11247,6 @@
           rankMap.setView([lat, lon], targetZoom, { animate: true });
         }
       }
-      showRankDetail(r);
     }
 
 
@@ -9673,10 +11284,20 @@
           setView(view);
 
         if (view === "rank") {
-          if (!rankMap) initRankMap();
+          if (!rankMap) setTimeout(() => initRankMap(), 0);
           try {
-            await refreshRankSummary();
-            await loadRankDefault();
+            const clickStart = performance.now();
+            showRankSkeleton();
+            const uiMs = performance.now() - clickStart;
+            console.log("[perf] rank:click->ui", uiMs);
+            appData.rankPerf.uiPaintMs = uiMs;
+            updateRankDebugOverlay();
+            refreshRankSummary().catch((err) => console.warn("rank summary refresh failed", err));
+            loadRankDefault().catch((err) => {
+              const list = document.getElementById("rankList");
+              if (list) list.innerHTML = "<div class='rank-item'>No repeaters yet.</div>";
+              console.warn(err);
+            });
             setTimeout(async () => {
               try {
                 const mesh = await fetchMeshScore();
@@ -10407,16 +12028,58 @@
     loadReadState();
     appData.channelHistoryLimit = loadChannelHistoryLimit();
     initChannelHistoryControl();
+    initNodeSerialControls();
+    initObserverCoveragePopup();
     const rankSearch = document.getElementById("rankSearch");
+    const rankSearchHint = document.getElementById("rankSearchHint");
+    function parseRankSearchInput(value = "") {
+      const raw = String(value || "");
+      const cleaned = raw.replace(/\[([^\]]*)$/, "");
+      const codeMatch = raw.match(/\[(\d{2})\]/);
+      const code = codeMatch ? codeMatch[1] : null;
+      const text = cleaned.replace(codeMatch?.[0] || "", "").trim();
+      return { text, code };
+    }
+    function updateRankSearchHint(code) {
+      if (!rankSearchHint) return;
+      rankSearchHint.textContent = code ? `Filtering by code [${code}]` : "";
+    }
     if (rankSearch) {
       rankSearch.addEventListener("input", () => {
-        appData.rankFilter = rankSearch.value.trim();
+        const { text, code } = parseRankSearchInput(rankSearch.value);
+        appData.rankFilter = text;
+        appData.rankCodeFilter = code ? String(code).toUpperCase() : null;
+        updateRankSearchHint(appData.rankCodeFilter);
         if (appData.rankData) {
           const payload = appData.rankPayload || { items: appData.rankData };
           renderRankWithOptions({ ...payload, items: appData.rankData }, { preserveView: true });
         }
       });
     }
+
+    const rankLoadMore = document.getElementById("rankLoadMore");
+    if (rankLoadMore) {
+      rankLoadMore.addEventListener("click", (event) => {
+        event.preventDefault();
+        loadNextRankPage();
+      });
+    }
+
+    const rankMarkerToggle = document.getElementById("rankMarkerToggle");
+    if (rankMarkerToggle) {
+      rankMarkerToggle.checked = !!appData.rankShowAllMarkers;
+      rankMarkerToggle.addEventListener("change", () => {
+        appData.rankShowAllMarkers = rankMarkerToggle.checked;
+        const visible = appData.rankVisibleItems || [];
+        scheduleRankMarkers(visible, {
+          reset: true,
+          limitMarkers: appData.rankShowAllMarkers ? Infinity : 100
+        });
+        updateRankDebugOverlay();
+      });
+    }
+
+    rankDebugOverlay = document.getElementById("rankDebugOverlay");
 
     const rankList = document.getElementById("rankList");
     if (rankList) {
@@ -10580,10 +12243,14 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pub, flagged: true })
           });
-          if (!res.ok) throw new Error("HTTP " + res.status);
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok || !payload.ok) {
+            throw new Error(payload.error || `HTTP ${res.status}`);
+          }
           if (rankMap) rankMap.closePopup();
-          await loadRankDefault();
+          hideFlaggedRepeater(pub);
           fetchRankSummary().then(renderRankSummary).catch(() => {});
+          setTimeout(() => showToast("Hidden from the map—new GPS will restore it when available."), 100);
         } catch (err) {
           alert("Unable to flag location: " + (err?.message || err));
         }
@@ -10695,5 +12362,45 @@
       <div id="rankDetailContent"></div>
     </div>
   </div>
+  <div id="observerCoveragePopup" class="coverage-popup">
+    <div class="coverage-card">
+      <button class="coverage-close" type="button" data-coverage-close>✕</button>
+      <h3 id="coveragePopupTitle">Observer coverage information</h3>
+      <p id="coveragePopupBody">Observer coverage details will appear here.</p>
+      <div class="coverage-actions">
+        <button class="btn" type="button" id="coverageBecomeBtn">Become an observer</button>
+        <a class="btn btn-ghost" id="coverageEmailLink" href="mailto:stu.stoke@gmail.com">Email for Heltec V3</a>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
+      function logFrame(when, start, payload) {
+        if (!debugFrames) return;
+        console.debug("CompanionFrame", when, {
+          start,
+          length: payload?.length || 0,
+          code: payload?.[0],
+          payload
+        });
+      }
+<script>
+  const updateCacheBadge = () => {
+    const badge = document.getElementById("rankCacheBadge");
+    const updatedAt = document.getElementById("rankUpdated")?.textContent;
+    if (badge && updatedAt && updatedAt !== "--") {
+      badge.style.display = "inline-block";
+      badge.textContent = `Cached ${updatedAt}`;
+    } else if (badge) {
+      badge.style.display = "none";
+    }
+  };
+  document.addEventListener("DOMContentLoaded", () => updateCacheBadge());
+  const originalRenderRankSummary = window.renderRankSummary;
+  window.renderRankSummary = function(summary) {
+    if (typeof originalRenderRankSummary === "function") {
+      originalRenderRankSummary(summary);
+      updateCacheBadge();
+    }
+  };
+</script>
