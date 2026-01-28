@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MeshLive</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+:root {
+  --bg:#05070c;
+  --card:#0f131d;
+  --border:#1d2532;
+  --accent:#1af6c4;
+  --accent-2:#5ddcff;
+  --text:#f9fbff;
+  --muted:#7a859d;
+  font-family:'DM Sans',system-ui,-apple-system;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{min-height:100vh;background:var(--bg);color:var(--text);display:flex;justify-content:center;}
+main{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:1fr;gap:1rem;padding:1.5rem;max-width:1400px;}
+.controls{display:flex;flex-direction:column;gap:1rem;}
+header{grid-column:1/-1;margin-bottom:0;padding:1rem 1.5rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;}
+header .dot{width:10px;height:10px;border-radius:50%;background:radial-gradient(circle,var(--accent) 0%,transparent 70%);animation:pulse 1.8s ease-in-out infinite;}
+@keyframes pulse{0%{transform:scale(.9);opacity:.8;}50%{transform:scale(1.4);opacity:0.2;}100%{transform:scale(.9);opacity:.8;}}
+.card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3, minmax(120px,auto));gap:1rem;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1rem;display:flex;flex-direction:column;gap:8px;}
+.kpi-value{font-size:2rem;font-weight:700;transition:color .4s ease;}
+.kpi-label{color:var(--muted);font-size:.9rem;letter-spacing:.05em;text-transform:uppercase;}
+.kpi-small{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:1rem;}
+.crown{font-size:1.1rem;color:#ffce52;}
+.kpi-pills{display:flex;gap:1rem;margin-top:.5rem;font-size:.9rem;color:var(--muted);}
+.map-wrapper{background:linear-gradient(160deg,#020510,#051625);border-radius:18px;border:1px solid var(--border);position:relative;overflow:hidden;}
+.map-canvas{width:100%;height:100%;display:block;}
+.chart-card{grid-column:1/3;display:flex;flex-direction:column;padding:1rem;border-radius:16px;border:1px solid var(--border);background:var(--card);height:320px;}
+@media (max-width: 900px) {
+  main{grid-template-columns:1fr;gap:1rem;padding:1rem;}
+  .map-wrapper{display:none;}
+  .chart-card{grid-column:1/1;height:auto;}
+  header{padding:1rem;}
+  .card-grid{grid-template-columns:1fr;grid-template-rows:none;}
+  .card-grid.card-grid-small{grid-template-columns:1fr 1fr;}
+  .card-grid.card-grid-small .card{min-height:90px;}
+  .card-grid.card-grid-small .card:first-child{border-right:none;}
+}
+@media (max-width: 600px) {
+  .card-grid.card-grid-small{grid-template-columns:1fr;}
+  .card-grid.card-grid-small .card{border-right:1px solid var(--border);}
+}
+.chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;}
+.chart-canvas{flex:1;border-radius:12px;background:#0b1120;}
+.chart-current{display:flex;align-items:center;gap:.4rem;font-size:1rem;color:var(--muted);}
+.chart-current .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);}
+.kpi-grid{display:flex;flex-direction:column;gap:1rem;}
+.card-grid.card-grid-small {
+  margin-top: 0.5rem;
+  grid-template-rows: none;
+}
+.card-small {
+  min-height: 110px;
+  justify-content: center;
+}
+.card-small .kpi-value {
+  font-size: 1.8rem;
+}
+.channels-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.split-half {
+  flex: 1;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.03);
+}
+.split-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+.split-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+</style>
+</head>
+<body>
+  <main>
+    <div class="controls">
+      <header>
+        <div class="dot"></div>
+        <div>
+          <strong>MeshLive</strong>
+          <div style="font-size:.9rem;color:var(--muted);">Live RF telemetry • SSE feed</div>
+        </div>
+      </header>
+      <div class="card-grid">
+        <div class="card" id="kpi-packets">
+          <div class="kpi-value" id="packetsPerMinute">0</div>
+          <div class="kpi-label">Packets per minute</div>
+        </div>
+        <div class="card" id="kpi-hop">
+          <div class="kpi-value" id="avgHop">0</div>
+          <div class="kpi-label">Average hop length (60s)</div>
+        </div>
+        <div class="card" id="kpi-inflight">
+          <div class="channels-split">
+            <div class="split-half">
+              <div class="split-value" id="channelsSaved">0</div>
+              <div class="split-label">Saved in MeshRank</div>
+            </div>
+            <div class="split-half">
+              <div class="split-value" id="channelsUnsaved">0</div>
+              <div class="split-label">Other channels</div>
+            </div>
+          </div>
+          <div class="kpi-label"># Channels active today</div>
+        </div>
+        <div class="card" id="kpi-last">
+          <div class="kpi-value" id="lastRepeater">--</div>
+          <div class="kpi-label" id="lastRepeaterAgo">Waiting</div>
+          <div style="font-size:.8rem;color:var(--muted);">Last repeater advert</div>
+        </div>
+        <div class="card" id="kpi-today">
+          <div class="kpi-value" id="packetsToday">0</div>
+          <div class="kpi-label">Packets today</div>
+        </div>
+        <div class="card" id="kpi-top">
+          <div class="kpi-pills">
+            <span>Top repeater</span>
+            <span class="crown">♕</span>
+          </div>
+          <div class="kpi-value" id="topRepeater">--</div>
+          <div class="kpi-label" id="topRepeaterCount">0 packets</div>
+        </div>
+      </div>
+      <div class="card-grid card-grid-small">
+        <div class="card card-small" id="kpi-active-devices">
+          <div class="kpi-label">Active devices today</div>
+          <div class="kpi-value" id="activeDevicesBox">0</div>
+        </div>
+        <div class="card card-small" id="kpi-active-repeaters">
+          <div class="kpi-label">Active repeaters today</div>
+          <div class="kpi-value" id="activeRepeatersBox">0</div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <div>
+            <strong>Live Mesh SNR Average</strong>
+            <div class="chart-current">Current avg SNR <span class="dot"></span><span id="currentSNR">--</span>dB</div>
+          </div>
+          <div style="font-size:.8rem;color:var(--muted);">Rolling 30 minutes</div>
+        </div>
+        <canvas id="snrChart" class="chart-canvas"></canvas>
+      </div>
+    </div>
+    <div class="map-wrapper">
+      <canvas id="mapCanvas" class="map-canvas"></canvas>
+    </div>
+  </main>
+  <script>
+const mapCanvas = document.getElementById('mapCanvas');
+const mapCtx = mapCanvas.getContext('2d');
+const snrCanvas = document.getElementById('snrChart');
+const snrCtx = snrCanvas.getContext('2d');
+let width, height;
+const bounds = { latMin: 49, latMax: 59.5, lonMin: -8, lonMax: 2.5 };
+const repeaters = new Map();
+const animCircles = [];
+const animPackets = [];
+const pitch = { current:0 };
+const canUseStorage = typeof localStorage !== "undefined";
+const stats = {
+  packets: [],
+  hopLengths: [],
+  lastAdvert: { pub: null, ts: 0 },
+  packetsTodayBase: 0,
+  packetsTodayDelta: 0,
+  top: { id: null, count: 0, name: '--', pub: null },
+  devices: new Set(),
+  repeaters: new Set(),
+  throughput: new Map(),
+  inflight: 0,
+  channelCount: 0,
+  channelsSaved: 0,
+  channelsUnsaved: 0,
+  packetRateSnapshot: 0,
+  packetRateSnapshotTs: 0
+};
+const repeaterNames = new Map();
+let savedChannelIds = new Set();
+const seenAdvertHashes = new Set();
+const advertHashQueue = [];
+const THROUGHPUT_STORAGE_KEY = "meshlive-throughput";
+const THROUGHPUT_WINDOW_MS = 60 * 60 * 1000;
+const DAILY_STORAGE_KEY = "meshlive-daily-packets";
+const ACTIVE_DAILY_KEY = "meshlive-active-daily";
+let dailyPackets = [];
+let dailyActive = { date: getTodayDateString(), devices:new Set(), repeaters:new Set() };
+function loadThroughputSnapshot(){
+  if (!canUseStorage) return new Map();
+  try {
+    const stored = localStorage.getItem(THROUGHPUT_STORAGE_KEY);
+    if (!stored) return new Map();
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return new Map();
+    const map = new Map();
+    const now = Date.now();
+    parsed.forEach(item=>{
+      const pub = normalizeRepeaterKey(item.pub) || normalizeRepeaterKey(item.pub||item.id);
+      const count = Number(item.count)||0;
+      const ts = Number(item.ts);
+      if(!pub || !count) return;
+      if(now - ts > THROUGHPUT_WINDOW_MS) return;
+      map.set(pub,{count,ts});
+    });
+    return map;
+  }catch(err){
+    console.warn("Failed to load throughput snapshot",err);
+    return new Map();
+  }
+}
+function persistThroughputSnapshot(){
+  if (!canUseStorage) return;
+  try{
+    const snapshot = Array.from(stats.throughput.entries()).map(([pub,data])=>({pub,count:data.count,ts:data.ts}));
+    localStorage.setItem(THROUGHPUT_STORAGE_KEY,JSON.stringify(snapshot));
+  }catch(err){
+    console.warn("Failed to persist throughput snapshot",err);
+  }
+}
+
+function registerAdvertHash(hash){
+  if(!hash) return true;
+  if(seenAdvertHashes.has(hash)) return false;
+  seenAdvertHashes.add(hash);
+  advertHashQueue.push(hash);
+  if(advertHashQueue.length>200){
+    const old = advertHashQueue.shift();
+    seenAdvertHashes.delete(old);
+  }
+  return true;
+}
+function refreshTopRepeater(){
+  stats.top = Array.from(stats.throughput.entries())
+    .map(([pub,data]) => ({pub,count:data.count}))
+    .sort((a,b)=>b.count - a.count)[0] || {pub:null,count:0};
+}
+stats.throughput = loadThroughputSnapshot();
+refreshTopRepeater();
+
+function getTodayStart() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start.getTime();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseTimestampValue(value) {
+  if (!value) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return parsed;
+  return null;
+}
+
+function formatTimeLabelFromTs(ts) {
+  if (!Number.isFinite(ts)) return "--";
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function formatShortDate(ts) {
+  if (!Number.isFinite(ts)) return "";
+  return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "short" });
+}
+
+function isTimestampToday(ts) {
+  if (!Number.isFinite(ts)) return false;
+  const todayStart = getTodayStart();
+  return ts >= todayStart && ts < todayStart + DAY_MS;
+}
+
+function buildTimestampMeta(value) {
+  const ts = parseTimestampValue(value);
+  if (!Number.isFinite(ts)) {
+    return { tsValue: null, timeLabel: "--", dateLabel: "", isToday: false };
+  }
+  return {
+    tsValue: ts,
+    timeLabel: formatTimeLabelFromTs(ts),
+    dateLabel: formatShortDate(ts),
+    isToday: isTimestampToday(ts)
+  };
+}
+
+function formatChannelTimeLabel(value) {
+  const meta = buildTimestampMeta(value);
+  if (!meta.tsValue) return String(value || "--");
+  return meta.isToday ? meta.timeLabel : meta.dateLabel;
+}
+
+function loadDailyPackets() {
+  if (!canUseStorage) return [];
+  try {
+    const stored = localStorage.getItem(DAILY_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b);
+  } catch (err) {
+    console.warn("Failed to read daily packets:", err);
+    return [];
+  }
+}
+
+function persistDailyPackets() {
+  if (!canUseStorage) return;
+  try {
+    localStorage.setItem(DAILY_STORAGE_KEY, JSON.stringify(dailyPackets));
+  } catch (err) {
+    console.warn("Failed to persist daily packets:", err);
+  }
+}
+
+function cleanupDailyPackets() {
+  const today = getTodayStart();
+  let trimmed = false;
+  while (dailyPackets.length && dailyPackets[0] < today) {
+    dailyPackets.shift();
+    trimmed = true;
+  }
+  if (trimmed) {
+    persistDailyPackets();
+  }
+  return trimmed;
+}
+
+function recordPacketEvent(ts = Date.now()) {
+  cleanupDailyPackets();
+  dailyPackets.push(ts);
+  persistDailyPackets();
+}
+
+function logPacketEvent(ts = Date.now()) {
+  const time = Number.isFinite(ts) ? ts : Date.now();
+  stats.packets.push(time);
+  recordPacketEvent(time);
+  stats.packetsTodayDelta += 1;
+}
+
+function normalizeRepeaterKey(value) {
+  const str = String(value || "").trim();
+  if (!str) return null;
+  return str.toUpperCase();
+}
+
+function setRepeaterName(pub, name){
+  const normalized = normalizeRepeaterKey(pub);
+  if(!normalized || !name) return;
+  repeaterNames.set(normalized, name);
+}
+
+function getTodayDateString() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today.toISOString().slice(0, 10);
+}
+
+function getRepeaterLabel(pub){
+  const normalized = normalizeRepeaterKey(pub);
+  if(!normalized) return '--';
+  const cached = repeaterNames.get(normalized);
+  if (cached) return cached;
+  const node = repeaters.get(normalized);
+  return node?.name || normalized;
+}
+
+function capRepeaterLabel(label) {
+  if (!label) return "--";
+  const str = String(label);
+  return str.length <= 15 ? str : str.slice(0, 15);
+}
+
+function loadActiveDaily() {
+  if (!canUseStorage) {
+    return { date: getTodayDateString(), devices: new Set(), repeaters: new Set() };
+  }
+  try {
+    const stored = localStorage.getItem(ACTIVE_DAILY_KEY);
+    if (!stored) {
+      return { date: getTodayDateString(), devices: new Set(), repeaters: new Set() };
+    }
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object") {
+      return { date: getTodayDateString(), devices: new Set(), repeaters: new Set() };
+    }
+    const today = getTodayDateString();
+    if (parsed.date !== today) {
+      return { date: today, devices: new Set(), repeaters: new Set() };
+    }
+    const buildSet = (value) =>
+      Array.isArray(value) ? new Set(value.filter((item) => Boolean(item)).map((item) => String(item))) : new Set();
+    return {
+      date: parsed.date || today,
+      devices: buildSet(parsed.devices),
+      repeaters: buildSet(parsed.repeaters)
+    };
+  } catch (err) {
+    console.warn("Failed to load active daily snapshot", err);
+    return { date: getTodayDateString(), devices: new Set(), repeaters: new Set() };
+  }
+}
+
+function persistActiveDaily() {
+  if (!canUseStorage) return;
+  try {
+    const payload = {
+      date: dailyActive.date,
+      devices: Array.from(dailyActive.devices),
+      repeaters: Array.from(dailyActive.repeaters)
+    };
+    localStorage.setItem(ACTIVE_DAILY_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn("Failed to persist active daily snapshot", err);
+  }
+}
+
+function ensureActiveDailyDate() {
+  const today = getTodayDateString();
+  if (dailyActive.date !== today) {
+    dailyActive = { date: today, devices: new Set(), repeaters: new Set() };
+    persistActiveDaily();
+    return true;
+  }
+  return false;
+}
+
+function registerActiveDevice(id) {
+  if (!id) return;
+  ensureActiveDailyDate();
+  const normalized = String(id).trim();
+  if (!normalized) return;
+  if (!dailyActive.devices.has(normalized)) {
+    dailyActive.devices.add(normalized);
+    persistActiveDaily();
+    updateActiveCounters();
+  }
+}
+
+function registerActiveRepeater(id) {
+  if (!id) return;
+  ensureActiveDailyDate();
+  const normalized = String(id).trim();
+  if (!normalized) return;
+  if (!dailyActive.repeaters.has(normalized)) {
+    dailyActive.repeaters.add(normalized);
+    persistActiveDaily();
+    updateActiveCounters();
+  }
+}
+
+function updateActiveCounters() {
+  const devicesEl = document.getElementById('activeDevicesBox');
+  const repeatersEl = document.getElementById('activeRepeatersBox');
+  if (devicesEl) {
+    devicesEl.textContent = dailyActive.devices.size;
+  }
+  if (repeatersEl) {
+    repeatersEl.textContent = dailyActive.repeaters.size;
+  }
+}
+
+async function loadMeshLiveSnapshot() {
+  try {
+    const res = await fetch('/api/mesh-live-stats');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const payload = await res.json();
+    if (!payload?.ok) throw new Error(payload?.error || 'invalid payload');
+    const serverPackets = Number(payload.packetsToday);
+    const base = Number.isFinite(serverPackets) ? serverPackets : null;
+    if (Number.isFinite(base)) {
+      stats.packetsTodayBase = Math.max(0, base);
+      stats.packetsTodayDelta = 0;
+    }
+    const serverPacketRate = Number(payload.packetRate);
+    if (Number.isFinite(serverPacketRate)) {
+      stats.packetRateSnapshot = serverPacketRate;
+      stats.packetRateSnapshotTs = Date.now();
+    }
+    const lastAdvert = payload.lastAdvert;
+    if (lastAdvert?.pub) {
+      const ts = Number(lastAdvert.ts);
+      const currentTs = Number.isFinite(stats.lastAdvert?.ts) ? stats.lastAdvert.ts : 0;
+      const shouldUpdate = Number.isFinite(ts)
+        ? (!currentTs || ts >= currentTs)
+        : !stats.lastAdvert?.pub;
+      if (shouldUpdate) {
+        stats.lastAdvert = { pub: lastAdvert.pub, ts: Number.isFinite(ts) ? ts : Date.now() };
+      }
+      if (lastAdvert.name) {
+        setRepeaterName(lastAdvert.pub, lastAdvert.name);
+      }
+    }
+    updateKPIs();
+  } catch (err) {
+    console.warn('MeshLive snapshot load failed', err);
+  }
+}
+
+dailyPackets = loadDailyPackets();
+  cleanupDailyPackets();
+dailyActive = loadActiveDaily();
+updateActiveCounters();
+const snrHistory = [];
+let smoothedSNR = null;
+const snrSmoothingAlpha = 0.12;
+const mapPoints = [];
+let mapReady = false;
+function resize() {
+  width = mapCanvas.width = mapCanvas.clientWidth * devicePixelRatio;
+  height = mapCanvas.height = mapCanvas.clientHeight * devicePixelRatio;
+  mapCtx.scale(devicePixelRatio, devicePixelRatio);
+  snrCanvas.width = snrCanvas.clientWidth * devicePixelRatio;
+  snrCanvas.height = snrCanvas.clientHeight * devicePixelRatio;
+  snrCtx.scale(devicePixelRatio, devicePixelRatio);
+}
+window.addEventListener('resize', () => setTimeout(() => resize(), 100));
+resize();
+  fetch('/api/repeaters').then(r=>r.json()).then(data=>{
+    (data.items||[]).forEach(item=>{
+      const key = normalizeRepeaterKey(item.pub) || normalizeRepeaterKey(item.id) || normalizeRepeaterKey(item.name);
+      if (!key || !item.gps) return;
+      const x = ((item.gps.lon - bounds.lonMin)/(bounds.lonMax - bounds.lonMin)) * (mapCanvas.clientWidth); 
+      const y = (1 - (item.gps.lat - bounds.latMin)/(bounds.latMax - bounds.latMin)) * (mapCanvas.clientHeight);
+      repeaters.set(key, { ...item, pub: key, x,y });
+      setRepeaterName(key, item.name);
+    });
+    mapReady = true;
+    refreshTopRepeater();
+    updateActiveCounters();
+  });
+function latLonToXY(lat,lon){
+  const x = ((lon - bounds.lonMin)/(bounds.lonMax - bounds.lonMin)) * mapCanvas.clientWidth;
+  const y = (1 - (lat - bounds.latMin)/(bounds.latMax - bounds.latMin)) * mapCanvas.clientHeight;
+  return{ x,y };
+}
+function drawMap(){
+  mapCtx.clearRect(0,0,mapCanvas.clientWidth,mapCanvas.clientHeight);
+  mapCtx.fillStyle='rgba(5,11,20,0.55)';
+  mapCtx.fillRect(0,0,mapCanvas.clientWidth,mapCanvas.clientHeight);
+  mapCtx.lineWidth=1.2;mapCtx.strokeStyle='rgba(255,255,255,0.08)';mapCtx.beginPath();
+  const outline=[[55.3,-2.2],[53,-4],[50.8,-5],[49,-3.5],[49.5,1.5],[52,2],[54,1.4],[55.5,-1.2],[56.2,-3.4],[57.3,-3.8]];
+  outline.forEach((pt,i)=>{const xy=latLonToXY(pt[0],pt[1]);if(i===0)mapCtx.moveTo(xy.x,xy.y);else mapCtx.lineTo(xy.x,xy.y);} );
+  mapCtx.closePath();mapCtx.stroke();
+  repeaters.forEach(rep=>{mapCtx.fillStyle='rgba(255,255,255,0.8)';mapCtx.beginPath();mapCtx.arc(rep.x,rep.y,3,0,Math.PI*2);mapCtx.fill();});
+}
+let lastFrame = 0;
+function animate(ts){
+  const delta = ts - lastFrame; lastFrame=ts;
+  drawMap();
+  animCircles.forEach((circle,i)=>{
+    circle.t += delta;
+    const progress= circle.t/circle.duration;
+    if(progress>=1){animCircles.splice(i,1);return;}
+    mapCtx.strokeStyle = `rgba(28,255,176,${1-progress})`;
+    mapCtx.lineWidth=2;
+    mapCtx.beginPath();mapCtx.arc(circle.x,circle.y,3+progress*25,0,Math.PI*2);mapCtx.stroke();
+  });
+  animPackets.forEach((packet,i)=>{
+    packet.t+=delta;
+    const pr=packet.t/packet.duration;
+    if(pr>=1){
+      animPackets.splice(i,1);
+      stats.inflight = Math.max(0, stats.inflight - 1);
+      return;
+    }
+    const cx = packet.from.x + (packet.to.x - packet.from.x)*pr;
+    const cy = packet.from.y + (packet.to.y - packet.from.y)*pr;
+    const tailLen=20;
+    const grad = mapCtx.createLinearGradient(packet.from.x,packet.from.y,cx,cy);
+    grad.addColorStop(0,'rgba(255,255,255,0)');grad.addColorStop(1,packet.color);
+    mapCtx.strokeStyle = grad;mapCtx.lineWidth=3;mapCtx.beginPath();
+    const tail= Math.max(0,pr-0.1);
+    const tx = packet.from.x + (packet.to.x - packet.from.x)*tail;
+    const ty = packet.from.y + (packet.to.y - packet.from.y)*tail;
+    mapCtx.moveTo(tx,ty);
+    mapCtx.lineTo(cx,cy);
+    mapCtx.stroke();
+    mapCtx.fillStyle=packet.color;mapCtx.beginPath();mapCtx.arc(cx,cy,4,0,Math.PI*2);mapCtx.fill();
+  });
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+	function updateKPIs(){
+	  const livePackets = stats.packets.filter((ts) => Date.now() - ts < 60000).length;
+	  const snapshotFresh =
+	    stats.packetRateSnapshotTs && (Date.now() - stats.packetRateSnapshotTs) < 120000;
+	  const snapshotRate = Number.isFinite(stats.packetRateSnapshot) ? stats.packetRateSnapshot : 0;
+	  const displayedPacketsPerMinute = snapshotFresh
+	    ? Math.max(livePackets, snapshotRate)
+	    : livePackets;
+	  document.getElementById('packetsPerMinute').textContent = Math.round(displayedPacketsPerMinute || 0).toLocaleString();
+	  const hops = stats.hopLengths.filter(x=>Date.now()-x.ts<60000).map(x=>x.value);
+	  document.getElementById('avgHop').textContent = hops.length? (hops.reduce((a,b)=>a+b,0)/hops.length).toFixed(1)+' hops':'0 hops';
+	  document.getElementById('channelsSaved').textContent = stats.channelsSaved.toLocaleString();
+	  document.getElementById('channelsUnsaved').textContent = stats.channelsUnsaved.toLocaleString();
+  const last = stats.lastAdvert;
+  document.getElementById('lastRepeater').textContent = capRepeaterLabel(getRepeaterLabel(last.pub));
+	  document.getElementById('lastRepeaterAgo').textContent = last.ts? Math.round((Date.now()-last.ts)/1000)+'s ago':'waiting';
+	  const packetsTodayValue = Math.max(0, (stats.packetsTodayBase || 0) + (stats.packetsTodayDelta || 0));
+	  document.getElementById('packetsToday').textContent = packetsTodayValue.toLocaleString();
+  const top = stats.top;
+  document.getElementById('topRepeater').textContent = capRepeaterLabel(getRepeaterLabel(top.pub));
+	  document.getElementById('topRepeaterCount').textContent = (top.count||0)+' packets';
+	  updateActiveCounters();
+	}
+setInterval(updateKPIs,1000);
+setInterval(() => { if (cleanupDailyPackets()) updateKPIs(); }, 60000);
+setInterval(() => { if (ensureActiveDailyDate()) updateActiveCounters(); }, 60000);
+refreshSavedChannelIds();
+refreshChannelCounts();
+setInterval(() => { refreshChannelCounts().then(updateKPIs).catch(() => {}); }, 60000);
+loadMeshLiveSnapshot().catch(() => {});
+setInterval(() => { loadMeshLiveSnapshot().catch(() => {}); }, 300000);
+function updateThroughput(count){
+  stats.throughput.forEach((value,key)=>{ if(Date.now()-value.ts>THROUGHPUT_WINDOW_MS) stats.throughput.delete(key);} );
+  const key = normalizeRepeaterKey(count.pub) || count.pub;
+  const record = stats.throughput.get(key) || {count:0,ts:Date.now()};
+  record.count += count.increment; record.ts = Date.now();
+  stats.throughput.set(key,record);
+  refreshTopRepeater();
+  persistThroughputSnapshot();
+}
+async function refreshSavedChannelIds(){
+  try {
+    const res = await fetch('/api/channel-directory');
+    if(!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    const builder = (name) => {
+      const raw = String(name || "").trim();
+      if (!raw) return null;
+      return raw.replace(/^#/,"").toLowerCase();
+    };
+    const ids = new Set();
+    if (Array.isArray(data?.popular)) {
+      data.popular.forEach((ch) => {
+        const id = builder(ch?.name);
+        if (id) ids.add(id);
+      });
+    }
+    if (data?.groups && typeof data.groups === "object") {
+      Object.values(data.groups).forEach((group) => {
+        (group || []).forEach((ch) => {
+          const id = builder(ch?.name);
+          if (id) ids.add(id);
+        });
+      });
+    }
+    savedChannelIds = ids;
+  } catch (err) {
+    console.warn("MeshLive failed to refresh saved channel list", err);
+  }
+}
+
+async function refreshChannelCounts(){
+  const fallback = async () => {
+    try {
+      const res = await fetch('/api/dashboard?limit=0');
+      if(!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      const counts = data?.channelCounts24h || {};
+      const total = Object.keys(counts).length;
+      let saved = 0;
+      if (savedChannelIds.size) {
+        Object.keys(counts).forEach((key) => {
+          if (savedChannelIds.has(key)) saved += 1;
+        });
+      } else {
+        saved = total;
+      }
+      stats.channelCount = total;
+      stats.channelsSaved = saved;
+      stats.channelsUnsaved = Math.max(0, total - saved);
+      return true;
+    } catch (fallbackErr) {
+      console.warn('MeshLive channelCounts fallback failed', fallbackErr);
+      stats.channelCount = 0;
+      stats.channelsSaved = 0;
+      stats.channelsUnsaved = 0;
+      return false;
+    }
+  };
+  try {
+    const res = await fetch('/api/channel-usage');
+    if(!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    if(!data?.ok) throw new Error(data?.error || "invalid");
+    stats.channelCount = data.total || 0;
+    stats.channelsSaved = data.saved || 0;
+    stats.channelsUnsaved = data.unsaved || 0;
+  } catch (err) {
+    console.warn('MeshLive channelCounts refresh failed', err);
+    await fallback();
+  }
+}
+function handleSNR(snr){
+  const rawValue = Number.isFinite(snr) ? snr : 0;
+  if (smoothedSNR === null) {
+    smoothedSNR = rawValue;
+  } else {
+    smoothedSNR += (rawValue - smoothedSNR) * snrSmoothingAlpha;
+  }
+  snrHistory.push({ts:Date.now(),value:smoothedSNR});
+  const window = 30*60*1000; while(snrHistory.length && Date.now()-snrHistory[0].ts > window){snrHistory.shift(); }
+  drawSNR();
+}
+function drawSNR(){
+  const ctx=snrCtx;
+  const cw=snrCanvas.clientWidth;
+  const ch=snrCanvas.clientHeight;
+  const paddingTop = 10;
+  const paddingBottom = 10;
+  const axisMargin = 42;
+  ctx.clearRect(0,0,cw,ch);
+  ctx.fillStyle='#070d18';
+  ctx.fillRect(0,0,cw,ch);
+  if(!snrHistory.length) return;
+  const values = snrHistory.map(p=>p.value);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const axisMin = Math.max(0, Math.floor(minV/5)*5 - 5);
+  const axisMax = Math.min(60, Math.ceil(maxV/5)*5 + 5);
+  const axisRange = Math.max(1, axisMax - axisMin);
+  const plotWidth = cw - axisMargin - 10;
+  const plotHeight = ch - paddingTop - paddingBottom;
+  // draw axis grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.font = '12px "DM Sans", "Segoe UI", system-ui';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  const tickCount = 5;
+  for(let i=0;i<=tickCount;i++){
+    const value = axisMin + (axisRange/tickCount)*i;
+    const y = ch - paddingBottom - ((value - axisMin)/axisRange)*plotHeight;
+    ctx.beginPath();
+    ctx.moveTo(axisMargin, y);
+    ctx.lineTo(cw - 5, y);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.fillText(value.toFixed(0), axisMargin - 6, y);
+  }
+  // draw trace
+  ctx.lineWidth=2;
+  ctx.strokeStyle='rgba(26,246,196,0.9)';
+  ctx.beginPath();
+  snrHistory.forEach((point,i)=>{
+    const x = axisMargin + (i/(snrHistory.length-1||1))*plotWidth;
+    const normalized = (point.value - axisMin)/axisRange;
+    const y = ch - paddingBottom - normalized*plotHeight;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  document.getElementById('currentSNR').textContent = snrHistory[snrHistory.length-1].value.toFixed(1);
+}
+function animatePing(repeater){ animCircles.push({x:repeater.x,y:repeater.y,t:0,duration:1200}); }
+function animateHop(from,to) { if(!from||!to) return; stats.inflight++; animPackets.push({from,to,color:'rgba(93,220,255,0.9)',t:0,duration:800}); }
+const evtSource = new EventSource('/api/mesh/live');
+evtSource.addEventListener('repeater_advert',e=>{
+  const data=JSON.parse(e.data);
+  const allowed = registerAdvertHash(data.packetHash);
+  if(!allowed) return;
+  const advertTs = Number.isFinite(data.timestamp) ? data.timestamp : Date.now();
+  stats.lastAdvert={pub:data.repeaterId,ts:advertTs};
+  stats.devices.add(data.repeaterId);
+  stats.repeaters.add(data.repeaterId);
+  registerActiveDevice(data.repeaterId);
+  registerActiveRepeater(data.repeaterId);
+  if(data.repeaterName) setRepeaterName(data.repeaterId, data.repeaterName);
+  stats.hopLengths.push({value: data.hop||1,ts:Date.now()});
+  logPacketEvent();
+  const node = repeaters.get(data.repeaterId);
+  if(node) animatePing(node);
+  updateKPIs();
+});
+evtSource.addEventListener('packet_forward',e=>{
+  const data=JSON.parse(e.data);
+  stats.hopLengths.push({value:data.hop||1,ts:Date.now()});
+  stats.devices.add(data.from);
+  stats.repeaters.add(data.to);
+  updateThroughput({pub:data.from,increment:1});
+  stats.repeaters.add(data.from);
+  const src=repeaters.get(data.from);
+  const dst=repeaters.get(data.to);
+  animateHop(src,dst);
+  handleSNR(data.snr||0);
+  logPacketEvent();
+  registerActiveDevice(data.from);
+  registerActiveRepeater(data.to);
+  registerActiveRepeater(data.from);
+  if(data.fromName) setRepeaterName(data.from, data.fromName);
+  if(data.toName) setRepeaterName(data.to, data.toName);
+  updateKPIs();
+});
+evtSource.onerror =()=> console.warn('MeshLive SSE disconnected');
+</script>
+</body>
+</html>

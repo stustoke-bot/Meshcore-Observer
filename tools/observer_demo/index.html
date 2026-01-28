@@ -4150,14 +4150,6 @@
           <div class="rank-scroll" id="rankScroll">
             <div id="rankList"></div>
           </div>
-          <div class="rank-actions">
-            <div class="rank-marker-toggle">
-              <label>
-                <input type="checkbox" id="rankMarkerToggle"/>
-                Show all markers
-              </label>
-            </div>
-          </div>
           <div id="rankStatus" class="rank-status"></div>
           <div id="rankDebugOverlay" class="rank-debug"></div>
         </div>
@@ -4919,6 +4911,11 @@
         rankMarkerCount: 0,
         rankRenderToken: null,
         rankMarkerToken: null,
+        rankLoadToken: null,
+        rankLoadComplete: false,
+        rankMarkersQueued: false,
+        rankMarkersDrawn: false,
+        rankTotalExpected: null,
         rankPerf: {
           uiPaintMs: null,
           fetchMs: null,
@@ -4927,8 +4924,6 @@
           loadedCount: 0,
           markerCount: 0
         },
-        rankLoadToken: null,
-        rankShowAllMarkers: false,
         nodeRankSummary: null,
         nodeRank: null,
         unreadByChannel: {},
@@ -6081,6 +6076,7 @@
     let googleInitTimer = null;
 
     function setView(view) {
+      if (view !== "rank") cancelRankLoad();
       const views = [
         "channels",
         "channel-directory",
@@ -10300,8 +10296,6 @@
 
     const STREAM_PAGE_SIZE_MOBILE = 50;
     const STREAM_PAGE_SIZE_DESKTOP = 220;
-    const STREAM_MAX_ROWS_MOBILE = 600;
-    const STREAM_MAX_ROWS_DESKTOP = 1200;
     const STREAM_YIELD_MS = 25;
 
     async function fetchRank(opts = {}) {
@@ -10323,6 +10317,16 @@
 
     function clearRankStatus() {
       setRankStatus("");
+    }
+
+    function cancelRankLoad() {
+      appData.rankLoadToken = Symbol("rank-load-cancel");
+      appData.rankRenderToken = null;
+      appData.rankMarkerToken = null;
+      appData.rankLoadComplete = false;
+      appData.rankMarkersQueued = false;
+      appData.rankMarkersDrawn = false;
+      clearRankStatus();
     }
 
     function showRankSkeleton(count = 15) {
@@ -10362,37 +10366,48 @@
       appData.rankPerf.renderMs = null;
       appData.rankPerf.markerCount = 0;
       appData.rankPerf.loadedCount = 0;
+      appData.rankLoadComplete = false;
+      appData.rankMarkersQueued = false;
+      appData.rankMarkersDrawn = false;
+      appData.rankTotalExpected = null;
       if (rankLayer) rankLayer.clearLayers();
       rankMarkers = new Map();
     }
 
     async function loadRankDefault() {
       setRankLoading(true);
-      showRankSkeleton();
       const token = Symbol("rank-load");
       appData.rankLoadToken = token;
       resetRankRenderState();
       const pageSize = isMobile() ? STREAM_PAGE_SIZE_MOBILE : STREAM_PAGE_SIZE_DESKTOP;
-      const maxRows = isMobile() ? STREAM_MAX_ROWS_MOBILE : STREAM_MAX_ROWS_DESKTOP;
       try {
         await refreshRankSummary().catch(() => {});
         if (appData.rankLoadToken !== token) return;
-        await loadRankAutoChunks(token, pageSize, maxRows);
+        appData.rankTotalExpected = appData.rankSummary?.count ?? null;
+        const completed = await loadRankAutoChunks(token, pageSize);
+        if (!completed || appData.rankLoadToken !== token) return;
+        appData.rankLoadComplete = true;
+        const total = appData.rankTotalExpected ?? appData.rankData.length;
+        const loaded = appData.rankData.length;
+        const totalLabel = total ? ` / ${total}` : "";
+        setRankStatus(`Loaded ${loaded}${totalLabel}`);
+        const visible = appData.rankVisibleItems || buildVisibleRankItems(appData.rankData);
+        queueRankMarkers(visible, { reset: true, limitMarkers: Infinity });
+        setTimeout(() => {
+          if (appData.rankLoadComplete) clearRankStatus();
+        }, 800);
       } finally {
         if (appData.rankLoadToken === token) {
           setRankLoading(false);
-          clearRankStatus();
         }
       }
     }
 
-    async function loadRankAutoChunks(token, pageSize, maxRows) {
+    async function loadRankAutoChunks(token, pageSize) {
       let skip = 0;
-      const total = appData.rankSummary?.count;
       let append = false;
-      while (true) {
-        if (appData.rankLoadToken !== token) break;
-        if (maxRows && appData.rankData.length >= maxRows) break;
+      let finished = false;
+      while (appData.rankLoadToken === token) {
         let data;
         try {
           const fetchStart = performance.now();
@@ -10404,20 +10419,33 @@
           console.warn(err);
           break;
         }
+        if (appData.rankLoadToken !== token) break;
         const items = Array.isArray(data?.items) ? data.items : [];
-        if (!items.length) break;
+        if (!items.length) {
+          finished = true;
+          break;
+        }
         skip += items.length;
         appData.rankData = appData.rankData.concat(items);
+        if (!appData.rankTotalExpected && Number.isFinite(data?.count)) {
+          appData.rankTotalExpected = data.count;
+        }
         appData.rankPayload = { ...data, items: appData.rankData };
         appData.rankPerf.loadedCount = appData.rankData.length;
         renderRankWithOptions(appData.rankPayload, { preserveView: true, append });
         append = true;
         const loaded = appData.rankData.length;
-        setRankStatus(`Loaded ${loaded}${total ? ` / ${total}` : ""}…`);
-        if (total && loaded >= total) break;
+        const total = appData.rankTotalExpected ?? null;
+        const badge = total ? ` / ${total}` : "";
+        setRankStatus(`Loading ${loaded}${badge}…`);
+        if (total && loaded >= total) {
+          finished = true;
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, STREAM_YIELD_MS));
       }
-      }
+      return finished;
+    }
 
     function buildVisibleRankItems(items) {
       const needle = (appData.rankFilter || "").toLowerCase();
@@ -10554,17 +10582,14 @@
         if (!appData.rankPerf.first100Ms && currentIndex >= 100) {
           appData.rankPerf.first100Ms = performance.now() - renderStart;
         }
-        setRankStatus(`Rendering ${currentIndex}/${total}…`);
         if (currentIndex < total) {
           requestAnimationFrame(renderBatch);
         } else {
-          clearRankStatus();
           const renderMs = performance.now() - renderStart;
           console.log("[perf] rank:render", renderMs, { rendered: total });
           appData.rankPerf.renderMs = renderMs;
           appData.rankPerf.rendered = total;
           updateRankDebugOverlay();
-          scheduleRankMarkers(visible, { reset: !append, limitMarkers: appData.rankShowAllMarkers ? Infinity : 100 });
           if (!onMobile && rankMap && !preserveView && total) {
             const bounds = visible
               .filter((r) => {
@@ -10574,15 +10599,26 @@
               .map((r) => [r.gps.lat, r.gps.lon]);
             if (bounds.length) rankMap.fitBounds(bounds, { padding: [30, 30] });
           }
+          if (appData.rankLoadComplete) {
+            queueRankMarkers(visible, { reset: true, limitMarkers: Infinity });
+          }
         }
       }
       requestAnimationFrame(renderBatch);
     }
 
     function scheduleRankMarkers(visible, opts = {}) {
-      if (!window.L || !rankLayer || !rankMap) return;
+      const onComplete = typeof opts.onComplete === "function" ? opts.onComplete : null;
+      if (!window.L || !rankLayer || !rankMap) {
+        onComplete?.();
+        return;
+      }
+      if (!appData.rankLoadComplete) {
+        onComplete?.();
+        return;
+      }
       const reset = opts.reset ?? false;
-      const limitMarkers = Number.isFinite(opts.limitMarkers) ? opts.limitMarkers : (appData.rankShowAllMarkers ? Infinity : 100);
+      const limitMarkers = Number.isFinite(opts.limitMarkers) ? opts.limitMarkers : Infinity;
       if (reset) {
         rankLayer.clearLayers();
         rankMarkers = new Map();
@@ -10592,10 +10628,12 @@
       }
       if (!Array.isArray(visible) || !visible.length) {
         updateRankDebugOverlay();
+        onComplete?.();
         return;
       }
-      if (!appData.rankShowAllMarkers && limitMarkers <= 0) {
+      if (limitMarkers <= 0) {
         updateRankDebugOverlay();
+        onComplete?.();
         return;
       }
       const token = Symbol("rank-markers");
@@ -10603,10 +10641,13 @@
       let markerIndex = appData.rankMarkerNextIndex || 0;
       const batchSize = 25;
       function renderMarkerBatch() {
-        if (appData.rankMarkerToken !== token) return;
+        if (appData.rankMarkerToken !== token) {
+          onComplete?.();
+          return;
+        }
         let added = 0;
         while (markerIndex < visible.length && added < batchSize) {
-          if (!appData.rankShowAllMarkers && appData.rankMarkerCount >= limitMarkers) {
+          if (rankMarkers.size >= limitMarkers) {
             break;
           }
           const r = visible[markerIndex++];
@@ -10630,11 +10671,35 @@
         }
         appData.rankMarkerNextIndex = markerIndex;
         updateRankDebugOverlay();
-        if (markerIndex < visible.length && (appData.rankShowAllMarkers || appData.rankMarkerCount < limitMarkers)) {
+        if (markerIndex < visible.length && rankMarkers.size < limitMarkers) {
           requestAnimationFrame(renderMarkerBatch);
+        } else {
+          onComplete?.();
         }
       }
       requestAnimationFrame(renderMarkerBatch);
+    }
+
+    function queueRankMarkers(visible, opts = {}) {
+      if (!appData.rankLoadComplete) return;
+      if (appData.rankMarkersQueued) return;
+      if (!window.L || !rankLayer || !rankMap) {
+        setTimeout(() => queueRankMarkers(visible, opts), 250);
+        return;
+      }
+      const reset = opts.reset ?? true;
+      const limitMarkers = Number.isFinite(opts.limitMarkers) ? opts.limitMarkers : Infinity;
+      appData.rankMarkersQueued = true;
+      scheduleRankMarkers(visible, {
+        reset,
+        limitMarkers,
+        onComplete: () => {
+          appData.rankMarkersQueued = false;
+          appData.rankMarkersDrawn = true;
+          appData.rankPerf.markerCount = rankMarkers.size;
+          updateRankDebugOverlay();
+        }
+      });
     }
 
     function updateRankDebugOverlay() {
@@ -11247,11 +11312,12 @@
         if (view === "rank") {
           if (!rankMap) setTimeout(() => initRankMap(), 0);
           const clickStart = performance.now();
+          cancelRankLoad();
           showRankSkeleton();
           appData.rankPerf.uiPaintMs = performance.now() - clickStart;
           console.log("[perf] rank:click->ui", appData.rankPerf.uiPaintMs);
           updateRankDebugOverlay();
-          setTimeout(() => {
+          requestAnimationFrame(() => {
             loadRankDefault().catch((err) => {
               console.warn(err);
               const list = document.getElementById("rankList");
@@ -11263,7 +11329,7 @@
                 renderMeshScore(mesh, meshRangeDays);
               } catch {}
             }, 0);
-          }, 0);
+          });
         }
 
         if (view === "channel-directory") {
@@ -12010,20 +12076,6 @@
           const payload = appData.rankPayload || { items: appData.rankData };
           renderRankWithOptions({ ...payload, items: appData.rankData }, { preserveView: true });
         }
-      });
-    }
-
-    const rankMarkerToggle = document.getElementById("rankMarkerToggle");
-    if (rankMarkerToggle) {
-      rankMarkerToggle.checked = !!appData.rankShowAllMarkers;
-      rankMarkerToggle.addEventListener("change", () => {
-        appData.rankShowAllMarkers = rankMarkerToggle.checked;
-        const visible = appData.rankVisibleItems || [];
-        scheduleRankMarkers(visible, {
-          reset: true,
-          limitMarkers: appData.rankShowAllMarkers ? Infinity : 100
-        });
-        updateRankDebugOverlay();
       });
     }
 

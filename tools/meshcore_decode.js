@@ -233,10 +233,12 @@ function updateDeviceFromAdvert(advert, rssi, snr, channelName) {
   }
   const prevGps = prev.gps || null;
   const gpsChanged = !!(gps && (!prevGps || prevGps.lat !== gps.lat || prevGps.lon !== gps.lon));
+  const wasGpsFlagged = !!prev.gpsFlagged;
 
   // Your rule: chat/repeater/room_server are repeaters; anything else companion
   const isRepeater = !!(flags?.isRepeater);
 
+  const shouldResetGpsFlags = gpsChanged && wasGpsFlagged;
   const updated = {
     ...prev,
     pub,
@@ -246,6 +248,9 @@ function updateDeviceFromAdvert(advert, rssi, snr, channelName) {
     appFlags: flags || prev.appFlags || null,
     gps,
     hiddenOnMap: gpsChanged ? false : hiddenOnMap,
+    gpsFlagged: shouldResetGpsFlags ? false : (prev.gpsFlagged || false),
+    gpsImplausible: shouldResetGpsFlags ? false : (prev.gpsImplausible || false),
+    gpsFlaggedAt: shouldResetGpsFlags ? null : prev.gpsFlaggedAt || null,
     stats: {
       lastRssi: rssi,
       lastSnr: snr,
@@ -394,4 +399,3 @@ process.on("SIGINT", () => {
   try { saveJsonAtomic(devicesDbPath, devices); } catch {}
   process.exit(0);
 });
-

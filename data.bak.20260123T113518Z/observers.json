@@ -1,0 +1,102 @@
+{
+  "byId": {
+    "881A3DB0CD34": {
+      "id": "881A3DB0CD34",
+      "firstSeen": "2026-01-23T11:21:54.047Z",
+      "count": 3,
+      "lastSeen": "2026-01-23T11:23:28.145Z",
+      "name": "Sutton SM2"
+    },
+    "705254DAB734": {
+      "id": "705254DAB734",
+      "firstSeen": "2026-01-23T11:21:55.923Z",
+      "count": 5,
+      "lastSeen": "2026-01-23T11:24:09.640Z",
+      "name": "Caterham"
+    },
+    "38090704A7AC": {
+      "id": "38090704A7AC",
+      "firstSeen": "2026-01-23T11:21:57.978Z",
+      "count": 7,
+      "lastSeen": "2026-01-23T11:24:08.458Z",
+      "name": "Northwood"
+    },
+    "D0CDCCA0ED30": {
+      "id": "D0CDCCA0ED30",
+      "firstSeen": "2026-01-23T11:23:11.178Z",
+      "count": 9,
+      "lastSeen": "2026-01-23T11:24:05.823Z",
+      "name": "M29-MR"
+    },
+    "74E0B643CA48": {
+      "id": "74E0B643CA48",
+      "firstSeen": "2026-01-23T11:23:11.250Z",
+      "count": 10,
+      "lastSeen": "2026-01-23T11:24:05.714Z",
+      "name": "LS27-OBS MRLM"
+    },
+    "AC84779E9EF0": {
+      "id": "AC84779E9EF0",
+      "firstSeen": "2026-01-23T11:23:13.925Z",
+      "count": 4,
+      "lastSeen": "2026-01-23T11:24:06.301Z",
+      "name": "St.Helens"
+    },
+    "94083E43CA48": {
+      "id": "94083E43CA48",
+      "firstSeen": "2026-01-23T11:23:15.218Z",
+      "count": 4,
+      "lastSeen": "2026-01-23T11:24:08.164Z",
+      "name": "St. Helens Junction (Observer)"
+    },
+    "pad4651🧱": {
+      "id": "pad4651🧱",
+      "firstSeen": "2026-01-23T11:23:16.402Z",
+      "count": 2,
+      "lastSeen": "2026-01-23T11:24:06.409Z"
+    },
+    "440551DB5110": {
+      "id": "440551DB5110",
+      "firstSeen": "2026-01-23T11:23:17.506Z",
+      "count": 2,
+      "lastSeen": "2026-01-23T11:24:07.192Z",
+      "name": "Stoke3"
+    },
+    "60AD64DAB734": {
+      "id": "60AD64DAB734",
+      "firstSeen": "2026-01-23T11:23:17.714Z",
+      "count": 2,
+      "lastSeen": "2026-01-23T11:23:18.438Z",
+      "name": "Clee Hill"
+    },
+    "ECE853DAB734": {
+      "id": "ECE853DAB734",
+      "firstSeen": "2026-01-23T11:23:24.010Z",
+      "count": 8,
+      "lastSeen": "2026-01-23T11:24:07.552Z",
+      "name": "Abingdon Northcourt"
+    },
+    "B41162DAB734": {
+      "id": "B41162DAB734",
+      "firstSeen": "2026-01-23T11:23:25.588Z",
+      "count": 2,
+      "lastSeen": "2026-01-23T11:23:26.756Z",
+      "name": "Wavendon Milton Keynes"
+    },
+    "74E23C43CA48": {
+      "id": "74E23C43CA48",
+      "firstSeen": "2026-01-23T11:23:31.714Z",
+      "count": 2,
+      "lastSeen": "2026-01-23T11:23:52.478Z",
+      "name": "Portsmouth"
+    },
+    "88EF779E9EF0": {
+      "id": "88EF779E9EF0",
+      "firstSeen": "2026-01-23T11:24:05.639Z",
+      "count": 1,
+      "lastSeen": "2026-01-23T11:24:05.639Z",
+      "name": "Crewe-Observer"
+    }
+  },
+  "updatedAt": "2026-01-23T11:24:09.641Z"
+}
