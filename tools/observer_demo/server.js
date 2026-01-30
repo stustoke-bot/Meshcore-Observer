@@ -107,6 +107,7 @@ const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
 const MESSAGE_OBSERVER_STREAM_POLL_MS = 1000;
 const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
+const BOT_REPLY_DELAY_MS = 10000;
 const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
 const MESSAGE_STREAM_HEALTH_MS = 12000;
 const MESSAGE_STREAM_COUNTERS_MS = 10000;
@@ -5007,6 +5008,17 @@ function broadcastBotReplies(replies) {
   });
 }
 
+function scheduleBotReplies(replies) {
+  if (!replies || !replies.length) return;
+  if (!BOT_REPLY_DELAY_MS) {
+    broadcastBotReplies(replies);
+    return;
+  }
+  setTimeout(() => {
+    broadcastBotReplies(replies);
+  }, BOT_REPLY_DELAY_MS);
+}
+
 function ensureShareLinkForMessage(db, messageId) {
   if (!messageId) return null;
   const canonicalId = String(messageId).trim().toUpperCase();
@@ -5095,7 +5107,7 @@ function startMessagesDbPoll() {
           shareLink: shareLink || SHARE_URL_BASE
         });
       });
-      broadcastBotReplies(replies);
+      scheduleBotReplies(replies);
     }).catch(() => {});
   }, MESSAGES_POLL_MS);
 }
@@ -5199,6 +5211,27 @@ function startMessagesFileWatch(sourcePath) {
           }
         });
         broadcastNewMessages(newMsgs);
+        const replies = [];
+        let dbForShare = null;
+        try { dbForShare = getDb(); } catch {}
+        newMsgs.forEach((msg) => {
+          if (!shouldEmitBotReply(msg)) return;
+          let shareLink = null;
+          if (dbForShare) {
+            try { shareLink = ensureShareLinkForMessage(dbForShare, msg.messageHash || msg.id); } catch {}
+          }
+          replies.push({
+            channel: msg.channelName,
+            sender: msg.sender || "Mesh",
+            messageHash: msg.messageHash || msg.id,
+            body: msg.body || "",
+            hops: Number.isFinite(msg.pathLength) ? msg.pathLength : (Array.isArray(msg.path) ? msg.path.length : 0),
+            observers: Number.isFinite(msg.observerCount) ? msg.observerCount : 0,
+            path: Array.isArray(msg.pathNames) ? msg.pathNames : [],
+            shareLink: shareLink || SHARE_URL_BASE
+          });
+        });
+        scheduleBotReplies(replies);
       } else {
         channelMessagesCache.lastMessagesFileOffset = newOffset;
       }

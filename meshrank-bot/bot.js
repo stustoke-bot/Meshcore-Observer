@@ -66,7 +66,7 @@ const bearerToken = argv.token || process.env.MESHRANK_TOKEN || "";
 const useStream = argv.stream === true;
 const botStreamUrl = (argv["stream-url"] || `${serverBase}/api/bot-stream`).replace(/\/$/, "");
 const autoRespondEnabled = argv.auto;
-const replyDelayMs = Math.max(0, Number(argv.delay) || 30000);
+const replyDelayMs = useStream ? 0 : Math.max(0, Number(argv.delay) || 30000);
 const logOnly = argv["log-only"] === true;
 const dryRun = argv["dry-run"] === true || logOnly;
 const echoAll = argv["echo-all"] === true || logOnly;
@@ -526,7 +526,7 @@ async function main() {
   if (dryRun) log("[start] DRY-RUN: replies will NOT be sent on mesh (use without --dry-run to go live)");
   if (echoAll) log("[start] ECHO-ALL: every channel message will trigger lookup + print reply (no send, no 'test' required)");
   if (logOnly) log("[start] LOG-ONLY: printing replies for every message; no mesh send");
-  if (useStream) log("[start] STREAM MODE: replies are driven by /api/bot-stream");
+  if (useStream) log("[start] STREAM MODE: replies are driven by /api/bot-stream (delay disabled)");
   try {
     await connection.connect();
     log("[start] Meshrank bot is online.");
