@@ -4966,6 +4966,13 @@ async function refreshObserverRankCache(force) {
 /** Broadcast new messages to all /api/message-stream clients (realtime) */
 function broadcastNewMessages(messages) {
   if (!messages || !messages.length) return;
+  try {
+    const now = Date.now();
+    const first = messages[0];
+    const msgTs = first?.ts ? Date.parse(first.ts) : null;
+    const lagMs = Number.isFinite(msgTs) ? Math.max(0, now - msgTs) : null;
+    console.log("[stream] Broadcast messages:", messages.length, "first.ts=", first?.ts || "n/a", "lagMs=", lagMs);
+  } catch {}
   messageStreamSenders.forEach((sendEvent) => {
     try { sendEvent("messages", { messages }); } catch (_) {}
   });
@@ -5055,7 +5062,7 @@ function ensureShareLinkForMessage(db, messageId) {
 let messagesDbPollInterval = null;
 function startMessagesDbPoll() {
   if (messagesDbPollInterval) return;
-  const MESSAGES_POLL_MS = 1500;
+  const MESSAGES_POLL_MS = 250;
   messagesDbPollInterval = setInterval(() => {
     if (!channelMessagesCache.payload || channelMessagesCache.lastMessagesRowId == null) return;
     const db = getDb();
@@ -5245,8 +5252,9 @@ async function buildChannelMessages() {
     return channelMessagesCache.payload;
   }
 
+  const forceFileMessages = String(process.env.MESHRANK_MESSAGES_SOURCE || "").toLowerCase() === "file";
   const db = getDb();
-  if (hasMessagesDb(db)) {
+  if (!forceFileMessages && hasMessagesDb(db)) {
     const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
     if ((countRow?.count || 0) > 0) {
       const nodeMap = buildNodeHashMap();
