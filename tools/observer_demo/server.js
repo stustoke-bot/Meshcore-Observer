@@ -590,9 +590,10 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
     if (hit?.hiddenOnMap) return null;
     filteredPath.push(h);
     let gps = hit?.gps || null;
-    if (gps && (gps.lat === 0 && gps.lon === 0)) gps = null;
-    if (hit?.gpsImplausible || hit?.gpsFlagged) gps = null;
     if (!hit || !hit.name || String(hit.name).toLowerCase() === "unknown") gps = null;
+    if (hit?.gpsInvalidReason) gps = null;
+    if (gps && (gps.lat === 0 || gps.lon === 0)) gps = null;
+    if (hit?.gpsImplausible || hit?.gpsFlagged) gps = null;
     return {
       hash: h,
       name: hit ? hit.name : h,
