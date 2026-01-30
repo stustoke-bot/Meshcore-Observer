@@ -580,14 +580,21 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
   const observerCount = observerHits.length;
   const baseRepeats = Number.isFinite(row.repeats) ? row.repeats : (path.length || 0);
   const repeats = Math.max(baseRepeats, observerCount);
+  const filteredPath = [];
   const pathPoints = path.map((h) => {
     const hit = nodeMap.get(h);
+    if (hit?.excludeFromRoutes) return null;
+    if (hit?.hiddenOnMap) return null;
+    if (hit?.gpsImplausible || hit?.gpsFlagged) return null;
+    if (hit && hit.gps && hit.gps.lat === 0 && hit.gps.lon === 0) return null;
+    filteredPath.push(h);
     return {
       hash: h,
       name: hit ? hit.name : h,
       gps: hit?.gps || null
     };
-  });
+  }).filter(Boolean);
+  const pathNames = pathPoints.map((p) => p.name);
   // TODO M3: replace placeholder inference with full Viterbi + edge aggregation.
   return {
     id: row.message_hash,
@@ -598,8 +605,8 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
     body: row.body || "",
     ts: row.ts,
     repeats,
-    path,
-    pathNames: pathPoints.map((p) => p.name),
+    path: filteredPath.length ? filteredPath : path,
+    pathNames: pathNames.length ? pathNames : pathPoints.map((p) => p.name),
     pathPoints,
     pathLength: Number.isFinite(row.path_length) ? row.path_length : path.length,
     observerHits,
@@ -1685,6 +1692,20 @@ function isCompanionDevice(d) {
   return false;
 }
 
+function isRoomServerOrChat(d) {
+  if (!d) return false;
+  const role = String(d.role || "").toLowerCase();
+  if (role === "room_server" || role === "chat") return true;
+  const roleName = String(d.appFlags?.roleName || "").toLowerCase();
+  if (roleName === "room_server" || roleName === "chat") return true;
+  const roleCode = Number.isFinite(d.appFlags?.roleCode) ? d.appFlags.roleCode : null;
+  if (roleCode === 0x03) return true;
+  const deviceRole = Number.isFinite(d.raw?.lastAdvert?.appData?.deviceRole)
+    ? Number(d.raw.lastAdvert.appData.deviceRole)
+    : null;
+  return deviceRole === 3;
+}
+
 function readDevices() {
   const now = Date.now();
   if (devicesCache.data && (now - devicesCache.readAt) < DEVICES_CACHE_MS) {
@@ -2158,15 +2179,16 @@ function buildNodeHashMap() {
     const gpsFlagged = !!d.gpsFlagged;
     if (gps && (gps.lat === 0 && gps.lon === 0)) gps = null;
     if (gpsImplausible || gpsFlagged) gps = null;
+    const excludeFromRoutes = isRoomServerOrChat(d);
     const prev = map.get(hash);
     if (!prev) {
-      map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged });
+      map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged, excludeFromRoutes });
       continue;
     }
     const prevTs = prev.lastSeen ? new Date(prev.lastSeen).getTime() : 0;
     const nextTs = lastSeen ? new Date(lastSeen).getTime() : 0;
     const prefer = (gps && !prev.gps) || (nextTs >= prevTs);
-    if (prefer) map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged });
+    if (prefer) map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged, excludeFromRoutes });
   }
 
   return map;
