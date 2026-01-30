@@ -104,6 +104,11 @@
       "hashByte": "80",
       "name": "#yorkshire",
       "secretHex": "ea19e9567eec1b148c174f0cb9d04dd7"
+    },
+    {
+      "hashByte": "9A",
+      "name": "#yorksregion",
+      "secretHex": "9a642643b468e5560c1adbe16493a454"
     }
   ]
 }
