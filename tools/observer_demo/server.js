@@ -390,6 +390,9 @@ try {
 
 const host = "0.0.0.0";
 const port = Number(process.env.PORT || 5199);
+const indexHtmlCache = { mtimeMs: 0, raw: null };
+const staticFileCache = new Map();
+const STATIC_CACHE_MAX = 200;
 const AUTO_REFRESH_MS = 60 * 1000;
 
 function clamp(n, min, max) {
@@ -7224,6 +7227,46 @@ function contentTypeFor(filePath) {
   return "application/octet-stream";
 }
 
+function readIndexHtmlCached(cb) {
+  fs.stat(indexPath, (statErr, stats) => {
+    if (!statErr && stats && stats.isFile()) {
+      if (indexHtmlCache.raw && stats.mtimeMs === indexHtmlCache.mtimeMs) {
+        const html = indexHtmlCache.raw.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+        return cb(null, html);
+      }
+    }
+    fs.readFile(indexPath, "utf8", (err, html) => {
+      if (err) return cb(err);
+      indexHtmlCache.raw = html;
+      indexHtmlCache.mtimeMs = stats?.mtimeMs || Date.now();
+      const rendered = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+      return cb(null, rendered);
+    });
+  });
+}
+
+function readStaticFileCached(filePath, cb) {
+  fs.stat(filePath, (statErr, stats) => {
+    if (!statErr && stats && stats.isFile()) {
+      const cached = staticFileCache.get(filePath);
+      if (cached && cached.mtimeMs === stats.mtimeMs) {
+        return cb(null, cached.body);
+      }
+    }
+    fs.readFile(filePath, (err, body) => {
+      if (err) return cb(err);
+      if (stats?.mtimeMs) {
+        staticFileCache.set(filePath, { mtimeMs: stats.mtimeMs, body });
+        if (staticFileCache.size > STATIC_CACHE_MAX) {
+          const firstKey = staticFileCache.keys().next().value;
+          if (firstKey) staticFileCache.delete(firstKey);
+        }
+      }
+      return cb(null, body);
+    });
+  });
+}
+
 // DISABLED: refreshLastHeardCache() was processing 26k+ rows every 60s, causing high CPU
 // Moved to deferred startup and reduced frequency
 // refreshLastHeardCache();
@@ -7315,36 +7358,33 @@ const server = http.createServer(async (req, res) => {
   }
   if (u.pathname === "/") {
     // Non-blocking: read file asynchronously to avoid blocking event loop
-    fs.readFile(indexPath, "utf8", (err, html) => {
+    readIndexHtmlCached((err, html) => {
       if (err) {
         console.error("Failed to read index.html:", err);
         return send(res, 500, "text/plain", "Internal server error");
       }
-      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
       return send(res, 200, "text/html; charset=utf-8", html);
     });
     return;
   }
   if (/^\/s\/[0-9]{5}$/.test(u.pathname)) {
     // Non-blocking: read file asynchronously to avoid blocking event loop
-    fs.readFile(indexPath, "utf8", (err, html) => {
+    readIndexHtmlCached((err, html) => {
       if (err) {
         console.error("Failed to read index.html:", err);
         return send(res, 500, "text/plain", "Internal server error");
       }
-      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
       return send(res, 200, "text/html; charset=utf-8", html);
     });
     return;
   }
   if (/^\/msg\/[0-9]{5}$/.test(u.pathname)) {
     // Share link URL used by meshcore-bot (e.g. meshrank.net/msg/56463)
-    fs.readFile(indexPath, "utf8", (err, html) => {
+    readIndexHtmlCached((err, html) => {
       if (err) {
         console.error("Failed to read index.html:", err);
         return send(res, 500, "text/plain", "Internal server error");
       }
-      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
       return send(res, 200, "text/html; charset=utf-8", html);
     });
     return;
@@ -7361,7 +7401,7 @@ const server = http.createServer(async (req, res) => {
           if (err || !stats || !stats.isFile()) {
             return send(res, 404, "text/plain", "Not found");
           }
-          fs.readFile(absPath, (readErr, body) => {
+          readStaticFileCached(absPath, (readErr, body) => {
             if (readErr) {
               console.error("Failed to read static file:", readErr);
               return send(res, 500, "text/plain", "Internal server error");
