@@ -17,7 +17,7 @@ const argv = yargs(hideBin(process.argv))
     alias: "t",
     description: "Reply template (placeholders: {sender},{channel},{hops},{observers},{path},{shareLink})",
     type: "string",
-    default: "@[{sender}] Hi! I got {hops} Hops via {observers} Observers. see more here {shareLink}"
+    default: "@[{sender}] Your Message has been observed on the Mesh. Click for more info {shareLink}"
   })
   .option("server", {
     alias: "u",
@@ -70,6 +70,7 @@ const replyDelayMs = useStream ? 0 : Math.max(0, Number(argv.delay) || 30000);
 const logOnly = argv["log-only"] === true;
 const dryRun = argv["dry-run"] === true || logOnly;
 const echoAll = argv["echo-all"] === true || logOnly;
+const MAX_REPLY_CHARS = 200;
 
 let channelIndex = 0;
 const connection = new NodeJSSerialConnection(portPath);
@@ -81,13 +82,19 @@ function log(...args) {
 }
 
 function formatTemplate(data = {}) {
-  return replyTemplate
+  const base = replyTemplate
     .replace(/{sender}/g, data.sender || "Mesh")
     .replace(/{channel}/g, data.channel || channelName)
     .replace(/{hops}/g, String(data.hops ?? 0))
     .replace(/{observers}/g, String(data.observers ?? 0))
     .replace(/{path}/g, data.path || "—")
-    .replace(/{shareLink}/g, data.shareLink || serverBase);
+    .replace(/{shareLink}/g, data.shareLink || "");
+  let reply = base;
+  if (data.shareLink) {
+    const withLink = base.replace(/{shareLink}/g, data.shareLink || "");
+    reply = withLink.length <= MAX_REPLY_CHARS ? withLink : base.replace(/{shareLink}/g, "");
+  }
+  return reply.replace(/\s+\./g, ".").replace(/\s{2,}/g, " ").trim();
 }
 
 function normalizeSenderName(name) {

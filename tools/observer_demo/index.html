@@ -8771,7 +8771,11 @@
         setServerStatus(false);
       }
       if (window.matchMedia?.("(max-width: 860px)")?.matches) {
-        document.body.classList.remove("route-open");
+        const path = window.location.pathname || "";
+        const isSharePath = /^\/(?:s|msg)\/[0-9]{5}$/.test(path);
+        if (!isSharePath) {
+          document.body.classList.remove("route-open");
+        }
       }
       try {
         startRotmRefresh();
