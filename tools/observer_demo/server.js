@@ -2192,8 +2192,10 @@ function buildRepeaterHashMap() {
     if (!pub) continue;
     const hash = nodeHashFromPub(pub);
     if (!hash) continue;
+    const gpsImplausible = !!d.gpsImplausible;
+    const gpsFlagged = !!d.gpsFlagged;
     const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? { lat: d.gps.lat, lon: d.gps.lon } : null;
-    if (!gps || (gps.lat === 0 && gps.lon === 0)) continue;
+    if (!gps || (gps.lat === 0 && gps.lon === 0) || gpsImplausible || gpsFlagged) continue;
     const lastSeen = d.lastSeen || d.last_seen || null;
     const parsedLastSeen = lastSeen ? Date.parse(lastSeen) : NaN;
     const lastSeenMs = Number.isFinite(parsedLastSeen) ? parsedLastSeen : null;
@@ -2203,8 +2205,8 @@ function buildRepeaterHashMap() {
       name: d.name || d.raw?.lastAdvert?.appData?.name || hash,
       gps,
       lastSeen: d.lastSeen || d.last_seen || null,
-      gpsFlagged: !!d.gpsFlagged,
-      gpsImplausible: !!d.gpsImplausible,
+      gpsFlagged,
+      gpsImplausible,
       hiddenOnMap: !!d.hiddenOnMap
     };
     const existing = map.get(hash) || [];
