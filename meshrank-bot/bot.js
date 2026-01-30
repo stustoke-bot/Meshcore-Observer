@@ -94,7 +94,7 @@ function normalizeSenderName(name) {
   const raw = String(name || "").trim();
   if (!raw) return "Mesh";
   const unwrapped = raw.replace(/^\[+/, "").replace(/\]+$/, "").trim();
-  return unwrapped ? unwrapped.toUpperCase() : "Mesh";
+  return unwrapped || "Mesh";
 }
 
 function buildHeaders() {

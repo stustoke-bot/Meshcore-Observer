@@ -107,7 +107,8 @@ const OBSERVER_HITS_COOLDOWN_MS = 30 * 1000;
 const OBSERVER_HITS_TAIL_INTERVAL_MS = 2000;
 const MESSAGE_OBSERVER_STREAM_POLL_MS = 1000;
 const MESSAGE_OBSERVER_STREAM_PING_MS = 15000;
-const BOT_REPLY_DELAY_MS = 20000;
+const BOT_REPLY_WARMUP_MS = 10000;
+const BOT_REPLY_QUIET_MS = 5000;
 const MESSAGE_OBSERVER_STREAM_MAX_ROWS = 200;
 const MESSAGE_STREAM_HEALTH_MS = 12000;
 const MESSAGE_STREAM_COUNTERS_MS = 10000;
@@ -117,8 +118,8 @@ const RF_AGG_LIMIT = 800;
 const REPEATER_FLAG_REVIEW_HOURS = 24;
 const REPEATER_ESTIMATE_MIN_NEIGHBORS = 3;
 const REPEATER_ESTIMATE_SINGLE_OFFSET_KM = 4.8; // ~3 miles
-const ROTM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const ROTM_QSO_WINDOW_MS = 120 * 60 * 1000; // 120 minutes - keep CQ calls open for 2 hours
+const ROTM_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ROTM_QSO_WINDOW_MS = 24 * 60 * 60 * 1000; // keep CQ calls open for 24 hours
 const ROTM_MIN_OBSERVER_HITS = 1;
 const ROTM_FEED_LIMIT = 200;
 const ROTM_DB_LIMIT = 2000;
@@ -5015,15 +5016,48 @@ function broadcastBotReplies(replies) {
   });
 }
 
+const botReplyQuietTimers = new Map();
+function scheduleQuietSend(hash, state) {
+  if (state.quietTimer) clearTimeout(state.quietTimer);
+  state.quietTimer = setTimeout(() => {
+    const now = Date.now();
+    const lastUpdate = state.lastUpdateAt || 0;
+    if (!state.warmupDone || (now - lastUpdate) < BOT_REPLY_QUIET_MS) {
+      scheduleQuietSend(hash, state);
+      return;
+    }
+    botReplyQuietTimers.delete(hash);
+    broadcastBotReplies([state.lastReply]);
+  }, BOT_REPLY_QUIET_MS);
+}
 function scheduleBotReplies(replies) {
   if (!replies || !replies.length) return;
-  if (!BOT_REPLY_DELAY_MS) {
-    broadcastBotReplies(replies);
-    return;
-  }
-  setTimeout(() => {
-    broadcastBotReplies(replies);
-  }, BOT_REPLY_DELAY_MS);
+  replies.forEach((reply) => {
+    const hash = String(reply?.messageHash || "").trim().toUpperCase();
+    if (!hash) {
+      broadcastBotReplies([reply]);
+      return;
+    }
+    const now = Date.now();
+    const state = botReplyQuietTimers.get(hash) || {
+      warmupDone: false,
+      warmupTimer: null,
+      quietTimer: null,
+      lastReply: reply,
+      lastUpdateAt: now
+    };
+    state.lastReply = reply;
+    state.lastUpdateAt = now;
+    botReplyQuietTimers.set(hash, state);
+    if (!state.warmupTimer) {
+      state.warmupTimer = setTimeout(() => {
+        state.warmupDone = true;
+        scheduleQuietSend(hash, state);
+      }, BOT_REPLY_WARMUP_MS);
+    } else if (state.warmupDone) {
+      scheduleQuietSend(hash, state);
+    }
+  });
 }
 
 function ensureShareLinkForMessage(db, messageId) {
