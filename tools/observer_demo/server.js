@@ -585,13 +585,14 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
     const hit = nodeMap.get(h);
     if (hit?.excludeFromRoutes) return null;
     if (hit?.hiddenOnMap) return null;
-    if (hit?.gpsImplausible || hit?.gpsFlagged) return null;
-    if (hit && hit.gps && hit.gps.lat === 0 && hit.gps.lon === 0) return null;
     filteredPath.push(h);
+    let gps = hit?.gps || null;
+    if (gps && (gps.lat === 0 && gps.lon === 0)) gps = null;
+    if (hit?.gpsImplausible || hit?.gpsFlagged) gps = null;
     return {
       hash: h,
       name: hit ? hit.name : h,
-      gps: hit?.gps || null
+      gps
     };
   }).filter(Boolean);
   const pathNames = pathPoints.map((p) => p.name);
