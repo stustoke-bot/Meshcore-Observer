@@ -862,6 +862,18 @@
       min-height: 0;
       position: relative;
     }
+    body.loading-share {
+      background: #0a0b0e;
+    }
+    body.loading-share .analysis-panel {
+      display: flex;
+    }
+    body.loading-share .route-backdrop {
+      display: block;
+    }
+    body.loading-share .route-loading {
+      display: flex;
+    }
     .route-loading {
       position: absolute;
       inset: 0;
@@ -3929,6 +3941,11 @@
   </style>
 </head>
 <body>
+  <script>
+    if (/^\/(?:s|msg)\/[0-9]{5}$/.test(window.location.pathname || "")) {
+      document.body.classList.add("route-open", "loading-share");
+    }
+  </script>
   <div class="app">
     <header class="topbar">
         <div class="brand">
@@ -7589,6 +7606,7 @@
       if (!routeLoading) return;
       if (routeLoadingText && message) routeLoadingText.textContent = message;
       routeLoading.classList.toggle("active", !!active);
+      document.body.classList.toggle("loading-share", !!active);
     }
     function closeRouteOverlay() {
       document.body.classList.remove("route-open");
