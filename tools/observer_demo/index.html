@@ -8550,6 +8550,30 @@
       if (changed) renderMessages(false, { preserveScroll: true });
     }
 
+    function mapIncomingMessages(messages = []) {
+      return (messages || []).map((m) => ({
+        id: m.id,
+        frameHash: m.frameHash || null,
+        messageHash: m.messageHash || null,
+        channelId: normalizeChannelId(m.channelName || "#unknown"),
+        sender: m.sender,
+        body: m.body,
+        tsRaw: m.ts || null,
+        ts: m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--",
+        type: "mesh",
+        source: "internet",
+        repeats: m.repeats || 1,
+        sourceMask: SOURCE_MASK.INTERNET,
+        pathLength: Number.isFinite(m.pathLength) ? m.pathLength : null,
+        uniqueHopCount: Number.isFinite(m.uniqueHopCount) ? m.uniqueHopCount : null,
+        path: Array.isArray(m.path) ? m.path : [],
+        pathNames: Array.isArray(m.pathNames) ? m.pathNames : [],
+        pathPoints: Array.isArray(m.pathPoints) ? m.pathPoints : [],
+        observerHits: Array.isArray(m.observerHits) ? m.observerHits : [],
+        observerCount: Number.isFinite(m.observerCount) ? m.observerCount : null
+      }));
+    }
+
     function initMessageStream() {
       if (!window.EventSource) return;
       if (appData.messageStream?.es) return;
@@ -8576,6 +8600,47 @@
               lastChannelRefresh = now;
               loadMessages(false, { limit: appData.channelHistoryLimit, preserveScroll: true }).catch(() => {});
             }
+          }
+        } catch {}
+      });
+      es.addEventListener("messages", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const incoming = mapIncomingMessages(data?.messages || []);
+          if (!incoming.length) return;
+          const previousLatest = { ...(appData.latestByChannel || {}) };
+          appData.messages = mergeMappedMessages(appData.messages || [], incoming);
+          incoming.forEach((msg) => {
+            updateChannelTracking(msg, true);
+            if (!msg.channelId) return;
+            const channelName = getChannelNameById(msg.channelId);
+            let channel = appData.channels.find((c) => c.id === msg.channelId);
+            if (!channel) {
+              channel = { id: msg.channelId, name: channelName, snippet: "No recent messages.", time: "--" };
+              appData.channels.unshift(channel);
+            }
+            const tsValue = msg.tsRaw ? new Date(msg.tsRaw).getTime() : 0;
+            if (Number.isFinite(tsValue) && tsValue >= (appData.latestByChannel[msg.channelId] || 0)) {
+              channel.snippet = String(msg.body || "").slice(0, 48) || channel.snippet;
+              channel.time = msg.ts || channel.time;
+            }
+          });
+          if (document.body.classList.contains("view-channels")) {
+            const activeLatest = appData.latestByChannel[activeChannelId] || 0;
+            if (activeLatest) {
+              appData.lastReadByChannel[activeChannelId] = activeLatest;
+              appData.unreadByChannel[activeChannelId] = 0;
+              saveReadState();
+            }
+            renderChannels();
+            renderMessages(false, { preserveScroll: true });
+            const prev = previousLatest[activeChannelId] || 0;
+            const next = appData.latestByChannel[activeChannelId] || 0;
+            if (next && next > prev) {
+              scheduleRecentStatsRefresh(activeChannelId);
+            }
+          } else {
+            renderChannels();
           }
         } catch {}
       });
