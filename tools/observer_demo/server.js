@@ -5180,6 +5180,40 @@ function scheduleBotReplies(replies) {
   });
 }
 
+function updateChannelSummaries(channelsList, messages) {
+  if (!Array.isArray(channelsList) || !Array.isArray(messages) || !messages.length) return;
+  const latestByChannel = new Map();
+  messages.forEach((msg) => {
+    const name = normalizeChannelName(msg.channelName || msg.channel || "");
+    if (!name) return;
+    const ts = msg.ts ? new Date(msg.ts).getTime() : 0;
+    const prev = latestByChannel.get(name);
+    if (!prev || ts > prev.ts) {
+      latestByChannel.set(name, { ts, msg });
+    }
+  });
+  latestByChannel.forEach(({ msg }) => {
+    const name = normalizeChannelName(msg.channelName || msg.channel || "");
+    if (!name) return;
+    const displayTime = msg.ts
+      ? new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "--";
+    const snippet = String(msg.body || "").slice(0, 48) || "No recent messages";
+    const existing = channelsList.find((c) => normalizeChannelName(c.name) === name);
+    if (existing) {
+      existing.snippet = snippet;
+      existing.time = displayTime;
+    } else {
+      channelsList.push({
+        id: String(name || "").replace(/^#/, ""),
+        name,
+        snippet,
+        time: displayTime
+      });
+    }
+  });
+}
+
 function ensureShareLinkForMessage(db, messageId) {
   if (!messageId) return null;
   const canonicalId = String(messageId).trim().toUpperCase();
@@ -5236,21 +5270,10 @@ function startMessagesDbPoll() {
       const maxRowIdRow = db.prepare("SELECT MAX(rowid) AS max_id FROM messages").get();
       channelMessagesCache.lastMessagesRowId = maxRowIdRow?.max_id ?? channelMessagesCache.lastMessagesRowId;
       channelMessagesCache.payload.messages.push(...newMessages);
-      const chSet = new Set(rows.map((r) => r.channel_name).filter(Boolean));
-      chSet.forEach((chName) => {
-        const existing = channelMessagesCache.payload.channels.find((c) => normalizeChannelName(c.name) === normalizeChannelName(chName));
-        if (!existing) {
-          const snippet = (rows.find((r) => r.channel_name === chName)?.body || "").slice(0, 48) || "No recent messages";
-          const ts = rows.find((r) => r.channel_name === chName)?.ts;
-          channelMessagesCache.payload.channels.push({
-            id: String(chName || "").replace(/^#/, ""),
-            name: chName,
-            snippet,
-            time: ts ? new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
-          });
-          channelMessagesCache.payload.channels.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
-        }
-      });
+      updateChannelSummaries(channelMessagesCache.payload.channels, newMessages);
+      if (Array.isArray(channelSummaryCache.payload)) {
+        updateChannelSummaries(channelSummaryCache.payload, newMessages);
+      }
       broadcastNewMessages(newMessages);
       const replies = [];
       newMessages.forEach((msg) => {
@@ -5357,20 +5380,10 @@ function startMessagesFileWatch(sourcePath) {
         channelMessagesCache.lastMessagesFileOffset = newOffset;
         channelMessagesCache.size = stat.size;
         channelMessagesCache.mtimeMs = stat.mtimeMs;
-        const chNames = [...new Set(newMsgs.map((m) => m.channelName))];
-        chNames.forEach((chName) => {
-          const existing = channelMessagesCache.payload.channels.find((c) => normalizeChannelName(c.name) === normalizeChannelName(chName));
-          if (!existing) {
-            const m = newMsgs.find((x) => x.channelName === chName);
-            channelMessagesCache.payload.channels.push({
-              id: String(chName || "").replace(/^#/, ""),
-              name: chName,
-              snippet: (m?.body || "").slice(0, 48) || "No recent messages",
-              time: m?.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
-            });
-            channelMessagesCache.payload.channels.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
-          }
-        });
+        updateChannelSummaries(channelMessagesCache.payload.channels, newMsgs);
+        if (Array.isArray(channelSummaryCache.payload)) {
+          updateChannelSummaries(channelSummaryCache.payload, newMsgs);
+        }
         broadcastNewMessages(newMsgs);
         const replies = [];
         let dbForShare = null;
