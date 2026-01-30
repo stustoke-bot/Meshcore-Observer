@@ -609,6 +609,56 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
   };
 }
 
+function refreshMessageObserverData(list, db) {
+  if (!Array.isArray(list) || !list.length) return list;
+  if (!hasMessageObserversDb(db)) return list;
+  const hashes = list
+    .map((m) => String(m.messageHash || m.id || "").toUpperCase())
+    .filter(Boolean);
+  if (!hashes.length) return list;
+  const observerAggMap = readMessageObserverAgg(db, hashes);
+  const observerPathsMap = readMessageObserverPaths(db, hashes);
+  const nodeMap = buildNodeHashMap();
+  list.forEach((msg) => {
+    const key = String(msg.messageHash || msg.id || "").toUpperCase();
+    if (!key) return;
+    const agg = observerAggMap.get(key);
+    if (agg?.observerHits) {
+      msg.observerHits = Array.from(agg.observerHits);
+      msg.observerCount = msg.observerHits.length;
+    }
+    if (agg?.hopCodes && agg.hopCodes.size) {
+      msg.path = Array.from(agg.hopCodes);
+    }
+    if (Array.isArray(msg.path)) {
+      msg.pathPoints = msg.path.map((h) => {
+        const hit = nodeMap.get(h);
+        return { hash: h, name: hit ? hit.name : h, gps: hit?.gps || null };
+      });
+      msg.pathNames = msg.pathPoints.map((p) => p.name);
+    }
+    if (!Number.isFinite(msg.pathLength)) {
+      msg.pathLength = Array.isArray(msg.path) ? msg.path.length : 0;
+    }
+    const baseRepeats = Number.isFinite(msg.repeats) ? msg.repeats : (msg.pathLength || 0);
+    msg.repeats = Math.max(baseRepeats, msg.observerCount || 0, msg.pathLength || 0);
+    const observerPathsRaw = observerPathsMap.get(key) || [];
+    msg.observerPaths = observerPathsRaw.map((entry) => {
+      const pathPoints = (entry.path || []).map((h) => {
+        const hit = nodeMap.get(h);
+        return { hash: h, name: hit ? hit.name : h, gps: hit?.gps || null };
+      });
+      return {
+        observerId: entry.observerId || null,
+        observerName: entry.observerName || entry.observerId || null,
+        path: entry.path || [],
+        pathPoints
+      };
+    });
+  });
+  return list;
+}
+
 function readMessagesFromDb(channelName, limit, beforeTs) {
   const db = getDb();
   if (!hasMessagesDb(db)) return null;
@@ -8261,6 +8311,7 @@ const server = http.createServer(async (req, res) => {
       if (blockedSet && blockedSet.size) {
         list = list.filter((m) => !blockedSet.has(normalizeChannelName(m.channelName)));
       }
+      refreshMessageObserverData(list, db);
       // No periodic refresh – new messages arrive in realtime via DB poll / file watch and broadcast
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: cached.channels || [], messages: list }));
     }
@@ -8300,6 +8351,7 @@ const server = http.createServer(async (req, res) => {
       if (blockedSet && blockedSet.size && !includeBlocked) {
         list = list.filter((m) => !blockedSet.has(normalizeChannelName(m.channelName)));
       }
+      refreshMessageObserverData(list, db);
       
       // Trigger background refresh
       setImmediate(() => {
