@@ -2152,10 +2152,12 @@ function buildNodeHashMap() {
     if (!hash) continue;
     const name = d.name || d.raw?.lastAdvert?.appData?.name || "Unknown";
     const lastSeen = d.lastSeen || null;
-    const gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? d.gps : null;
+    let gps = (d.gps && Number.isFinite(d.gps.lat) && Number.isFinite(d.gps.lon)) ? d.gps : null;
     const hiddenOnMap = !!d.hiddenOnMap;
     const gpsImplausible = !!d.gpsImplausible;
     const gpsFlagged = !!d.gpsFlagged;
+    if (gps && (gps.lat === 0 && gps.lon === 0)) gps = null;
+    if (gpsImplausible || gpsFlagged) gps = null;
     const prev = map.get(hash);
     if (!prev) {
       map.set(hash, { name, lastSeen, gps, hiddenOnMap, gpsImplausible, gpsFlagged });
