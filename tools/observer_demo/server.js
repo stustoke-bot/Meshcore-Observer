@@ -592,6 +592,7 @@ function mapMessageRow(row, nodeMap, observerHitsMap, observerAggMap, observerPa
     let gps = hit?.gps || null;
     if (gps && (gps.lat === 0 && gps.lon === 0)) gps = null;
     if (hit?.gpsImplausible || hit?.gpsFlagged) gps = null;
+    if (!hit || !hit.name || String(hit.name).toLowerCase() === "unknown") gps = null;
     return {
       hash: h,
       name: hit ? hit.name : h,
