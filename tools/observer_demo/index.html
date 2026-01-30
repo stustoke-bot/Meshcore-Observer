@@ -9396,7 +9396,7 @@
 
     async function loadSharedRoute(code, options = {}) {
       const { showOverlay = true, preventAutoClose = false } = options;
-      if (preventAutoClose) holdRouteOpen();
+      if (preventAutoClose) holdRouteOpen(15000);
       if (!shareStatus || !sharePathList || !shareObservers) return;
       shareStatus.textContent = "Loading shared route…";
       shareError.textContent = "";
