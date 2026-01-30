@@ -109,6 +109,21 @@
       "hashByte": "9A",
       "name": "#yorksregion",
       "secretHex": "9a642643b468e5560c1adbe16493a454"
+    },
+    {
+      "hashByte": "28",
+      "name": "#rugby",
+      "secretHex": "5360c74afe93f78b0cc6ff7bc54df380"
+    },
+    {
+      "hashByte": "85",
+      "name": "#midlands",
+      "secretHex": "ba3707a0760d156169aea2a6c82e2d6a"
+    },
+    {
+      "hashByte": "D4",
+      "name": "#ontheroad",
+      "secretHex": "939fd6dfb2d138b8373aaa4fecfb0d38"
     }
   ]
 }

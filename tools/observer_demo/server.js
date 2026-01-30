@@ -5868,6 +5868,7 @@ async function buildMeshHeatPayload() {
 }
 
 const NEW_CHANNEL_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
+const MAX_GROUP_NAME_LEN = 40;
 const CHANNEL_GROUPS = [
   "General Chat",
   "Regional",
@@ -5880,6 +5881,33 @@ const CHANNEL_GROUPS = [
   "Music",
   "Other"
 ];
+
+function getKnownChannelGroups(db) {
+  const groups = new Map();
+  CHANNEL_GROUPS.forEach((g) => groups.set(g, g));
+  try {
+    const rows = db.prepare("SELECT DISTINCT group_name FROM channels_catalog WHERE group_name IS NOT NULL").all();
+    rows.forEach((row) => {
+      const name = String(row.group_name || "").trim();
+      if (name) groups.set(name, name);
+    });
+  } catch {}
+  if (!groups.has("Other")) groups.set("Other", "Other");
+  return Array.from(groups.keys());
+}
+
+function normalizeChannelGroup(group, knownGroups = CHANNEL_GROUPS) {
+  const raw = String(group || "").trim();
+  if (!raw) return "";
+  const match = (knownGroups || []).find((g) => g.toLowerCase() === raw.toLowerCase());
+  return match || raw;
+}
+
+function isValidChannelGroup(group) {
+  if (!group) return false;
+  if (group.length > MAX_GROUP_NAME_LEN) return false;
+  return true;
+}
 
 const FIXED_CHANNELS = ["#public", "#meshranksuggestions"];
 
@@ -5986,9 +6014,10 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
   const keyMap = new Map((keys.channels || []).map((row) => [normalizeChannelName(row.name), row.secretHex || row.hashByte || ""]));
   const catalog = loadChannelCatalog();
   const counts24h = getChannelCounts24h();
+  const knownGroups = getKnownChannelGroups(getDb());
   const grouped = {};
   const groupFlags = {};
-  CHANNEL_GROUPS.forEach((g) => {
+  knownGroups.forEach((g) => {
     grouped[g] = [];
     groupFlags[g] = { newChannelCount: 0 };
   });
@@ -6003,6 +6032,7 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
     }
   };
   Object.entries(defaults).forEach(([group, list]) => {
+    if (!grouped[group]) grouped[group] = [];
     grouped[group] = (grouped[group] || []).concat(list.map((item) => ({
       ...item,
       code: item.code || keyMap.get(normalizeChannelName(item.name)) || "",
@@ -6039,7 +6069,9 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
   catalog.forEach((entry) => {
     if (fixedChannels.has(normalizeChannelName(entry.name))) return;
     if (!includeBlocked && isChannelBlocked(entry.name, blockedSet)) return;
-    const group = CHANNEL_GROUPS.includes(entry.group) ? entry.group : "Other";
+    const group = normalizeChannelGroup(entry.group, knownGroups) || "Other";
+    if (!grouped[group]) grouped[group] = [];
+    if (!groupFlags[group]) groupFlags[group] = { newChannelCount: 0 };
     const exists = grouped[group].some((item) => normalizeChannelName(item.name) === normalizeChannelName(entry.name));
     if (!exists) {
       grouped[group].push({
@@ -7714,23 +7746,24 @@ const server = http.createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const body = JSON.parse(raw || "{}");
-      const group = String(body.group || "").trim();
+      const groupRaw = String(body.group || "").trim();
       const name = normalizeChannelName(body.name || "");
       const code = String(body.code || "").trim();
       const emojiRaw = String(body.emoji || "").trim();
       const emoji = emojiRaw || "💬";
       const allowPopular = user.isAdmin ? (body.allowPopular !== false) : true;
-      if (!CHANNEL_GROUPS.includes(group)) {
+      const db = getDb();
+      const group = normalizeChannelGroup(groupRaw, getKnownChannelGroups(db));
+      if (!isValidChannelGroup(group)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid group" }));
       }
       if (!name || !code) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "name and code required" }));
       }
-      const blockedSet = loadBlockedChannels(getDb());
+      const blockedSet = loadBlockedChannels(db);
       if (blockedSet.has(name) && !user.isAdmin) {
         return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel is blocked" }));
       }
-      const db = getDb();
       const existing = db.prepare("SELECT name FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
       if (existing) {
         return send(res, 409, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "channel already exists" }));
@@ -7856,15 +7889,16 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       const body = JSON.parse(raw || "{}");
       const name = normalizeChannelName(body.name || "");
-      const group = String(body.group || "").trim();
+      const groupRaw = String(body.group || "").trim();
       const code = String(body.code || "").trim();
       const emojiRaw = String(body.emoji || "").trim();
       const emoji = emojiRaw || "💬";
       const allowPopular = body.allowPopular !== false;
-      if (!name || !CHANNEL_GROUPS.includes(group)) {
+      const db = getDb();
+      const group = normalizeChannelGroup(groupRaw, getKnownChannelGroups(db));
+      if (!name || !isValidChannelGroup(group)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid channel or group" }));
       }
-      const db = getDb();
       const existing = db.prepare("SELECT name, code FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
       const now = new Date().toISOString();
       if (existing) {
@@ -8012,11 +8046,12 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       const body = JSON.parse(raw || "{}");
       const name = normalizeChannelName(body.name || "");
-      const group = String(body.group || "").trim();
-      if (!name || !CHANNEL_GROUPS.includes(group)) {
+      const groupRaw = String(body.group || "").trim();
+      const db = getDb();
+      const group = normalizeChannelGroup(groupRaw, getKnownChannelGroups(db));
+      if (!name || !isValidChannelGroup(group)) {
         return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "invalid channel or group" }));
       }
-      const db = getDb();
       const existing = db.prepare("SELECT name FROM channels_catalog WHERE lower(name) = lower(?)").get(name);
       const now = new Date().toISOString();
       if (existing) {
