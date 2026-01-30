@@ -1170,6 +1170,7 @@ function getDb() {
   ensureColumn(db, "geoscore_routes", "teleport_max_km", "REAL");
   ensureColumn(db, "channels_catalog", "allow_popular", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "devices", "last_advert_heard_ms", "INTEGER");
+  syncChannelKeysFromCatalog(db);
   resetUserChannelsToFixed(db);
   startupTimings.dbInitEnd = logTiming("DB init END", startupTimings.dbInitStart);
   return db;
@@ -2090,6 +2091,45 @@ function saveKeys(obj) {
   const tmp = keysPath + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
   fs.renameSync(tmp, keysPath);
+}
+
+function syncChannelKeysFromCatalog(db) {
+  if (!db || !ChannelCrypto) return;
+  let rows = [];
+  try {
+    const hasCatalog = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='channels_catalog'").get();
+    if (!hasCatalog) return;
+    rows = db.prepare("SELECT name, code FROM channels_catalog WHERE code IS NOT NULL AND code != ''").all();
+  } catch {
+    return;
+  }
+  if (!rows.length) return;
+  const cfg = loadKeys();
+  cfg.channels = Array.isArray(cfg.channels) ? cfg.channels : [];
+  let changed = false;
+  rows.forEach((row) => {
+    const name = normalizeChannelName(row.name || "");
+    const secretHex = String(row.code || "").trim();
+    if (!name || !/^[0-9a-fA-F]{32}$/.test(secretHex)) return;
+    const hashByte = ChannelCrypto.calculateChannelHash(secretHex).toUpperCase();
+    const existing = cfg.channels.find((c) =>
+      normalizeChannelName(c.name || "") === name || String(c.hashByte || "").toUpperCase() === hashByte
+    );
+    if (!existing) {
+      cfg.channels.push({ hashByte, name, secretHex });
+      changed = true;
+      return;
+    }
+    const existingSecret = String(existing.secretHex || "").toUpperCase();
+    const nextSecret = secretHex.toUpperCase();
+    if (existingSecret !== nextSecret || String(existing.hashByte || "").toUpperCase() !== hashByte) {
+      existing.secretHex = secretHex;
+      existing.hashByte = hashByte;
+      existing.name = name;
+      changed = true;
+    }
+  });
+  if (changed) saveKeys(cfg);
 }
 
 function nodeHashFromPub(pubHex) {
@@ -7700,6 +7740,7 @@ const server = http.createServer(async (req, res) => {
         INSERT INTO channels_catalog (name, code, emoji, group_name, allow_popular, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(name, code, emoji, group, allowPopular ? 1 : 0, user.id, now);
+      syncChannelKeysFromCatalog(db);
       const payload = await buildChannelDirectory(getUserChannels(user.id));
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, directory: payload }));
     } catch (err) {
@@ -7839,6 +7880,7 @@ const server = http.createServer(async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(name, code || "unknown", emoji, group, allowPopular ? 1 : 0, user.id, now);
       }
+      syncChannelKeysFromCatalog(db);
       const payload = await buildChannelDirectory(getUserChannels(user.id));
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, directory: payload }));
     } catch (err) {
