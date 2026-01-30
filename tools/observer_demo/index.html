@@ -12,6 +12,13 @@
       googleClientId: "__GOOGLE_CLIENT_ID__"
     };
   </script>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-7XB43YJ3QW"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-7XB43YJ3QW');
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
@@ -395,6 +402,10 @@
     .nav a.active {
       color: var(--ink);
       background: rgba(0, 122, 255, 0.12);
+    }
+    .nav [data-view="node-rank"],
+    .mobile-menu [data-view="node-rank"] {
+      display: none;
     }
     .menu-toggle {
       display: none;
@@ -1218,6 +1229,63 @@
 
     body.theme-dark .rotm-feed-row {
       background: rgba(255, 255, 255, 0.03);
+    }
+
+    .rotm-feed-row-compact {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      background: rgba(0, 0, 0, 0.02);
+      font-family: 'Courier New', 'Monaco', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    body.theme-dark .rotm-feed-row-compact {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .rotm-feed-time {
+      color: var(--muted);
+      font-weight: 600;
+      min-width: 60px;
+      flex-shrink: 0;
+    }
+
+    .rotm-feed-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .rotm-feed-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .rotm-feed-cq,
+    .rotm-feed-repeater,
+    .rotm-feed-response {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .rotm-feed-stats-compact {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .rotm-feed-timer-compact {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
     }
 
     .rotm-feed-meta {
@@ -3843,12 +3911,12 @@
             <span>by G5AIL</span>
           </div>
         </div>
-      <nav class="nav">
-        <a href="#" class="active" data-view="channels">Messages</a>
-        <a href="#" data-view="channel-directory">Channels</a>
-        <a href="#" data-view="rotm">#ROTM</a>
-        <a href="#" data-view="rank">Repeater Rank</a>
-        <a href="#" data-view="node-rank">Node Rank</a>
+    <nav class="nav">
+      <a href="#" class="active" data-view="channels">Messages</a>
+      <a href="#" data-view="channel-directory">Channels</a>
+      <a href="#" data-view="rotm">#ROTM</a>
+      <a href="#" data-view="rank">Repeater Rank</a>
+      <a href="#" data-view="node-rank">Node Rank</a>
         <a href="#" data-view="meshscore">MeshRank</a>
         <a href="#" data-view="observer-rank">Observer Rank</a>
         <a href="#" data-view="rf">MeshFlow</a>
@@ -4437,7 +4505,7 @@
           <strong id="observerRankActive">0</strong>
         </div>
         <div class="summary-card">
-          <div>Packets today</div>
+          <div>Packets (24h)</div>
           <strong id="observerRankPackets">0</strong>
         </div>
       </div>
@@ -4495,7 +4563,7 @@
     <div class="neighbor-map-modal" id="neighborMapModal">
       <div class="neighbor-map-card">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-          <strong id="neighborMapTitle">Zero-hop Neighbors</strong>
+          <strong id="neighborMapTitle">Local Neighbors</strong>
           <div style="display:flex;gap:8px;align-items:center;">
             <button class="btn btn-ghost" type="button" id="neighborEditToggle">Something not right?</button>
             <button class="observer-location-button" type="button" id="neighborMapClose">Close</button>
@@ -4758,7 +4826,7 @@
         <p>Just like activating a park or summit, you get out into the real world to test and extend coverage. And just like FT8's efficient, low-power digital exchanges, #ROTM uses short, structured messages on the dedicated #rotm channel to confirm contacts and "activate" repeaters.</p>
         <p><strong>How it works (classic ham QSO flow adapted to mesh):</strong></p>
         <p><strong>Initiate the call:</strong> Send a message on the #rotm channel that starts with CQ (e.g., "CQ ROTM via GB3STK @G5AIL testing" or simply "CQ via hill repeater"). This is your activation call - observers capture it with repeater path, hops, and confidence metadata.</p>
-        <p><strong>Respond:</strong> Another node replies within 5 minutes, making sure to include the CQ sender's @node handle in their message (e.g., "@G5AIL 5/9 solid copy via same repeater 73" or "@NodeA msg ack 73 de @YourNode"). No strict wording required - just acknowledge and mention their @handle to link the exchange.</p>
+        <p><strong>Respond:</strong> Another node replies within 120 minutes, making sure to include the CQ sender's @node handle in their message (e.g., "@G5AIL 5/9 solid copy via same repeater 73" or "@NodeA msg ack 73 de @YourNode"). No strict wording required - just acknowledge and mention their @handle to link the exchange.</p>
         <p><strong>Confirmation & credit:</strong> When both messages are observed at high confidence (&gt;70% packets heard), MeshRank resolves the repeater hop using AI-assisted geo-intelligence from observer data. The repeater is then credited as "activated" for both nodes (added to unique claimed repeaters), and the QSO is logged. No credit for unheard paths - exactly like needing chasers to complete a POTA/SOTA activation.</p>
         <div class="modal-actions">
           <button class="btn" type="button" id="rotmInfoClose">Close</button>
@@ -5955,6 +6023,20 @@
       const showRotm = !!appData.authUser?.isAdmin;
       document.querySelectorAll("[data-view='rotm']").forEach((link) => {
         link.style.display = showRotm ? "" : "none";
+      });
+    }
+
+    function updateNodeRankVisibility() {
+      const showNodeRank = !!appData.authUser?.isAdmin;
+      document.querySelectorAll("[data-view='node-rank']").forEach((link) => {
+        link.style.display = showNodeRank ? "" : "none";
+      });
+    }
+
+    function updateRepeaterRankVisibility() {
+      const showRank = !!appData.authUser?.isAdmin;
+      document.querySelectorAll("[data-view='rank']").forEach((link) => {
+        link.style.display = showRank ? "" : "none";
       });
     }
 
@@ -8936,7 +9018,7 @@
                     <span class="rank-dot" style="background:${o.scoreColor}">${scoreBadge}</span>
                     <div class="rank-main">
                       <strong>${o.name || o.id}</strong>
-                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets (24h): ${o.packets24h ?? 0}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}${Number.isFinite(o.lastSeenAgoMinutes) && o.lastSeenAgoMinutes >= 60 && o.lastPacketAt ? ` | Last packet: ${formatDateTime(o.lastPacketAt)}` : ""}</div>
+                      <div class="rank-meta">Uptime: ${o.uptimeHours.toFixed(1)}h | Packets (24h): ${(o.packets24h ?? o.packetsToday ?? 0).toLocaleString()}${o.offline && Number.isFinite(o.lastSeenAgoMinutes) ? ` | Last heard ${formatRelativeMinutes(o.lastSeenAgoMinutes)}` : ""}${Number.isFinite(o.lastSeenAgoMinutes) && o.lastSeenAgoMinutes >= 60 && o.lastPacketAt ? ` | Last packet: ${formatDateTime(o.lastPacketAt)}` : ""}</div>
                       <div class="rank-meta">Coverage: ${o.coverageKm.toFixed(1)}km | Repeaters: ${o.coverageCount}</div>
                       <div class="rank-meta">Nearest repeater: ${o.nearestRepeaterName || "--"}${Number.isFinite(o.nearestRepeaterKm) ? ` (${o.nearestRepeaterKm}km)` : ""}</div>
                       ${o.lowPacketRate ? "<div class=\"rank-meta\" style=\"color:#f2c88b;\">Low packet rate - try moving observer closer to repeater.</div>" : ""}
@@ -8954,7 +9036,12 @@
         : "--";
       document.getElementById("observerRankTotal").textContent = data.items.length;
       document.getElementById("observerRankActive").textContent = data.items.filter((o) => o.ageHours < 24).length;
-      document.getElementById("observerRankPackets").textContent = data.items.reduce((sum, o) => sum + (o.packets24h || 0), 0);
+      const listPacketsTotal = data.items.reduce((sum, o) => sum + (o.packets24h ?? o.packetsToday ?? 0), 0);
+      // Only overwrite header total from list if list has packet data; else keep summary total
+      const el = document.getElementById("observerRankPackets");
+      if (listPacketsTotal > 0 || !appData.observerRankSummary?.totals) {
+        el.textContent = listPacketsTotal.toLocaleString();
+      }
     }
 
     function renderObserverRankSummary(summary) {
@@ -8964,7 +9051,8 @@
         : "--";
       document.getElementById("observerRankTotal").textContent = summary.count ?? 0;
       document.getElementById("observerRankActive").textContent = summary.totals?.active ?? 0;
-      document.getElementById("observerRankPackets").textContent = summary.totals?.packets24h ?? 0;
+      const p = summary.totals?.packets24h ?? summary.totals?.packetsToday ?? 0;
+      document.getElementById("observerRankPackets").textContent = Number(p).toLocaleString();
     }
 
     function renderObserverRankMap(data) {
@@ -8983,7 +9071,7 @@
           color: o.scoreColor,
           fillColor: o.scoreColor,
           fillOpacity: 0.9
-        }).bindPopup(`${o.name || o.id} | ${o.packets24h} pkts (24h)`);
+        }).bindPopup(`${o.name || o.id} | ${(o.packets24h ?? o.packetsToday ?? 0).toLocaleString()} pkts (24h)`);
         marker.addTo(observerRankLayer);
         if (o.coverageKm > 0) {
           const circle = L.circle(latlng, {
@@ -9386,9 +9474,9 @@
       const suppressedReason = entry?.zeroHopUnavailableReason;
       if (suppressedReason) {
         const explanation = suppressedReason === "hidden"
-          ? "Zero-hop neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours."
-          : "Zero-hop neighbour stats are currently unavailable.";
-        if (title) title.textContent = "Zero-hop neighbours unavailable";
+          ? "Local neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours."
+          : "Local neighbour stats are currently unavailable.";
+        if (title) title.textContent = "Local neighbours unavailable";
         if (meta) meta.textContent = explanation;
         if (neighborMapLayer) neighborMapLayer.clearLayers();
         const list = document.getElementById("neighborMapList");
@@ -9396,8 +9484,8 @@
         modal.classList.add("open");
         return;
       }
-      if (title) title.textContent = `Zero-hop neighbours: ${repeaterName}`;
-      if (meta) meta.textContent = "Lines show likely zero-hop neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.";
+      if (title) title.textContent = `Local neighbours: ${repeaterName}`;
+      if (meta) meta.textContent = "Lines show likely local neighbours matched using AI-inspired geo intelligence that blends route codes with nearby repeater clusters.";
       modal.classList.add("open");
 
       if (!neighborMap) {
@@ -9419,15 +9507,15 @@
       });
       const visibleNeighbors = neighbors.filter((neighbor) => !isNeighborHidden(neighbor));
       const list = document.getElementById("neighborMapList");
-      if (!visibleNeighbors.length) {
-        const explanation = "Zero-hop neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours.";
-        if (title) title.textContent = "Zero-hop neighbours unavailable";
-        if (meta) meta.textContent = explanation;
-        if (neighborMapLayer) neighborMapLayer.clearLayers();
-        if (list) list.innerHTML = `<div class="neighbor-map-item">${explanation}</div>`;
-        modal.classList.add("open");
-        return;
-      }
+        if (!visibleNeighbors.length) {
+          const explanation = "Local neighbour stats are not available for repeaters hidden from the map (names containing 🚫 or GPS flags). Remove the emoji / reset the flagged GPS and publish a new advert to restore coverage within 24 hours.";
+          if (title) title.textContent = "Local neighbours unavailable";
+          if (meta) meta.textContent = explanation;
+          if (neighborMapLayer) neighborMapLayer.clearLayers();
+          if (list) list.innerHTML = `<div class="neighbor-map-item">${explanation}</div>`;
+          modal.classList.add("open");
+          return;
+        }
       const byHash = appData.repeatersByCode || buildRepeatersByCode(appData.rankData || {});
       const points = [];
       appData.neighborOverrideOptions = new Map();
@@ -9474,33 +9562,89 @@
 
       if (list) {
         if (!visibleNeighbors.length) {
-          list.innerHTML = "<div class='neighbor-map-item'>No strong zero-hop neighbours yet.</div>";
+          list.innerHTML = "<div class='neighbor-map-item'>No strong local neighbours yet.</div>";
         } else {
-          list.innerHTML = visibleNeighbors.map((n) => {
+          // Group neighbors by hash byte to detect duplicates
+          const neighborsByHash = new Map();
+          visibleNeighbors.forEach((n) => {
+            const hash = String(n.hash || "").toUpperCase();
+            if (!neighborsByHash.has(hash)) {
+              neighborsByHash.set(hash, []);
+            }
+            neighborsByHash.get(hash).push(n);
+          });
+          
+          list.innerHTML = Array.from(neighborsByHash.entries()).map(([hash, neighbors]) => {
+            const n = neighbors[0]; // Use first neighbor (should be the selected one)
             const rssi = Number.isFinite(n.rssiAvg) ? `${n.rssiAvg} dBm` : "--";
+            const distance = n.distanceKm !== null && Number.isFinite(n.distanceKm) ? `${n.distanceKm} km` : "";
             const status = n.relation === "reciprocal"
               ? "Reciprocal neighbour"
               : "Mesh packet passed between these nodes";
-            const canChange = !!appData.authUser?.isAdmin && appData.neighborEditMode && Array.isArray(n.options) && n.options.length > 1;
-            if (Array.isArray(n.options) && n.options.length > 1) {
+            
+            // Show dropdown if multiple neighbors share same hash byte
+            const hasMultipleOptions = neighbors.length > 1 || (Array.isArray(n.options) && n.options.length > 1);
+            const canEdit = !!appData.authUser?.isAdmin && appData.neighborEditMode && hasMultipleOptions;
+            
+            if (hasMultipleOptions && Array.isArray(n.options)) {
               appData.neighborOverrideOptions.set(String(n.hash || ""), n.options);
             }
+            
             const relationBadge = neighborRelationBadge(n.relation);
+            const distanceText = distance ? ` · ${distance}` : "";
+            
             return `
               <div class="neighbor-map-item" data-neighbor-hash="${n.hash || ""}">
                 <div>
                   <div class="neighbor-title-row">
                     <strong>${n.name || n.hash || "Neighbor"}</strong>
+                    ${hasMultipleOptions ? `<span style="color:var(--muted);font-size:0.9em;">(${neighbors.length} options)</span>` : `<span style="color:var(--muted);font-size:0.9em;">(no other repeaters share this key)</span>`}
                   </div>
-                  <div class="neighbor-meta">${status} · Avg RSSI: ${rssi}</div>
+                  <div class="neighbor-meta">${status} · Avg RSSI: ${rssi}${distanceText}</div>
+                  ${canEdit && Array.isArray(n.options) && n.options.length > 1 ? `
+                    <select class="neighbor-select" data-neighbor-hash="${n.hash || ""}" data-target-pub="${entry?.pub || ""}" style="margin-top:8px;width:100%;padding:4px;">
+                      ${n.options.map((opt) => {
+                        const optDistance = opt.distanceKm !== null && Number.isFinite(opt.distanceKm) ? ` (${opt.distanceKm} km)` : "";
+                        const isSelected = opt.pub === n.pub;
+                        return `<option value="${opt.pub}" ${isSelected ? "selected" : ""}>${opt.name || opt.hash || "Unknown"}${optDistance}</option>`;
+                      }).join("")}
+                    </select>
+                  ` : ""}
                 </div>
                 <div class="neighbor-actions">
                   ${relationBadge ? `<div class="neighbor-badge-wrap">${relationBadge}</div>` : ""}
-                  ${canChange ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
+                  ${canEdit && !Array.isArray(n.options) ? `<button class="btn btn-ghost" type="button" data-neighbor-change="${n.hash || ""}" data-neighbor-pub="${n.pub || ""}">Change</button>` : ""}
                 </div>
               </div>
             `;
           }).join("");
+          
+          // Add event listeners for dropdown changes
+          list.querySelectorAll(".neighbor-select").forEach((select) => {
+            select.addEventListener("change", async (e) => {
+              const hash = select.getAttribute("data-neighbor-hash");
+              const targetPub = select.getAttribute("data-target-pub");
+              const pub = select.value;
+              if (!targetPub || !hash || !pub) return;
+              try {
+                await fetch("/api/zero-hop-override", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", ...authHeaders() },
+                  body: JSON.stringify({ targetPub, hash, pub })
+                });
+                // Reload rank to show updated selection
+                await loadRankDefault();
+                fetchRankSummary().then(renderRankSummary).catch(() => {});
+                // Reopen modal with updated data
+                const entry = appData.rankPayload?.items?.find((r) => r.pub === targetPub);
+                if (entry) {
+                  openNeighborMapModal(entry);
+                }
+              } catch (err) {
+                console.error("Failed to save neighbor override:", err);
+              }
+            });
+          });
         }
       }
 
@@ -9572,7 +9716,7 @@
     let rotmMapLayer;
     let rotmRefreshTimer = null;
     let rotmTimerTick = null;
-    const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
+    const ROTM_QSO_WINDOW_MS = 120 * 60 * 1000; // 120 minutes - keep CQ calls open for 2 hours
     const ROTM_REFRESH_MS = 5000;
 
     function formatRotmTime(ts) {
@@ -9615,43 +9759,34 @@
       el.innerHTML = feed.map((item) => {
         const badgeClass = item.tone ? `rotm-badge ${item.tone}` : "rotm-badge";
         const viaName = item.viaRepeater || "Unknown";
-        const channelLabel = item.channel || "#rotm";
         const isCq = item.tone === "cq" && !item.confirmed;
         const timer = isCq ? `<span class="rotm-cq-timer" data-ts="${item.ts || ""}">--</span>` : "";
         const showDetails = !!item.confirmed;
-        const responseTitle = item.responseSender ? "@"+item.responseSender : "Waiting";
-        const responseBody = item.responseBody || "--";
-        const responseVia = item.responseViaRepeater ? `via ${item.responseViaRepeater}` : "via --";
-        const cqSenderLabel = showDetails ? `@${item.sender || "unknown"}` : "CQ";
-        const cqBodyLabel = showDetails ? (item.body || "") : "";
-        const cqStats = `Observers: ${item.observerCount ?? 0} | Hops: ${item.hopCount ?? 0}`;
-        const repeaterBadgeClass = showDetails ? "rotm-repeater-badge ok" : "rotm-repeater-badge";
+        const responseTitle = item.responseSender ? "@"+item.responseSender : null;
+        const responseVia = item.responseViaRepeater || null;
+        const cqLabel = showDetails ? `@${item.sender || "unknown"}` : "LIVE CQ CALL";
+        const observerCount = item.observerCount ?? 0;
+        
         return `
-          <div class="rotm-feed-row">
-            <div class="rotm-feed-col">
-              <div class="rotm-feed-col-title">CQ call</div>
-              <div class="rotm-feed-meta">
-                <span>${formatRotmTime(item.ts)}</span>
-                <span>${channelLabel}</span>
-                <span class="rotm-feed-sender">${cqSenderLabel}</span>
+          <div class="rotm-feed-row-compact">
+            <div class="rotm-feed-time">${formatRotmTime(item.ts)}</div>
+            <div class="rotm-feed-content">
+              <div class="rotm-feed-line">
+                <span class="rotm-feed-cq">(${cqLabel})</span>
+                <span class="${badgeClass}">${item.badge || "CQ"}</span>
               </div>
-              <span class="${repeaterBadgeClass}">${viaName}</span>
-              ${cqBodyLabel ? `<div class="rotm-feed-body">${cqBodyLabel}</div>` : ""}
-              <div class="rotm-feed-stats">${cqStats}</div>
-              <span class="${badgeClass}">${item.badge || "Message"}</span>
-            </div>
-            <div class="rotm-feed-col">
-              <div class="rotm-feed-col-title">Response</div>
-              <div class="rotm-feed-meta">
-                <span class="rotm-feed-sender">${showDetails ? responseTitle : "Waiting"}</span>
-                <span>${item.confirmed ? "Confirmed QSO" : "Pending"}</span>
-                <span>${showDetails ? responseVia : "via --"}</span>
+              <div class="rotm-feed-line">
+                <span class="rotm-feed-repeater">(${viaName})</span>
+                <span class="rotm-repeater-badge ${showDetails ? "ok" : ""}">${viaName}</span>
               </div>
-              <div class="rotm-feed-body">${showDetails ? responseBody : "--"}</div>
-            </div>
-            <div class="rotm-feed-col">
-              <div class="rotm-feed-col-title">Timer</div>
-              <div class="rotm-feed-timer">${timer || "--"}</div>
+              ${showDetails && responseTitle ? `
+              <div class="rotm-feed-line">
+                <span class="rotm-feed-response">(@${responseTitle})</span>
+                ${responseVia ? `<span class="rotm-repeater-badge ok">${responseVia}</span>` : ""}
+              </div>
+              ` : ""}
+              <div class="rotm-feed-stats-compact">Observers: ${observerCount}</div>
+              ${timer ? `<div class="rotm-feed-timer-compact">${timer}</div>` : ""}
             </div>
           </div>
         `;
@@ -10287,7 +10422,7 @@
       if (Number.isFinite(o.ageHours) && o.ageHours <= 1 && Number(o.uptimeHours || 0) >= 48) {
         badges.push({ label: "Great Uptime", tone: "green" });
       }
-      if (Number(o.packets24h || 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
+      if (Number(o.packets24h ?? o.packetsToday ?? 0) >= 200) badges.push({ label: "Great RX", tone: "blue" });
       if (Number(o.coverageCount || 0) >= 5) badges.push({ label: "Strong Local Mesh", tone: "purple" });
       if (Number(o.coverageKm || 0) >= 20) badges.push({ label: "Wide Coverage", tone: "amber" });
       if (Number(o.nearestRepeaterKm || 999) <= 5) badges.push({ label: "Close to Repeater", tone: "green" });
@@ -10514,6 +10649,11 @@
           </span>
         </div>
       `;
+      // Check if name contains 🚫 - if so, hide neighbor link to protect privacy
+      const nameHasHideEmoji = r.name && String(r.name).includes("🚫");
+      const neighborLink = nameHasHideEmoji 
+        ? `<span style="color:var(--muted);">Neighbours unavailable</span>`
+        : `<a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">View neighbours</a>`;
       item.className = "rank-item" + (isHidden ? " hidden" : "");
       item.dataset.pub = (r.pub || "").toUpperCase();
       item.innerHTML = `
@@ -10524,7 +10664,7 @@
         <div class="row">Last seen: ${r.lastSeen ? formatDateTime(r.lastSeen) : "unknown"}</div>
         <div class="row">Adverts 72h: ${r.total24h} | Avg repeats: ${r.avgRepeats}</div>
         <div class="row">
-          <a class="link-btn" href="#" data-repeater-neighbors="${r.pub || ""}">View neighbours</a>
+          ${neighborLink}
           <span style="color:var(--muted);">|</span>
           <a class="link-btn" href="#" data-repeater-pub="${r.pub || ""}">Public key</a>
         </div>
@@ -11197,7 +11337,7 @@
         ? `<div style="font-size:12px;color:#356">Location estimated (${r.gpsEstimateNeighbors || "?"} neighbors)</div>`
         : "";
       const zeroHopPopupLine = r.zeroHopUnavailableReason
-        ? "Zero-hop neighbours stats are unavailable for repeaters hidden from the map."
+        ? "Local neighbours stats are unavailable for repeaters hidden from the map."
         : "View neighbours for more details.";
       const actionButtons = `
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">

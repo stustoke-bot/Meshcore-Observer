@@ -1,0 +1,14 @@
+{
+  "name": "meshrank-bot",
+  "version": "1.0.0",
+  "description": "Run locally: connects to your MeshCore radio and meshrank.net to reply to 'test' on #test",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "help": "node bot.js --help"
+  },
+  "dependencies": {
+    "@liamcottle/meshcore.js": "^1.10.0",
+    "yargs": "^18.0.0"
+  }
+}

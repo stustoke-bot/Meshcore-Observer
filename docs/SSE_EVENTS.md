@@ -11,6 +11,14 @@ Endpoint: `GET /api/message-stream`
 - `ping`: `{}` (keepalive)
 - `error`: `{ error }`
 
+## Bot Stream
+Endpoint: `GET /api/bot-stream` (requires `Authorization: Bearer <token>` or a valid session cookie)
+
+### Events
+- `ready`: `{ ok, ts }`
+- `reply`: `{ channel, sender, messageHash, body, hops, observers, path, shareLink }`
+- `ping`: `{}`
+
 ## Payload notes
 - `channels` matches `/api/channels` output (id, name, snippet, time).
 - `rotm` matches `/api/rotm` output (feed, leaderboard, updatedAt).

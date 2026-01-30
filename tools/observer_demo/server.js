@@ -48,12 +48,22 @@ const { MeshCoreDecoder, Utils } = require("@michaelhart/meshcore-decoder");
 const { getDbPath, logDbInfo } = require("./db_path");
 const dbPath = getDbPath();
 const DEBUG_PERF = process.env.DEBUG_PERF === "1";
+// #region agent log
+function _debugLog(payload) {
+  const line = JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: "debug-session" }) + "\n";
+  try {
+    fs.appendFileSync(path.join(projectRoot, ".cursor", "debug.log"), line);
+  } catch (e) {}
+  fetch("http://localhost:7242/ingest/82ab07bc-b193-4ecf-84ae-14a2a55e10b0", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, timestamp: Date.now(), sessionId: "debug-session" }) }).catch(() => {});
+}
+// #endregion
 const DEBUG_SQL = process.env.DEBUG_SQL === "1";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "";
 
 const CHANNEL_TAIL_LINES = 6000;
+/** On site load we serve this many messages per channel from cache so history is available; new messages then arrive realtime via SSE. */
 const CHANNEL_HISTORY_LIMIT = 10;
 const CHANNEL_HISTORY_LIMITS = {
   "#hashtags": 30
@@ -66,13 +76,14 @@ let observerHitsCache = { mtimeMs: null, size: null, map: new Map(), offset: 0, 
 let rfAggCache = { builtAt: 0, map: new Map(), limit: 0 };
 let channelMessagesCache = { mtimeMs: null, size: null, payload: null, builtAt: 0 };
 let channelMessagesInFlight = null;
+let messagesCacheBuildScheduled = false;
 let rotmCache = { builtAt: 0, payload: null };
-const DEVICES_CACHE_MS = 1000;
-const OBSERVERS_CACHE_MS = 1000;
+const DEVICES_CACHE_MS = 30 * 1000; // 30 seconds (was 1 second - way too short)
+const OBSERVERS_CACHE_MS = 30 * 1000; // 30 seconds
 let devicesCache = { readAt: 0, data: null };
 let observersCache = { readAt: 0, data: null };
-const CHANNEL_CACHE_MIN_MS = 500;
-const CHANNEL_CACHE_STALE_MS = 1500;
+const CHANNEL_CACHE_MIN_MS = 5 * 1000; // 5 seconds (file path: skip rebuild if in flight)
+const CHANNEL_CACHE_STALE_MS = 30 * 1000; // 30 seconds (file path: in-flight guard only)
 const MESSAGE_ROUTE_CACHE_MS = 60 * 1000;
 const CONFIDENCE_HISTORY_MAX_ROWS = 400;
 const CONFIDENCE_DEAD_END_LIMIT = 20;
@@ -80,6 +91,10 @@ const messageRouteCache = new Map();
 
 const packetTimeline = [];
 const visitorConnections = new Set();
+/** Set of sendEvent(name, payload) for each /api/message-stream client – used to push new messages in realtime */
+const messageStreamSenders = new Set();
+/** Set of sendEvent(name, payload) for /api/bot-stream clients */
+const botStreamSenders = new Set();
 const visitorTimeline = [];
 const VISITOR_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
 const VISITOR_RATE_MINUTE_MS = 60 * 1000;
@@ -102,7 +117,7 @@ const REPEATER_FLAG_REVIEW_HOURS = 24;
 const REPEATER_ESTIMATE_MIN_NEIGHBORS = 3;
 const REPEATER_ESTIMATE_SINGLE_OFFSET_KM = 4.8; // ~3 miles
 const ROTM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const ROTM_QSO_WINDOW_MS = 5 * 60 * 1000;
+const ROTM_QSO_WINDOW_MS = 120 * 60 * 1000; // 120 minutes - keep CQ calls open for 2 hours
 const ROTM_MIN_OBSERVER_HITS = 1;
 const ROTM_FEED_LIMIT = 200;
 const ROTM_DB_LIMIT = 2000;
@@ -321,6 +336,7 @@ const REPEATER_ACTIVE_WINDOW_MS = REPEATER_ACTIVE_WINDOW_HOURS * 60 * 60 * 1000;
 const REPEAT_EVIDENCE_WINDOW_MS = REPEATER_ACTIVE_WINDOW_MS;
 const REPEAT_EVIDENCE_MIN_MIDDLE = 5;
 const REPEAT_EVIDENCE_MIN_NEIGHBORS = 2;
+const REPEATER_QUERY_LIMIT = 5000;
 
 let rankCache = { updatedAt: null, count: 0, items: [], excluded: [], cachedAt: null };
 let rankRefreshInFlight = null;
@@ -329,6 +345,28 @@ let rankSummaryCache = {
   totals: { total: 0, active: 0, total24h: 0 },
   lastPersistAt: 0
 };
+
+// Startup timing instrumentation (must be defined before hydrateRepeaterRankCache)
+const startupTimings = {
+  moduleLoadStart: process.hrtime.bigint(),
+  moduleLoadEnd: null,
+  dbInitStart: null,
+  dbInitEnd: null,
+  serverListenStart: null,
+  serverListenEnd: null,
+  cacheHydrateStart: null,
+  cacheHydrateEnd: null
+};
+
+function logTiming(label, startTime) {
+  const now = process.hrtime.bigint();
+  const elapsedMs = startTime ? Number(now - startTime) / 1e6 : 0;
+  const elapsedFromStart = Number(now - startupTimings.moduleLoadStart) / 1e6;
+  console.log(`[TIMING] ${label}: ${elapsedMs > 0 ? elapsedMs.toFixed(2) + 'ms' : 'START'} (total: ${elapsedFromStart.toFixed(2)}ms)`);
+  return now;
+}
+
+// Cache hydration happens after server starts (in server.listen callback)
 const RANK_HISTORY_PERSIST_INTERVAL = 10 * 60 * 1000;
 
 let observerRankCache = { updatedAt: null, items: [] };
@@ -778,9 +816,18 @@ function recordDbInfo(db) {
 }
 
 function getDb() {
+  // #region agent log
   if (db) return db;
+  const getDbStart = Date.now();
+  _debugLog({ location: "server.js:getDb-entry", message: "getDb entry (will open DB)", data: {}, hypothesisId: "H1" });
+  // #endregion
+  startupTimings.dbInitStart = startupTimings.dbInitStart || process.hrtime.bigint();
+  logTiming("DB init START", startupTimings.dbInitStart);
   db = new Database(dbPath);
   recordDbInfo(db);
+  // #region agent log
+  _debugLog({ location: "server.js:getDb-exit", message: "getDb exit", data: { durationMs: Date.now() - getDbStart }, hypothesisId: "H1" });
+  // #endregion
   if (DEBUG_SQL) {
     const origPrepare = db.prepare.bind(db);
     db.prepare = (sql) => {
@@ -1009,6 +1056,35 @@ function getDb() {
       updated_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
+    CREATE INDEX IF NOT EXISTS idx_devices_repeater_advert ON devices(is_repeater, last_advert_heard_ms);
+    CREATE TABLE IF NOT EXISTS current_repeaters (
+      pub TEXT PRIMARY KEY,
+      name TEXT,
+      gps_lat REAL,
+      gps_lon REAL,
+      last_advert_heard_ms INTEGER,
+      hidden_on_map INTEGER DEFAULT 0,
+      gps_implausible INTEGER DEFAULT 0,
+      visible INTEGER DEFAULT 1,
+      is_observer INTEGER DEFAULT 0,
+      -- Stats fields (computed during rank rebuild)
+      best_rssi REAL,
+      best_snr REAL,
+      avg_rssi REAL,
+      avg_snr REAL,
+      total24h INTEGER DEFAULT 0,
+      -- Score fields (computed during rank rebuild)
+      score INTEGER,
+      color TEXT,
+      quality TEXT,
+      quality_reason TEXT,
+      is_live INTEGER DEFAULT 0,
+      stale INTEGER DEFAULT 0,
+      last_seen TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_current_repeaters_last_advert ON current_repeaters(last_advert_heard_ms);
+    CREATE INDEX IF NOT EXISTS idx_current_repeaters_score ON current_repeaters(score);
     CREATE TABLE IF NOT EXISTS observers (
       observer_id TEXT PRIMARY KEY,
       name TEXT,
@@ -1043,6 +1119,7 @@ function getDb() {
   ensureColumn(db, "channels_catalog", "allow_popular", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "devices", "last_advert_heard_ms", "INTEGER");
   resetUserChannelsToFixed(db);
+  startupTimings.dbInitEnd = logTiming("DB init END", startupTimings.dbInitStart);
   return db;
 }
 
@@ -1051,6 +1128,34 @@ function buildRankTotals(items) {
   const active = items.filter((r) => !r.stale).length;
   const total24h = items.reduce((sum, r) => sum + (Number.isFinite(r.total24h) ? r.total24h : 0), 0);
   return { total, active, total24h };
+}
+
+function normalizeRankPubKey(item) {
+  if (!item) return null;
+  return String(item.pub || item.publicKey || item.pubKey || item.hashByte || "")
+    .toUpperCase()
+    .trim() || null;
+}
+
+function filterRecentRankItems(items) {
+  if (!Array.isArray(items) || !items.length) return [];
+  const windowStart = Date.now() - (Number.isFinite(REPEATER_ACTIVE_WINDOW_MS) ? REPEATER_ACTIVE_WINDOW_MS : 0);
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const pub = normalizeRankPubKey(item);
+    if (!pub) continue;
+    const lastAdvertMs = Number.isFinite(item.lastAdvertIngestMs)
+      ? item.lastAdvertIngestMs
+      : (Number.isFinite(item.lastAdvertHeardMs)
+        ? item.lastAdvertHeardMs
+        : (item.lastSeen ? Date.parse(item.lastSeen) : null));
+    if (!Number.isFinite(lastAdvertMs) || lastAdvertMs < windowStart) continue;
+    if (seen.has(pub)) continue;
+    seen.add(pub);
+    result.push(item);
+  }
+  return result;
 }
 
 function updateRankSummary(items, cachedAt) {
@@ -1077,12 +1182,25 @@ function updateRankSummary(items, cachedAt) {
 
 function hydrateRepeaterRankCache() {
   try {
-    const row = getDb()
-      .prepare("SELECT updated_at, payload FROM repeater_rank_cache WHERE id = 1")
-      .get();
-    if (!row?.payload) return;
+    startupTimings.cacheHydrateStart = startupTimings.cacheHydrateStart || process.hrtime.bigint();
+    logTiming("Cache hydration START", startupTimings.cacheHydrateStart);
+    console.log("(cache) Starting cache hydration...");
+    const dbStart = process.hrtime.bigint();
+    const db = getDb();
+    logTiming("Cache hydration - getDb() call", dbStart);
+    console.log("(cache) Database connection established");
+    const row = db.prepare("SELECT updated_at, payload FROM repeater_rank_cache WHERE id = 1").get();
+    console.log(`(cache) Query result: ${row ? 'found row' : 'no row'}, payload size: ${row?.payload ? row.payload.length : 0}`);
+    if (!row?.payload) {
+      console.log("(cache) No cached rank data found");
+      return;
+    }
     const parsed = JSON.parse(row.payload);
-    if (!parsed || !Array.isArray(parsed.items)) return;
+    console.log(`(cache) Parsed JSON: items=${parsed?.items?.length || 0}, updatedAt=${parsed?.updatedAt || 'none'}`);
+    if (!parsed || !Array.isArray(parsed.items)) {
+      console.log("(cache) Invalid cached rank data format");
+      return;
+    }
     const updatedAt = row.updated_at || parsed.updatedAt || new Date().toISOString();
     rankCache = {
       ...parsed,
@@ -1090,7 +1208,14 @@ function hydrateRepeaterRankCache() {
       cachedAt: updatedAt
     };
     updateRankSummary(parsed.items, updatedAt);
-  } catch {}
+    console.log(`(cache) Loaded ${parsed.items.length} repeaters from cache (updated: ${updatedAt})`);
+    console.log(`(cache) rankCache.count=${rankCache.count}, rankCache.items.length=${rankCache.items?.length || 0}`);
+    startupTimings.cacheHydrateEnd = logTiming("Cache hydration END", startupTimings.cacheHydrateStart);
+  } catch (err) {
+    console.error("(cache) Failed to hydrate rank cache:", err?.message || err);
+    console.error("(cache) Stack:", err?.stack);
+    startupTimings.cacheHydrateEnd = logTiming("Cache hydration END (ERROR)", startupTimings.cacheHydrateStart);
+  }
 }
 
 function persistRepeaterRankCache(payload) {
@@ -2769,6 +2894,25 @@ async function tailLines(filePath, limit) {
   return buf;
 }
 
+/** Read new lines from file from byte offset; returns { lines, newOffset } for realtime ndjson append */
+function readNewLinesFromOffset(filePath, startOffset) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(filePath)) return resolve({ lines: [], newOffset: startOffset });
+    const stat = fs.statSync(filePath);
+    const endOffset = Number.isFinite(stat.size) ? stat.size : startOffset;
+    if (endOffset <= startOffset) return resolve({ lines: [], newOffset: startOffset });
+    const lines = [];
+    const stream = fs.createReadStream(filePath, { encoding: "utf8", start: startOffset, end: endOffset - 1 });
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    rl.on("line", (line) => {
+      const t = line.trim();
+      if (t) lines.push(t);
+    });
+    rl.on("close", () => resolve({ lines, newOffset: endOffset }));
+    stream.on("error", reject);
+  });
+}
+
 async function buildObserverRank() {
   const observers = readObservers();
   const byId = observers.byId || {};
@@ -2777,6 +2921,21 @@ async function buildObserverRank() {
   const repeatersByPub = new Map();
   for (const d of Object.values(byPub)) {
     if (!d?.gps || !Number.isFinite(d.gps.lat) || !Number.isFinite(d.gps.lon)) continue;
+    // Exclude companion devices
+    if (isCompanionDevice(d)) continue;
+    // Exclude room servers (role = "room_server" or roleCode = 0x03 or deviceRole = 3)
+    // Exclude sensors (deviceRole = 4)
+    const role = String(d.role || "").toLowerCase();
+    const roleName = String(d.appFlags?.roleName || "").toLowerCase();
+    const roleCode = Number.isFinite(d.appFlags?.roleCode) ? d.appFlags.roleCode : null;
+    const deviceRole = Number.isFinite(d?.raw?.lastAdvert?.appData?.deviceRole) 
+      ? d.raw.lastAdvert.appData.deviceRole 
+      : null;
+    const isRoomServer = role === "room_server" || roleName === "room_server" || roleCode === 0x03 || deviceRole === 3;
+    const isSensor = deviceRole === 4;
+    if (isRoomServer || isSensor) {
+      continue;
+    }
     repeatersByPub.set(String(d.pub || d.publicKey || d.pubKey || "").toUpperCase(), {
       gps: d.gps,
       name: d.name || null
@@ -2784,15 +2943,17 @@ async function buildObserverRank() {
   }
 
   const now = Date.now();
-  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
-  const windowHours = windowMs / 3600000;
-  const rankWindowMs = windowMs;
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS; // 72 hours for repeater matching
+  const packetsTodayWindowMs = 24 * 60 * 60 * 1000; // 24 hours for "packets today" count
+  const packetsTodayCutoff = new Date(now - packetsTodayWindowMs).toISOString();
   const stats = new Map();
+  const normId = (id) => String(id || "").trim().toUpperCase();
 
   for (const entry of Object.values(byId)) {
     if (!entry?.id) continue;
-    stats.set(entry.id, {
-      id: entry.id,
+    const id = normId(entry.id);
+    stats.set(id, {
+      id,
       name: entry.name || entry.id,
       firstSeen: entry.firstSeen || null,
       lastSeen: entry.lastSeen || null,
@@ -2804,18 +2965,130 @@ async function buildObserverRank() {
     });
   }
 
-  if (fs.existsSync(observerPath)) {
-    const rl = readline.createInterface({
-      input: fs.createReadStream(observerPath, { encoding: "utf8" }),
-      crlfDelay: Infinity
-    });
+  // Simplified: Use database queries instead of reading entire file (much faster)
+  const db = getDb();
+  let packetCounts = [];
+  try {
+    const hasRfTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rf_packets'").get();
+    
+    if (hasRfTable) {
+      // Fast SQL query: Get packet counts from last 24 hours per observer
+      packetCounts = db.prepare(`
+        SELECT 
+          observer_id,
+          observer_name,
+          COUNT(*) as packet_count,
+          MIN(ts) as first_seen,
+          MAX(ts) as last_seen,
+          MAX(rssi) as best_rssi
+        FROM rf_packets
+        WHERE ts >= ?
+        AND observer_id IS NOT NULL
+        GROUP BY observer_id
+      `).all(packetsTodayCutoff);
 
-    for await (const line of rl) {
-      const t = line.trim();
+      for (const row of packetCounts) {
+        const id = normId(row.observer_id);
+        if (!id) continue;
+        if (!stats.has(id)) {
+          stats.set(id, {
+            id,
+            name: row.observer_name || id,
+            firstSeen: row.first_seen || null,
+            lastSeen: row.last_seen || null,
+            gps: null,
+            locSource: null,
+            bestRepeaterPub: null,
+            packetsToday: 0,
+            repeaters: new Set(),
+            bestRepeaterRssi: row.best_rssi || null
+          });
+        }
+        const s = stats.get(id);
+        s.packetsToday = row.packet_count || 0;
+        if (row.last_seen && (!s.lastSeen || row.last_seen > s.lastSeen)) {
+          s.lastSeen = row.last_seen;
+        }
+        if (row.first_seen && (!s.firstSeen || row.first_seen < s.firstSeen)) {
+          s.firstSeen = row.first_seen;
+        }
+        if (row.best_rssi && (!Number.isFinite(s.bestRepeaterRssi) || row.best_rssi > s.bestRepeaterRssi)) {
+          s.bestRepeaterRssi = row.best_rssi;
+        }
+      }
+
+      // Get observer GPS from observers table
+      const observerGps = db.prepare(`
+        SELECT observer_id, gps_lat, gps_lon
+        FROM observers
+        WHERE gps_lat IS NOT NULL AND gps_lon IS NOT NULL
+      `).all();
+      for (const row of observerGps) {
+        const id = normId(row.observer_id);
+        const s = stats.get(id);
+        if (s && Number.isFinite(row.gps_lat) && Number.isFinite(row.gps_lon)) {
+          s.gps = { lat: row.gps_lat, lon: row.gps_lon };
+        }
+      }
+
+      // For repeater matching, limit to recent adverts only (last 72 hours, max 10K packets)
+      const repeaterWindowCutoff = new Date(now - windowMs).toISOString();
+      const recentAdverts = db.prepare(`
+        SELECT observer_id, payload_hex, rssi, ts
+        FROM rf_packets
+        WHERE ts >= ?
+        AND observer_id IS NOT NULL
+        AND payload_hex IS NOT NULL
+        ORDER BY ts DESC
+        LIMIT 10000
+      `).all(repeaterWindowCutoff);
+
+      for (const row of recentAdverts) {
+        const id = normId(row.observer_id);
+        const s = stats.get(id);
+        if (!s) continue;
+        const hex = String(row.payload_hex || "").toUpperCase().trim();
+        if (!hex) continue;
+        let decoded;
+        try {
+          decoded = MeshCoreDecoder.decode(hex);
+        } catch {
+          continue;
+        }
+        const payloadType = Utils.getPayloadTypeName(decoded.payloadType);
+        if (payloadType !== "Advert") continue;
+        const path = Array.isArray(decoded?.path) ? decoded.path.map(normalizePathHash) : [];
+        const hopCount = path.length || (Number.isFinite(decoded?.pathLength) ? decoded.pathLength : 0);
+        if (hopCount > 1) continue;
+        const adv = decoded.payload?.decoded || decoded.decoded || decoded.payload || null;
+        const pub = adv?.publicKey || adv?.pub || adv?.pubKey || null;
+        if (!pub) continue;
+        const rpt = repeatersByPub.get(String(pub).toUpperCase());
+        if (rpt?.gps) s.repeaters.add(String(pub).toUpperCase());
+        if (Number.isFinite(row.rssi)) {
+          if (!Number.isFinite(s.bestRepeaterRssi) || row.rssi > s.bestRepeaterRssi) {
+            s.bestRepeaterRssi = row.rssi;
+            s.bestRepeaterPub = String(pub).toUpperCase();
+          }
+        }
+      }
+    } else if (fs.existsSync(observerPath)) {
+      // Fallback: if rf_packets table doesn't exist, use tail on file (last 50K lines only)
+      console.log("(observer-rank) rf_packets table not found, using file fallback");
+      const { spawn } = require("child_process");
+      const tailProcess = spawn("tail", ["-n", "50000", observerPath]);
+      const rl = readline.createInterface({
+        input: tailProcess.stdout,
+        crlfDelay: Infinity
+      });
+
+      for await (const line of rl) {
+        const t = line.trim();
       if (!t) continue;
       let rec;
       try { rec = JSON.parse(t); } catch { continue; }
-      const id = String(rec.observerId || rec.observerName || "observer").trim();
+      const id = normId(rec.observerId || rec.observerName || "observer");
+      if (!id) continue;
       if (!stats.has(id)) {
         stats.set(id, {
           id,
@@ -2834,7 +3107,8 @@ async function buildObserverRank() {
       if (ts) {
         if (!s.firstSeen || ts < new Date(s.firstSeen)) s.firstSeen = ts.toISOString();
         if (!s.lastSeen || ts > new Date(s.lastSeen)) s.lastSeen = ts.toISOString();
-        if (now - ts.getTime() <= windowMs) s.packetsToday += 1;
+        // Count packets from last 24 hours for "packetsToday" (not 72 hours)
+        if (now - ts.getTime() <= packetsTodayWindowMs) s.packetsToday += 1;
       }
       if (!s.gps && rec.gps) s.gps = rec.gps;
 
@@ -2862,7 +3136,55 @@ async function buildObserverRank() {
           s.bestRepeaterPub = String(pub).toUpperCase();
         }
       }
+      }
     }
+
+    // If packets today is still 0 (e.g. rf_packets empty or different DB), try observer.ndjson
+    let totalPacketsToday = 0;
+    for (const s of stats.values()) totalPacketsToday += s.packetsToday || 0;
+    if (hasRfTable) {
+      console.log("(observer-rank) rf_packets: packetCounts.length=" + packetCounts.length + " totalPacketsToday=" + totalPacketsToday);
+    }
+    if (totalPacketsToday === 0 && fs.existsSync(observerPath)) {
+      console.log("(observer-rank) Populating packetsToday from observer.ndjson fallback");
+      const { spawn } = require("child_process");
+      const tailProcess = spawn("tail", ["-n", "50000", observerPath]);
+      const rl = readline.createInterface({
+        input: tailProcess.stdout,
+        crlfDelay: Infinity
+      });
+      for await (const line of rl) {
+        const t = line.trim();
+        if (!t) continue;
+        let rec;
+        try { rec = JSON.parse(t); } catch { continue; }
+        const id = normId(rec.observerId || rec.observerName || "observer");
+        if (!id) continue;
+        let s = stats.get(id);
+        if (!s) {
+          s = {
+            id,
+            name: rec.observerName || id,
+            firstSeen: rec.archivedAt || null,
+            lastSeen: rec.archivedAt || null,
+            gps: rec.gps || null,
+            locSource: null,
+            bestRepeaterPub: null,
+            packetsToday: 0,
+            repeaters: new Set(),
+            bestRepeaterRssi: null
+          };
+          stats.set(id, s);
+        }
+        const ts = parseIso(rec.archivedAt);
+        if (ts && now - ts.getTime() <= packetsTodayWindowMs) s.packetsToday += 1;
+      }
+      totalPacketsToday = 0;
+      for (const s of stats.values()) totalPacketsToday += s.packetsToday || 0;
+      console.log("(observer-rank) After file fallback totalPacketsToday=" + totalPacketsToday);
+    }
+  } catch (err) {
+    console.error("(observer-rank) Error building rank:", err?.message || err);
   }
 
   function scoreFor(o) {
@@ -2925,7 +3247,9 @@ async function buildObserverRank() {
         if (km > OBSERVER_MAX_REPEATER_KM) continue;
         if (km < bestKm) {
           bestKm = km;
-          bestName = rpt.name || null;
+          // If repeater name contains 🚫, display as "🚫Hidden🚫" instead
+          const name = rpt.name || null;
+          bestName = (name && String(name).includes("🚫")) ? "🚫Hidden🚫" : name;
         }
       }
       if (Number.isFinite(bestKm) && bestName) {
@@ -2952,6 +3276,7 @@ async function buildObserverRank() {
       lowPacketRate,
       uptimeHours,
       packetsToday: s.packetsToday,
+      packets24h: s.packetsToday,
       coverageKm,
       coverageCount,
       nearestRepeaterName,
@@ -3358,6 +3683,453 @@ async function buildConfidenceHistory(sender, channel, hours, limit) {
     total: rows.length,
     paths,
     deadEnds: deadList
+  };
+}
+
+// Separate neighbor computation - runs independently, can be scheduled overnight
+// This is a SEPARATE concern from RepeaterRank and should never block rank endpoints
+async function computeRepeaterNeighbors() {
+  // TODO: Implement neighbor inference logic here
+  // This should analyze packet flow, hop patterns, etc.
+  // Can run on a schedule (e.g., once overnight) and store results separately
+  // Neighbor data should be linked to rank entries but never affect rank inclusion/scoring
+  console.log("(neighbors) neighbor computation - placeholder (to be implemented separately)");
+  return { updatedAt: new Date().toISOString(), neighbors: {} };
+}
+
+// Direct connection to current_repeaters table - simple, fast, reliable
+// This is the NEW connection that bypasses all cache complexity
+async function getRepeatersFromCurrentTable() {
+  const db = getDb();
+  const now = Date.now();
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
+  const windowStartMs = now - windowMs;
+  
+  try {
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='current_repeaters'").get();
+    if (!has) {
+      return { items: [], count: 0, updatedAt: new Date().toISOString() };
+    }
+    
+    // Direct query - simple and fast
+    const rows = db.prepare(`
+      SELECT 
+        pub, 
+        name, 
+        gps_lat, 
+        gps_lon, 
+        last_advert_heard_ms,
+        hidden_on_map,
+        gps_implausible,
+        visible,
+        is_observer,
+        last_seen,
+        best_rssi,
+        best_snr,
+        avg_rssi,
+        avg_snr,
+        total24h,
+        score,
+        updated_at
+      FROM current_repeaters
+      WHERE visible = 1 AND last_advert_heard_ms >= ?
+      ORDER BY last_advert_heard_ms DESC
+    `).all(windowStartMs);
+    
+    // Format items and deduplicate by name + GPS (keep most recent)
+    const itemsMap = new Map(); // key: "name|lat|lon" -> item with most recent timestamp
+    
+    for (const row of rows) {
+      const pub = String(row.pub || "").toUpperCase().trim();
+      if (!pub) continue;
+      
+      const gps = isValidGps(row.gps_lat, row.gps_lon) ? { lat: row.gps_lat, lon: row.gps_lon } : null;
+      const name = String(row.name || "Unknown").trim();
+      const lastAdvertHeardMs = Number.isFinite(row.last_advert_heard_ms) ? row.last_advert_heard_ms : 0;
+      
+      // Create deduplication key: name + GPS (rounded to 5 decimal places for tolerance)
+      let dedupKey;
+      if (gps && name !== "Unknown") {
+        const latRounded = Math.round(gps.lat * 100000) / 100000;
+        const lonRounded = Math.round(gps.lon * 100000) / 100000;
+        dedupKey = `${name}|${latRounded}|${lonRounded}`;
+      } else {
+        // If no GPS or unknown name, use pub key as dedup key (no deduplication)
+        dedupKey = `pub|${pub}`;
+      }
+      
+      const hiddenOnMap = !!row.hidden_on_map || (name && String(name).includes("🚫"));
+      
+      const item = {
+        pub,
+        name,
+        gps,
+        hiddenOnMap,
+        gpsImplausible: !!row.gps_implausible,
+        isObserver: !!row.is_observer,
+        lastSeen: row.last_seen || null,
+        lastAdvertHeardMs,
+        bestRssi: row.best_rssi || null,
+        bestSnr: row.best_snr || null,
+        avgRssi: row.avg_rssi || null,
+        avgSnr: row.avg_snr || null,
+        total24h: row.total24h || 0,
+        score: row.score || null,
+        hashByte: pub ? parseInt(pub.slice(-2), 16) % 256 : null
+      };
+      
+      // Keep the item with the most recent lastAdvertHeardMs
+      const existing = itemsMap.get(dedupKey);
+      if (!existing || lastAdvertHeardMs > existing.lastAdvertHeardMs) {
+        itemsMap.set(dedupKey, item);
+      }
+    }
+    
+    const items = Array.from(itemsMap.values());
+    
+    return {
+      items,
+      count: items.length,
+      updatedAt: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error("(current_repeaters) Direct query failed:", err?.message || err);
+    return { items: [], count: 0, updatedAt: new Date().toISOString() };
+  }
+}
+
+// Simplified RepeaterRank: advert-only, no neighbor inference, simple stats
+// This function is designed to be fast and non-blocking
+async function buildRepeaterRankSimple() {
+  // Yield to event loop at start to avoid blocking
+  await new Promise(resolve => setImmediate(resolve));
+  
+  // Optimized: only load repeaters from DB instead of all devices (much faster)
+  const db = getDb();
+  const now = Date.now();
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
+  const windowHours = windowMs / 3600000;
+  const windowStartMs = now - windowMs;
+  
+  // Direct query for repeaters only (faster than loading all 5000+ devices)
+  let repeaterRows = [];
+    const queryStart = Date.now();
+  try {
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='current_repeaters'").get();
+    if (has) {
+      // Simple query: read from current_repeaters table (no deduplication needed, already deduplicated)
+      // Filter by visible = 1 to exclude repeaters not heard for 72+ hours (but keep them in table for calculations)
+      repeaterRows = db.prepare(`
+        SELECT 
+          pub, 
+          name, 
+          gps_lat, 
+          gps_lon, 
+          last_advert_heard_ms,
+          hidden_on_map,
+          gps_implausible,
+          visible,
+          is_observer,
+          last_seen,
+          best_rssi,
+          best_snr,
+          avg_rssi,
+          avg_snr,
+          total24h,
+          score,
+          updated_at
+        FROM current_repeaters
+        WHERE visible = 1 AND last_advert_heard_ms >= ?
+        ORDER BY last_advert_heard_ms DESC
+      `).all(windowStartMs);
+      const queryMs = Date.now() - queryStart;
+      if (queryMs > 100) {
+        console.log(`(rank) DB query took ${queryMs}ms, returned ${repeaterRows.length} rows from current_repeaters`);
+      }
+    } else {
+      // Fallback: if current_repeaters doesn't exist yet, use devices table (backward compatibility)
+      console.log("(rank) current_repeaters table not found, falling back to devices table");
+      const hasDevices = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='devices'").get();
+      if (hasDevices) {
+        repeaterRows = db.prepare(`
+          SELECT 
+            pub, 
+            name, 
+            gps_lat, 
+            gps_lon, 
+            last_advert_heard_ms,
+            hidden_on_map,
+            0 as gps_implausible,
+            1 as visible,
+            is_observer,
+            last_seen,
+            updated_at
+          FROM devices
+          WHERE is_repeater = 1 AND last_advert_heard_ms >= ?
+          GROUP BY pub
+          ORDER BY last_advert_heard_ms DESC
+        `).all(windowStartMs);
+      }
+    }
+  } catch (err) {
+    console.error("(rank) DB query failed:", err?.message || err);
+  }
+  
+  // Build repeater map from current_repeaters table
+  // No deduplication needed - current_repeaters already has one row per pub
+  // Store row data with each repeater so we can access stats later
+  const repeaters3d = new Map();
+  for (const row of repeaterRows) {
+    const pub = String(row.pub || "").toUpperCase().trim();
+    if (!pub) continue;
+    const heardMs = Number.isFinite(row.last_advert_heard_ms) ? row.last_advert_heard_ms : null;
+    if (!heardMs || heardMs < windowStartMs || heardMs > now) continue;
+    
+    // Safety check: if pub already exists, keep the one with newer timestamp (shouldn't happen, but be safe)
+    const existing = repeaters3d.get(pub);
+    if (existing && existing.lastAdvertHeardMs >= heardMs) {
+      continue;
+    }
+    
+    const gps = isValidGps(row.gps_lat, row.gps_lon) ? { lat: row.gps_lat, lon: row.gps_lon } : null;
+    const entry = {
+      pub,
+      name: row.name || "Unknown",
+      isRepeater: true,
+      isObserver: !!row.is_observer,
+      gps,
+      hiddenOnMap: !!row.hidden_on_map,
+      gpsImplausible: !!row.gps_implausible,
+      stats: {},
+      raw: null
+    };
+    
+    repeaters3d.set(pub, {
+      pub,
+      entry,
+      lastAdvertHeardMs: heardMs,
+      lastAdvertHeardIso: new Date(heardMs).toISOString(),
+      rowData: row // Store row data so we can access stats fields
+    });
+  }
+  
+  // Fallback to devices.json if current_repeaters table is empty (backward compatibility)
+  if (!repeaters3d.size) {
+    console.log("(rank) current_repeaters table is empty, falling back to devices.json");
+    const devices = readDevices();
+    const byPub = devices.byPub || {};
+    const fallbackRepeaters = buildRepeatersWithinWindow(byPub, windowMs);
+    for (const r of fallbackRepeaters.values()) {
+      repeaters3d.set(r.pub, r);
+    }
+  }
+  
+  // Mark companion devices, room servers, and sensors to skip expensive computations
+  // Keep them in the list but don't compute stats or neighbors for them
+  const devices = readDevices();
+  const byPub = devices.byPub || {};
+  const skipComputation = new Set();
+  for (const [pub, repeater] of repeaters3d.entries()) {
+    const deviceEntry = byPub[pub];
+    if (!deviceEntry) continue;
+    
+    // Check if this is a companion device, room server, or sensor
+    const isCompanion = isCompanionDevice(deviceEntry);
+    const role = String(deviceEntry.role || "").toLowerCase();
+    const roleName = String(deviceEntry.appFlags?.roleName || "").toLowerCase();
+    const roleCode = Number.isFinite(deviceEntry.appFlags?.roleCode) ? deviceEntry.appFlags.roleCode : null;
+    const deviceRole = Number.isFinite(deviceEntry?.raw?.lastAdvert?.appData?.deviceRole) 
+      ? deviceEntry.raw.lastAdvert.appData.deviceRole 
+      : null;
+    const isRoomServer = role === "room_server" || roleName === "room_server" || roleCode === 0x03 || deviceRole === 3;
+    const isSensor = deviceRole === 4;
+    
+    if (isCompanion || isRoomServer || isSensor) {
+      skipComputation.add(pub);
+    }
+  }
+  
+  // Build rank items - minimal computation for speed
+  // Note: Neighbors will be handled in a separate table with a link (not computed here)
+  // Pre-compute hashes in batch to avoid repeated crypto operations
+  const hashCache = new Map();
+  for (const repeater of repeaters3d.values()) {
+    const pub = String(repeater.pub || "").toUpperCase();
+    if (!hashCache.has(pub)) {
+      const hash = nodeHashFromPub(pub);
+      if (hash) hashCache.set(pub, hash);
+    }
+  }
+  
+  const items = [];
+  for (const repeater of repeaters3d.values()) {
+    const { pub, entry: d, lastAdvertHeardMs, lastAdvertHeardIso, rowData } = repeater;
+    const pubKey = String(pub || "").toUpperCase();
+    const hash = hashCache.get(pubKey);
+    if (!hash) continue;
+    
+    // Minimal computation - just recency check
+    const lastAdvertAgeHours = Number.isFinite(lastAdvertHeardMs)
+      ? (now - lastAdvertHeardMs) / 3600000
+      : null;
+    const isLive = lastAdvertAgeHours !== null && lastAdvertAgeHours <= windowHours;
+    const isStale = lastAdvertAgeHours !== null && lastAdvertAgeHours >= windowHours;
+    
+    // GPS validation
+    const gps = d.gps || null;
+    const gpsValid = gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lon) && gps.lat !== 0 && gps.lon !== 0;
+    
+    // Read score from current_repeaters table (computed by separate scoring task)
+    const score = rowData && Number.isFinite(rowData.score) ? rowData.score : null;
+    const color = rowData && rowData.color ? rowData.color : (isStale ? "#ff3b30" : "#8e8e93");
+    const quality = rowData && rowData.quality ? rowData.quality : (isLive ? "valid" : "stale");
+    
+    // Compute zero hop neighbors (skip for companion devices, room servers, and sensors)
+    const shouldSkipComputation = skipComputation.has(pubKey);
+    const neighborHashes = shouldSkipComputation ? [] : (zeroHopNeighborMap.get(pubKey) ? Array.from(zeroHopNeighborMap.get(pubKey)) : []);
+    const zeroHopOverrides = readZeroHopOverrides();
+    const NEIGHBOR_RADIUS_KM = 200;
+    const NEIGHBOR_CLUSTER_RADIUS_KM = 60;
+    
+    // Simplified resolveZeroHopNeighbors (inline version)
+    let resolvedNeighbors = [];
+    const zeroHopNeighborDetails = [];
+    
+    if (!shouldSkipComputation && gpsValid && neighborHashes.length > 0) {
+      const localCandidatesByHash = new Map();
+      neighborHashes.forEach((nhash) => {
+        const candidates = repeaterCandidatesByHash.get(nhash) || [];
+        const local = candidates.filter((c) => {
+          const km = haversineKm(gps.lat, gps.lon, c.gps.lat, c.gps.lon);
+          return Number.isFinite(km) && km <= NEIGHBOR_RADIUS_KM;
+        });
+        if (local.length) localCandidatesByHash.set(nhash, local);
+      });
+      
+      const hashes = Array.from(new Set(neighborHashes));
+      
+      // Build neighbor details with all candidates for each hash (for dropdown selection)
+      hashes.forEach((nhash) => {
+        const candidates = localCandidatesByHash.get(nhash) || [];
+        if (!candidates.length) return;
+        
+        // Check for override
+        const overrideKey = `${pubKey}:${nhash}`;
+        const override = zeroHopOverrides[overrideKey];
+        
+        // Calculate distance for each candidate and sort by distance (closest first)
+        const candidatesWithDist = candidates.map((cand) => {
+          const dist = haversineKm(gps.lat, gps.lon, cand.gps.lat, cand.gps.lon);
+          return { ...cand, hash: nhash, distanceKm: Number.isFinite(dist) ? Number(dist.toFixed(1)) : null };
+        }).sort((a, b) => {
+          const aDist = a.distanceKm !== null ? a.distanceKm : Infinity;
+          const bDist = b.distanceKm !== null ? b.distanceKm : Infinity;
+          return aDist - bDist;
+        });
+        
+        // Select the chosen candidate (override, or closest if no override)
+        let selectedCandidate = null;
+        if (override?.pub) {
+          selectedCandidate = candidatesWithDist.find((c) => c.pub === override.pub) || candidatesWithDist[0];
+        } else {
+          selectedCandidate = candidatesWithDist[0]; // Default to closest
+        }
+        
+        if (!selectedCandidate) return;
+        
+        // Add to resolvedNeighbors for backward compatibility
+        resolvedNeighbors.push({ hash: nhash, ...selectedCandidate });
+        
+        const rssiEntry = neighborRssiMap.get(pubKey)?.get(nhash);
+        const avg = rssiEntry && rssiEntry.count ? rssiEntry.sum / rssiEntry.count : null;
+        const rssiAvg = Number.isFinite(avg) ? Number(avg.toFixed(1)) : null;
+        const rssiMax = rssiEntry && Number.isFinite(rssiEntry.max) ? Number(rssiEntry.max.toFixed(1)) : null;
+        
+        zeroHopNeighborDetails.push({
+          hash: nhash,
+          pub: selectedCandidate.pub,
+          name: selectedCandidate.name || nhash,
+          rssiAvg,
+          rssiMax,
+          rssiValue: Number.isFinite(rssiAvg) ? rssiAvg : (Number.isFinite(rssiMax) ? rssiMax : null),
+          gps: selectedCandidate.gps || null,
+          distanceKm: selectedCandidate.distanceKm,
+          // Include all candidates for this hash if there are multiple (for dropdown)
+          options: candidatesWithDist.length > 1 ? candidatesWithDist.map((c) => ({
+            pub: c.pub,
+            name: c.name || nhash,
+            distanceKm: c.distanceKm,
+            gps: c.gps || null
+          })) : null
+        });
+      });
+    }
+    
+    const zeroHopNeighborNames = resolvedNeighbors.map((n) => n.name || n.hash).filter(Boolean);
+    
+    items.push({
+      pub: pubKey,
+      hashByte: hash,
+      name: d.name || "Unknown",
+      gps: gpsValid ? gps : null,
+      lastSeen: lastAdvertHeardIso || null,
+      lastAdvertIngestMs: Number.isFinite(lastAdvertHeardMs) ? lastAdvertHeardMs : null,
+      lastAdvertIngestIso: lastAdvertHeardIso || null,
+      lastAdvertAgeHours: lastAdvertAgeHours !== null ? Number(lastAdvertAgeHours.toFixed(2)) : null,
+      isLive,
+      liveState: isLive ? "live" : "offline",
+      isObserver: !!d.isObserver,
+      bestRssi: bestRssi,
+      bestSnr: bestSnr,
+      avgRssi: avgRssi,
+      avgSnr: avgSnr,
+      advertCount: total24h || (isLive ? 1 : 0),
+      score: Math.round(score),
+      stale: isStale,
+      color,
+      hiddenOnMap: !!d.hiddenOnMap || !gpsValid || (d.name && String(d.name).includes("🚫")),
+      gpsImplausible: !!d.gpsImplausible,
+      gpsFlagged: false, // Not computed in simplified rank
+      gpsEstimated: false,
+      zeroHopNeighbors24h: resolvedNeighbors.length,
+      zeroHopNeighborNames,
+      zeroHopNeighborDetails,
+      quality: isLive ? "valid" : "stale",
+      qualityReason: [],
+      repeatEvidenceMiddleHops24h: 0,
+      repeatEvidenceUpstreamDistinct24h: 0,
+      repeatEvidenceDownstreamDistinct24h: 0,
+      isTrueRepeater: true,
+      repeatEvidenceReason: null,
+      excludedReasons: []
+    });
+  }
+  
+  // Scores are now updated by separate updateRepeaterScores() task
+  // No need to update scores here - just read them from the table
+  
+  // Sort by score, then by last seen time
+  const sortStart = Date.now();
+  items.sort((a, b) => {
+    const scoreDiff = b.score - a.score;
+    if (scoreDiff !== 0) return scoreDiff;
+    const aTs = a.lastAdvertIngestMs || 0;
+    const bTs = b.lastAdvertIngestMs || 0;
+    return bTs - aTs;
+  });
+  const sortMs = Date.now() - sortStart;
+  if (sortMs > 50) {
+    console.log(`(rank) Sorted ${items.length} items in ${sortMs}ms`);
+  }
+  
+  const totalMs = Date.now() - queryStart;
+  console.log(`(rank) Total buildRepeaterRankSimple took ${totalMs}ms for ${items.length} repeaters`);
+  
+  return {
+    updatedAt: new Date().toISOString(),
+    count: items.length,
+    items,
+    excluded: [] // No exclusions in simplified version - all repeaters with adverts are included
   };
 }
 
@@ -3993,6 +4765,137 @@ async function buildNodeRank() {
   };
 }
 
+// SEPARATE TASK: Update scores in current_repeaters table
+// This runs independently and updates the table with computed scores
+async function updateRepeaterScores() {
+  const db = getDb();
+  const now = Date.now();
+  const windowMs = REPEATER_ACTIVE_WINDOW_MS;
+  const windowHours = windowMs / 3600000;
+  const windowStartMs = now - windowMs;
+  
+  try {
+    console.log("(scoring) Starting score update for current_repeaters table...");
+    const startTime = Date.now();
+    
+    // Get all visible repeaters that need scoring
+    const rows = db.prepare(`
+      SELECT 
+        pub,
+        name,
+        last_advert_heard_ms,
+        best_rssi,
+        best_snr,
+        avg_rssi,
+        avg_snr,
+        total24h,
+        visible
+      FROM current_repeaters
+      WHERE visible = 1 AND last_advert_heard_ms >= ?
+    `).all(windowStartMs);
+    
+    console.log(`(scoring) Computing scores for ${rows.length} repeaters...`);
+    
+    const updateStmt = db.prepare(`
+      UPDATE current_repeaters
+      SET score = ?, color = ?, quality = ?, updated_at = ?
+      WHERE pub = ?
+    `);
+    
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    let updated = 0;
+    
+    for (const row of rows) {
+      const pub = String(row.pub || "").toUpperCase().trim();
+      if (!pub) continue;
+      
+      const lastAdvertHeardMs = Number.isFinite(row.last_advert_heard_ms) ? row.last_advert_heard_ms : 0;
+      const lastAdvertAgeHours = lastAdvertHeardMs ? (now - lastAdvertHeardMs) / 3600000 : null;
+      const isLive = lastAdvertAgeHours !== null && lastAdvertAgeHours <= windowHours;
+      const isStale = lastAdvertAgeHours !== null && lastAdvertAgeHours >= windowHours;
+      
+      const bestRssi = Number.isFinite(row.best_rssi) ? row.best_rssi : null;
+      const bestSnr = Number.isFinite(row.best_snr) ? row.best_snr : null;
+      const avgRssi = Number.isFinite(row.avg_rssi) ? row.avg_rssi : null;
+      const avgSnr = Number.isFinite(row.avg_snr) ? row.avg_snr : null;
+      const total24h = Number.isFinite(row.total24h) ? row.total24h : 0;
+      
+      let score = null;
+      let color = "#8e8e93";
+      let quality = "unknown";
+      
+      if (isStale) {
+        score = 0;
+        color = "#ff3b30";
+        quality = "stale";
+      } else if (bestRssi !== null || bestSnr !== null || total24h > 0) {
+        // Compute proper score using stats
+        const rssiScore = bestRssi !== null ? clamp((bestRssi + 100) / 50, 0, 1) : 0.5;
+        const snrScore = bestSnr !== null ? clamp((bestSnr + 20) / 30, 0, 1) : 0.5;
+        const bestRssiScore = bestRssi !== null ? clamp((bestRssi + 100) / 50, 0, 1) : 0.5;
+        const bestSnrScore = bestSnr !== null ? clamp((bestSnr + 20) / 30, 0, 1) : 0.5;
+        const throughputScore = clamp(total24h / 50, 0, 1);
+        
+        score = Math.round(100 * clamp(
+          0.30 * rssiScore +
+          0.10 * snrScore +
+          0.10 * bestRssiScore +
+          0.05 * bestSnrScore +
+          0.25 * throughputScore +
+          0.20 * (isLive ? 1 : 0.5), // Recency bonus
+          0, 1
+        ));
+        
+        color = score >= 70 ? "#34c759" : (score >= 45 ? "#ffcc00" : "#ff9500");
+        quality = isLive ? "valid" : "offline";
+      } else {
+        // Fallback: simple recency-based score
+        score = isLive ? 80 : 40;
+        color = isLive ? "#34c759" : "#ff9500";
+        quality = isLive ? "valid" : "offline";
+      }
+      
+      // Update the table
+      updateStmt.run(score, color, quality, new Date().toISOString(), pub);
+      updated++;
+    }
+    
+    const elapsed = Date.now() - startTime;
+    console.log(`(scoring) Updated scores for ${updated} repeaters in ${elapsed}ms`);
+  } catch (err) {
+    console.error("(scoring) Failed to update scores:", err?.message || err);
+  }
+}
+
+// Update visible flag for repeaters not heard in 72 hours
+// Keep them in table for calculations, but mark as not visible for list/map display
+function updateRepeaterVisibility() {
+  try {
+    const db = getDb();
+    const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='current_repeaters'").get();
+    if (!has) return;
+    
+    const now = Date.now();
+    const visibilityThresholdMs = 72 * 60 * 60 * 1000; // 72 hours
+    const thresholdMs = now - visibilityThresholdMs;
+    
+    // Set visible = 0 for repeaters not heard in 72+ hours
+    const result = db.prepare(`
+      UPDATE current_repeaters
+      SET visible = 0
+      WHERE visible = 1 
+        AND last_advert_heard_ms IS NOT NULL 
+        AND last_advert_heard_ms < ?
+    `).run(thresholdMs);
+    
+    if (result.changes > 0) {
+      console.log(`(rank) Updated ${result.changes} repeaters to not visible (not heard in 72h)`);
+    }
+  } catch (err) {
+    console.error("(rank) Failed to update repeater visibility:", err?.message || err);
+  }
+}
+
 async function refreshRankCache(force) {
   const now = Date.now();
   const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
@@ -4013,12 +4916,11 @@ async function refreshRankCache(force) {
 }
 
 async function scheduleAutoRefresh() {
-  setTimeout(async () => {
-    try {
-      await refreshRankCache(false);
-      await refreshMeshScoreCache(false);
-      await refreshObserverRankCache(false);
-    } catch {}
+  setTimeout(() => {
+    // All refreshes non-blocking - never await on load (hangs server)
+    refreshRankCache(false).catch(() => {});
+    refreshMeshScoreCache(false).catch(() => {});
+    refreshObserverRankCache(false).catch(() => {});
     scheduleAutoRefresh().catch(() => {});
   }, AUTO_REFRESH_MS);
 }
@@ -4060,7 +4962,256 @@ async function refreshObserverRankCache(force) {
   return observerRankRefresh;
 }
 
+/** Broadcast new messages to all /api/message-stream clients (realtime) */
+function broadcastNewMessages(messages) {
+  if (!messages || !messages.length) return;
+  messageStreamSenders.forEach((sendEvent) => {
+    try { sendEvent("messages", { messages }); } catch (_) {}
+  });
+}
+
+function isBotAuthorized(req) {
+  const token = getAuthToken(req);
+  const staticToken = process.env.MESHRANK_BOT_TOKEN || "";
+  if (staticToken && token && token === staticToken) return true;
+  const user = getSessionUser(req);
+  return !!user;
+}
+
+const botReplyDedup = new Map();
+function shouldEmitBotReply(message) {
+  if (!message) return false;
+  const hash = String(message.messageHash || message.id || "").toUpperCase();
+  if (!hash) return false;
+  const now = Date.now();
+  const last = botReplyDedup.get(hash) || 0;
+  if (now - last < 5 * 60 * 1000) return false; // 5 min dedupe
+  botReplyDedup.set(hash, now);
+  // clean old entries
+  for (const [key, ts] of botReplyDedup.entries()) {
+    if (now - ts > 60 * 60 * 1000) botReplyDedup.delete(key);
+  }
+  const channel = normalizeChannelName(message.channelName || "");
+  if (channel !== normalizeChannelName("#test")) return false;
+  const body = String(message.body || "");
+  if (!body.toLowerCase().includes("test")) return false;
+  return true;
+}
+
+function broadcastBotReplies(replies) {
+  if (!replies || !replies.length) return;
+  botStreamSenders.forEach((sendEvent) => {
+    replies.forEach((payload) => {
+      try { sendEvent("reply", payload); } catch (_) {}
+    });
+  });
+}
+
+function ensureShareLinkForMessage(db, messageId) {
+  if (!messageId) return null;
+  const canonicalId = String(messageId).trim().toUpperCase();
+  if (!canonicalId) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const existing = db.prepare(`
+    SELECT share_code, expires_at
+    FROM route_share
+    WHERE message_id = ? AND expires_at >= ?
+    ORDER BY expires_at DESC
+    LIMIT 1
+  `).get(canonicalId, now);
+  if (existing) return `${SHARE_URL_BASE}${existing.share_code}`;
+  let code = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
+    try {
+      db.prepare(`
+        INSERT INTO route_share (share_code, message_id, created_at, expires_at)
+        VALUES (?, ?, ?, ?)
+      `).run(candidate, canonicalId, now, now + SHARE_TTL_SECONDS);
+      code = candidate;
+      break;
+    } catch (err) {
+      if (String(err?.message || "").includes("UNIQUE")) continue;
+      throw err;
+    }
+  }
+  if (!code) return null;
+  cleanupExpiredShares(db);
+  return `${SHARE_URL_BASE}${code}`;
+}
+
+let messagesDbPollInterval = null;
+function startMessagesDbPoll() {
+  if (messagesDbPollInterval) return;
+  const MESSAGES_POLL_MS = 1500;
+  messagesDbPollInterval = setInterval(() => {
+    if (!channelMessagesCache.payload || channelMessagesCache.lastMessagesRowId == null) return;
+    const db = getDb();
+    if (!hasMessagesDb(db)) return;
+    const rows = db.prepare(`
+      SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
+      FROM messages WHERE rowid > ? ORDER BY rowid ASC LIMIT 100
+    `).all(channelMessagesCache.lastMessagesRowId);
+    if (!rows.length) return;
+    const nodeMap = buildNodeHashMap();
+    getObserverHitsMap().then((observerHitsMap) => {
+      const allHashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+      const observerAggMap = readMessageObserverAgg(db, allHashes);
+      const observerPathsMap = readMessageObserverPaths(db, allHashes);
+      const newMessages = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap, observerPathsMap));
+      const lastRow = rows[rows.length - 1];
+      const maxRowIdRow = db.prepare("SELECT MAX(rowid) AS max_id FROM messages").get();
+      channelMessagesCache.lastMessagesRowId = maxRowIdRow?.max_id ?? channelMessagesCache.lastMessagesRowId;
+      channelMessagesCache.payload.messages.push(...newMessages);
+      const chSet = new Set(rows.map((r) => r.channel_name).filter(Boolean));
+      chSet.forEach((chName) => {
+        const existing = channelMessagesCache.payload.channels.find((c) => normalizeChannelName(c.name) === normalizeChannelName(chName));
+        if (!existing) {
+          const snippet = (rows.find((r) => r.channel_name === chName)?.body || "").slice(0, 48) || "No recent messages";
+          const ts = rows.find((r) => r.channel_name === chName)?.ts;
+          channelMessagesCache.payload.channels.push({
+            id: String(chName || "").replace(/^#/, ""),
+            name: chName,
+            snippet,
+            time: ts ? new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
+          });
+          channelMessagesCache.payload.channels.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+        }
+      });
+      broadcastNewMessages(newMessages);
+      const replies = [];
+      newMessages.forEach((msg) => {
+        if (!shouldEmitBotReply(msg)) return;
+        let shareLink = null;
+        try { shareLink = ensureShareLinkForMessage(db, msg.messageHash || msg.id); } catch {}
+        replies.push({
+          channel: msg.channelName,
+          sender: msg.sender || "Mesh",
+          messageHash: msg.messageHash || msg.id,
+          body: msg.body || "",
+          hops: Number.isFinite(msg.pathLength) ? msg.pathLength : (Array.isArray(msg.path) ? msg.path.length : 0),
+          observers: Number.isFinite(msg.observerCount) ? msg.observerCount : 0,
+          path: Array.isArray(msg.pathNames) ? msg.pathNames : [],
+          shareLink: shareLink || SHARE_URL_BASE
+        });
+      });
+      broadcastBotReplies(replies);
+    }).catch(() => {});
+  }, MESSAGES_POLL_MS);
+}
+
+let messagesFileWatchStarted = false;
+function startMessagesFileWatch(sourcePath) {
+  if (messagesFileWatchStarted || !sourcePath) return;
+  messagesFileWatchStarted = true;
+  if (!fs.existsSync(sourcePath)) return;
+  const keyCfg = loadKeys();
+  const keyStore = buildKeyStore(keyCfg);
+  const keyMap = {};
+  for (const ch of (keyCfg.channels || [])) {
+    const hb = typeof ch.hashByte === "string" ? ch.hashByte.toUpperCase() : null;
+    const nm = typeof ch.name === "string" ? ch.name : null;
+    if (hb && nm) keyMap[hb] = nm;
+  }
+  const nodeMap = buildNodeHashMap();
+  fs.watch(sourcePath, { persistent: false }, (event, filename) => {
+    if (event !== "change" || !channelMessagesCache.payload || channelMessagesCache.lastMessagesFileOffset == null) return;
+    const offset = channelMessagesCache.lastMessagesFileOffset;
+    readNewLinesFromOffset(sourcePath, offset).then(({ lines, newOffset }) => {
+      if (!lines.length) {
+        channelMessagesCache.lastMessagesFileOffset = newOffset;
+        return;
+      }
+      let stat;
+      try { stat = fs.statSync(sourcePath); } catch { return; }
+      const baseNow = stat.mtimeMs || Date.now();
+      let maxNumericTs = null;
+      for (const line of lines) {
+        try {
+          const rec = JSON.parse(line);
+          if (Number.isFinite(rec.ts) && (maxNumericTs === null || rec.ts > maxNumericTs)) maxNumericTs = rec.ts;
+        } catch {}
+      }
+      const newMsgs = [];
+      for (const line of lines) {
+        let rec;
+        try { rec = JSON.parse(line); } catch { continue; }
+        const hex = getHex(rec);
+        if (!hex) continue;
+        let decoded;
+        try { decoded = MeshCoreDecoder.decode(String(hex).toUpperCase(), keyStore ? { keyStore } : undefined); } catch { continue; }
+        if (Utils.getPayloadTypeName(decoded.payloadType) !== "GroupText") continue;
+        const payload = decoded.payload?.decoded;
+        if (!payload || !payload.decrypted) continue;
+        const chHash = typeof payload.channelHash === "string" ? payload.channelHash.toUpperCase() : null;
+        const chName = chHash && keyMap[chHash] ? keyMap[chHash] : null;
+        if (!chName) continue;
+        const msgHash = String(decoded.messageHash || rec.frameHash || sha256Hex(hex) || hex.slice(0, 16) || "unknown").toUpperCase();
+        let ts = null;
+        if (typeof rec.archivedAt === "string" && parseIso(rec.archivedAt)) ts = rec.archivedAt;
+        else if (typeof rec.ts === "string" && parseIso(rec.ts)) ts = rec.ts;
+        else if (Number.isFinite(rec.ts) && maxNumericTs !== null) ts = new Date(baseNow - (maxNumericTs - rec.ts)).toISOString();
+        if (!ts) continue;
+        const path = Array.isArray(decoded.path) ? decoded.path.map(normalizePathHash) : [];
+        const pathPoints = path.map((h) => {
+          const hit = nodeMap.get(h);
+          return { hash: h, name: hit ? hit.name : "#unknown", gps: hit?.gps || null };
+        });
+        const pathNames = pathPoints.map((p) => p.name);
+        const body = String(payload.decrypted.message || "");
+        const sender = String(payload.decrypted.sender || "unknown");
+        const existing = channelMessagesCache.payload.messages.find((m) => (m.channelName === chName && m.messageHash === msgHash));
+        if (existing) continue;
+        newMsgs.push({
+          id: msgHash,
+          frameHash: rec.frameHash ? String(rec.frameHash).toUpperCase() : msgHash,
+          messageHash: msgHash,
+          channelName: chName,
+          sender,
+          body,
+          ts,
+          repeats: path.length || 0,
+          path,
+          pathNames,
+          pathPoints,
+          observerHits: rec.observerId ? [String(rec.observerId)] : [],
+          observerCount: rec.observerId ? 1 : 0
+        });
+      }
+      if (newMsgs.length) {
+        channelMessagesCache.payload.messages.push(...newMsgs);
+        channelMessagesCache.payload.messages.sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+        channelMessagesCache.lastMessagesFileOffset = newOffset;
+        channelMessagesCache.size = stat.size;
+        channelMessagesCache.mtimeMs = stat.mtimeMs;
+        const chNames = [...new Set(newMsgs.map((m) => m.channelName))];
+        chNames.forEach((chName) => {
+          const existing = channelMessagesCache.payload.channels.find((c) => normalizeChannelName(c.name) === normalizeChannelName(chName));
+          if (!existing) {
+            const m = newMsgs.find((x) => x.channelName === chName);
+            channelMessagesCache.payload.channels.push({
+              id: String(chName || "").replace(/^#/, ""),
+              name: chName,
+              snippet: (m?.body || "").slice(0, 48) || "No recent messages",
+              time: m?.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
+            });
+            channelMessagesCache.payload.channels.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+          }
+        });
+        broadcastNewMessages(newMsgs);
+      } else {
+        channelMessagesCache.lastMessagesFileOffset = newOffset;
+      }
+    }).catch(() => {});
+  });
+}
+
 async function buildChannelMessages() {
+  // Cache is built once on load; new messages arrive in realtime via append (DB poll / file watch)
+  if (channelMessagesCache.payload) {
+    return channelMessagesCache.payload;
+  }
+
   const db = getDb();
   if (hasMessagesDb(db)) {
     const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
@@ -4087,17 +5238,53 @@ async function buildChannelMessages() {
           time: row.ts ? new Date(row.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
         }));
 
-      const messages = [];
+      // Optimized: collect all messages in one pass instead of per-channel queries
+      const allMessageRows = [];
+      const channelLimits = new Map();
       for (const row of latestRows) {
-        const limit = channelHistoryLimit(row.channel_name);
-        const rows = readMessagesFromDb(row.channel_name, limit, null) || [];
-        const hashes = rows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
-        const observerAggMap = readMessageObserverAgg(db, hashes);
-        const observerPathsMap = readMessageObserverPaths(db, hashes);
-        const mapped = rows.map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap, observerPathsMap)).reverse();
-        mapped.forEach((msg) => messages.push(msg));
+        channelLimits.set(row.channel_name, channelHistoryLimit(row.channel_name));
       }
-      return { channels, messages };
+      // Single query to get all recent messages per channel, respecting limits
+      const channelNames = Array.from(channelLimits.keys());
+      if (channelNames.length > 0) {
+        const placeholders = channelNames.map(() => "?").join(",");
+        const maxLimit = Math.max(...Array.from(channelLimits.values()));
+        const rows = db.prepare(`
+          SELECT message_hash, frame_hash, channel_name, sender, body, ts, path_json, path_text, path_length, repeats
+          FROM messages
+          WHERE channel_name IN (${placeholders})
+          ORDER BY channel_name, ts DESC
+        `).all(...channelNames);
+        // Group by channel and apply per-channel limits
+        const byChannel = new Map();
+        for (const msg of rows) {
+          const ch = msg.channel_name;
+          if (!ch) continue;
+          const bucket = byChannel.get(ch) || [];
+          const limit = channelLimits.get(ch) || maxLimit;
+          if (bucket.length < limit) {
+            bucket.push(msg);
+            byChannel.set(ch, bucket);
+          }
+        }
+        // Flatten and collect all hashes for batch observer lookups
+        for (const bucket of byChannel.values()) {
+          allMessageRows.push(...bucket);
+        }
+      }
+      // Single batch lookup for all observer data (replaces N+1 pattern)
+      const allHashes = allMessageRows.map((r) => String(r.message_hash || "").toUpperCase()).filter(Boolean);
+      const observerAggMap = readMessageObserverAgg(db, allHashes);
+      const observerPathsMap = readMessageObserverPaths(db, allHashes);
+      // Map all messages in one pass
+      const messages = allMessageRows
+        .map((r) => mapMessageRow(r, nodeMap, observerHitsMap, observerAggMap, observerPathsMap))
+        .reverse();
+      const payload = { channels, messages };
+      const maxRowIdRow = db.prepare("SELECT MAX(rowid) AS max_id FROM messages").get();
+      channelMessagesCache = { payload, builtAt: Date.now(), lastMessagesRowId: maxRowIdRow?.max_id ?? 0 };
+      startMessagesDbPoll();
+      return payload;
     }
   }
 
@@ -4144,7 +5331,8 @@ async function buildChannelMessages() {
   const tail = await tailLines(sourcePath, CHANNEL_TAIL_LINES);
   if (!tail.length) {
     const payload = { channels: Array.from(channelMap.values()), messages: [] };
-    channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, payload, builtAt: Date.now() };
+    channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, lastMessagesFileOffset: stat.size, payload, builtAt: Date.now() };
+    startMessagesFileWatch(sourcePath);
     return payload;
   }
   const cachedObserverMap = await getObserverHitsMap();
@@ -4296,7 +5484,8 @@ async function buildChannelMessages() {
     .sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
 
   const payload = { channels, messages };
-  channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, payload, builtAt: Date.now() };
+  channelMessagesCache = { mtimeMs: stat.mtimeMs, size: stat.size, lastMessagesFileOffset: stat.size, payload, builtAt: Date.now() };
+  startMessagesFileWatch(sourcePath);
   return payload;
   })();
   try {
@@ -4309,7 +5498,15 @@ async function buildChannelMessages() {
   }
 }
 
+let channelSummaryCache = { builtAt: 0, payload: null };
+const CHANNEL_SUMMARY_CACHE_MS = 10 * 1000; // 10 seconds cache
+
 async function buildChannelSummary() {
+  const now = Date.now();
+  if (channelSummaryCache.payload && (now - channelSummaryCache.builtAt) < CHANNEL_SUMMARY_CACHE_MS) {
+    return channelSummaryCache.payload;
+  }
+  
   const db = getDb();
   if (hasMessagesDb(db)) {
     const countRow = db.prepare("SELECT COUNT(1) as count FROM messages").get();
@@ -4324,7 +5521,7 @@ async function buildChannelSummary() {
         ) x
         ON m.channel_name = x.channel_name AND m.ts = x.max_ts
       `).all();
-      return latestRows
+      const payload = latestRows
         .filter((row) => row.channel_name)
         .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
         .map((row) => ({
@@ -4333,10 +5530,19 @@ async function buildChannelSummary() {
           snippet: String(row.body || "").slice(0, 48) || "No recent messages",
           time: row.ts ? new Date(row.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "--"
         }));
+      channelSummaryCache = { builtAt: now, payload };
+      return payload;
     }
   }
-  const payload = await buildChannelMessages();
-  return payload.channels || [];
+  // Fallback: return cached or empty, refresh in background
+  const cached = channelSummaryCache.payload || [];
+  setImmediate(() => {
+    buildChannelMessages().then((payload) => {
+      const chans = payload.channels || [];
+      channelSummaryCache = { builtAt: Date.now(), payload: chans };
+    }).catch(() => {});
+  });
+  return cached;
 }
 
 function normalizeChannelName(name) {
@@ -4457,9 +5663,20 @@ function getDailyMeshTrendPayload() {
 }
 
 async function buildMeshHeatPayload() {
+  // Ensure cache is fresh
+  if (!rankCache.items || rankCache.items.length === 0) {
+    await refreshRankCache(true);
+  }
   const rank = rankCache.items || [];
   const repeaters = rank
-    .filter((item) => item.gps && Number.isFinite(item.gps.lat) && Number.isFinite(item.gps.lon))
+    .filter((item) => {
+      // Filter out repeaters without GPS
+      if (!item.gps || !Number.isFinite(item.gps.lat) || !Number.isFinite(item.gps.lon)) return false;
+      // Filter out hidden repeaters (hiddenOnMap flag or 🚫 emoji in name)
+      if (item.hiddenOnMap) return false;
+      if (item.name && String(item.name).includes("🚫")) return false;
+      return true;
+    })
     .slice(0, 220)
     .map((item) => ({
       pub: item.pub,
@@ -4780,13 +5997,15 @@ async function refreshNodeRankCache(force) {
 async function buildRepeaterRankSummary() {
   const now = Date.now();
   const last = rankSummaryCache.updatedAt ? new Date(rankSummaryCache.updatedAt).getTime() : 0;
+  // Don't block - trigger refresh in background, return current cache immediately
   if (!last || now - last >= RANK_REFRESH_MS) {
-    await refreshRankCache(true);
+    refreshRankCache(true).catch(() => {}); // Fire and forget
   }
+  // Return current cache immediately (may be stale if refresh in progress)
   return {
-    updatedAt: rankSummaryCache.updatedAt,
-    count: rankSummaryCache.totals ? rankSummaryCache.totals.total : rankCache.count,
-    totals: rankSummaryCache.totals || { total: rankCache.count, active: 0, total24h: 0 }
+    updatedAt: rankSummaryCache.updatedAt || rankCache.updatedAt,
+    count: rankSummaryCache.totals ? rankSummaryCache.totals.total : (rankCache.count || 0),
+    totals: rankSummaryCache.totals || { total: rankCache.count || 0, active: 0, total24h: 0 }
   };
 }
 
@@ -4809,17 +6028,20 @@ async function buildNodeRankSummary() {
 async function buildObserverRankSummary() {
   const now = Date.now();
   const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+  // Never block on cache rebuild - return current cache; trigger refresh in background after warmup only
   if (!observerRankCache.items?.length) {
-    await refreshObserverRankCache(true);
+    if (isCacheWarmupPast()) refreshObserverRankCache(true).catch(() => {});
   } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
-    await refreshObserverRankCache(true);
+    if (isCacheWarmupPast()) refreshObserverRankCache(false).catch(() => {});
   }
+  const packetsTotal = observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0);
   return {
     updatedAt: observerRankCache.updatedAt,
     count: observerRankCache.items.length,
     totals: {
       active: observerRankCache.items.filter((o) => o.ageHours < OBSERVER_OFFLINE_HOURS).length,
-      packetsToday: observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0)
+      packetsToday: packetsTotal,
+      packets24h: packetsTotal
     }
   };
 }
@@ -5771,8 +6993,10 @@ function contentTypeFor(filePath) {
   return "application/octet-stream";
 }
 
-refreshLastHeardCache();
-setInterval(refreshLastHeardCache, GEO_SCORE_LAST_HEARD_REFRESH_MS);
+// DISABLED: refreshLastHeardCache() was processing 26k+ rows every 60s, causing high CPU
+// Moved to deferred startup and reduced frequency
+// refreshLastHeardCache();
+// setInterval(refreshLastHeardCache, GEO_SCORE_LAST_HEARD_REFRESH_MS);
 
 function safeDecodeURIComponent(value) {
   if (!value) return "";
@@ -5784,6 +7008,39 @@ function safeDecodeURIComponent(value) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // #region agent log
+  _debugLog({ location: "server.js:request-handler-entry", message: "request received", data: { method: req.method, url: (req.url || "").slice(0, 80) }, hypothesisId: "H3,H4" });
+  // #endregion
+  // Request timing instrumentation
+  const requestStart = process.hrtime.bigint();
+  const requestId = `${req.method}_${req.url?.substring(0, 50)}_${Date.now()}`;
+  
+  // Log all requests to debug hanging issue
+  console.log(`(server) ${req.method} ${req.url}`);
+  logTiming(`Request START: ${req.method} ${req.url?.substring(0, 50)}`, requestStart);
+  
+  // Add timeout to prevent hanging requests (except SSE streams which are long-lived)
+  const isLongLived = req.url && (req.url.includes("/api/message-stream") || req.url.includes("/api/bot-stream"));
+  const timeoutMs = isLongLived ? 0 : (req.url && req.url.includes("/api/dashboard") ? 120000 : 30000);
+  const requestTimeout = timeoutMs > 0 ? setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(`(server) Request timeout: ${req.method} ${req.url}`);
+      try {
+        res.writeHead(504, { "Content-Type": "text/plain" });
+        res.end("Request timeout");
+      } catch {}
+    }
+  }, timeoutMs) : null;
+  
+  res.on("finish", () => {
+    if (requestTimeout) clearTimeout(requestTimeout);
+    logTiming(`Request FINISH: ${req.method} ${req.url?.substring(0, 50)} (${res.statusCode})`, requestStart);
+  });
+  res.on("close", () => {
+    if (requestTimeout) clearTimeout(requestTimeout);
+    logTiming(`Request CLOSE: ${req.method} ${req.url?.substring(0, 50)}`, requestStart);
+  });
+  
   let perfStart = null;
   if (DEBUG_PERF) {
     perfStart = process.hrtime.bigint();
@@ -5808,31 +7065,95 @@ const server = http.createServer(async (req, res) => {
       console.log(`[perf] ${req.method} ${req.url} ${res.statusCode} ${elapsedMs.toFixed(1)}ms ${bytes}b`);
     });
   }
-  const u = new URL(req.url, `http://${req.headers.host}`);
+  // Add simple test endpoint first to verify server is processing requests (before URL parsing)
+  if (req.url && req.url.startsWith("/api/test")) {
+    return send(res, 200, "application/json", JSON.stringify({ ok: true, ts: Date.now() }));
+  }
+  
+  // Add error handling for URL parsing
+  let u;
+  try {
+    u = new URL(req.url, `http://${req.headers.host}`);
+    // Debug: log pathname for rank endpoints
+    if (req.url && req.url.includes("repeater-rank")) {
+      console.log(`(server) URL parsed: pathname="${u.pathname}", url="${req.url}"`);
+    }
+  } catch (err) {
+    console.error("(server) URL parse failed:", req.url, err?.message);
+    return send(res, 400, "text/plain", "Invalid URL");
+  }
   if (u.pathname === "/") {
-    let html = fs.readFileSync(indexPath, "utf8");
-    html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
-    return send(res, 200, "text/html; charset=utf-8", html);
+    // Non-blocking: read file asynchronously to avoid blocking event loop
+    fs.readFile(indexPath, "utf8", (err, html) => {
+      if (err) {
+        console.error("Failed to read index.html:", err);
+        return send(res, 500, "text/plain", "Internal server error");
+      }
+      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+      return send(res, 200, "text/html; charset=utf-8", html);
+    });
+    return;
   }
   if (/^\/s\/[0-9]{5}$/.test(u.pathname)) {
-    let html = fs.readFileSync(indexPath, "utf8");
-    html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
-    return send(res, 200, "text/html; charset=utf-8", html);
+    // Non-blocking: read file asynchronously to avoid blocking event loop
+    fs.readFile(indexPath, "utf8", (err, html) => {
+      if (err) {
+        console.error("Failed to read index.html:", err);
+        return send(res, 500, "text/plain", "Internal server error");
+      }
+      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+      return send(res, 200, "text/html; charset=utf-8", html);
+    });
+    return;
   }
-  const rawPath = safeDecodeURIComponent(u.pathname || "");
-  const trimmed = rawPath.replace(/^[\\/]+/, "");
-  const staticPath = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, "");
-  if (staticPath) {
-    const absPath = path.join(staticDir, staticPath);
-    if (absPath.startsWith(staticDir) && fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
-      const body = fs.readFileSync(absPath);
-      return send(res, 200, contentTypeFor(absPath), body);
+  if (/^\/msg\/[0-9]{5}$/.test(u.pathname)) {
+    // Share link URL used by meshcore-bot (e.g. meshrank.net/msg/56463)
+    fs.readFile(indexPath, "utf8", (err, html) => {
+      if (err) {
+        console.error("Failed to read index.html:", err);
+        return send(res, 500, "text/plain", "Internal server error");
+      }
+      html = html.replace(/__GOOGLE_CLIENT_ID__/g, GOOGLE_CLIENT_ID);
+      return send(res, 200, "text/html; charset=utf-8", html);
+    });
+    return;
+  }
+  // Skip static file handler for API paths
+  if (!u.pathname.startsWith("/api/")) {
+    const rawPath = safeDecodeURIComponent(u.pathname || "");
+    const trimmed = rawPath.replace(/^[\\/]+/, "");
+    const staticPath = path.normalize(trimmed).replace(/^(\.\.[\\/])+/, "");
+    if (staticPath) {
+      const absPath = path.join(staticDir, staticPath);
+      if (absPath.startsWith(staticDir)) {
+        fs.stat(absPath, (err, stats) => {
+          if (err || !stats || !stats.isFile()) {
+            return send(res, 404, "text/plain", "Not found");
+          }
+          fs.readFile(absPath, (readErr, body) => {
+            if (readErr) {
+              console.error("Failed to read static file:", readErr);
+              return send(res, 500, "text/plain", "Internal server error");
+            }
+            return send(res, 200, contentTypeFor(absPath), body);
+          });
+        });
+        return;
+      }
     }
   }
 
   if (u.pathname === "/api/health") {
     try {
-      await refreshRankCache(false);
+      // Never block on getDb() — if DB not warmed yet, return minimal payload so Caddy/load balancers don't time out
+      if (!db) {
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+          ok: true,
+          db: "warming",
+          nowIso: new Date().toISOString()
+        }));
+      }
+      refreshRankCache(false).catch(() => {});
       const payload = buildHealthPayload();
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, ...payload }));
     } catch (err) {
@@ -5877,6 +7198,7 @@ const server = http.createServer(async (req, res) => {
     const rotmConfig = user?.isAdmin
       ? { channel: normalizeRotmChannel(readRotmConfig().channel || "#rotm") }
       : null;
+    if (res.headersSent) return;
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
       ok: true,
       user,
@@ -6589,11 +7911,29 @@ const server = http.createServer(async (req, res) => {
 
   if (u.pathname === "/api/channels") {
     if (req.method === "GET") {
+      const handlerStart = Date.now();
+      // Never block on getDb() on first request - return cached or empty immediately
+      if (!db) {
+        setImmediate(() => { getDb(); });
+        return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: [] }));
+      }
       const user = getSessionUser(req);
       const blockedSet = loadBlockedChannels(getDb());
-      let channels = await buildChannelSummary();
+      // Return cached channels immediately - never await, never block
+      let channels = Array.isArray(channelSummaryCache.payload) ? channelSummaryCache.payload : [];
+      // Trigger background refresh if cache is stale (fire and forget)
+      const now = Date.now();
+      if (!channelSummaryCache.payload || (now - (channelSummaryCache.builtAt || 0)) >= CHANNEL_SUMMARY_CACHE_MS) {
+        setImmediate(() => {
+          buildChannelSummary().catch(() => {}); // Fire and forget, don't await
+        });
+      }
       if (!user?.isAdmin) {
         channels = (channels || []).filter((ch) => !blockedSet.has(normalizeChannelName(ch.name || ch.id)));
+      }
+      const handlerMs = Date.now() - handlerStart;
+      if (handlerMs > 50) {
+        console.log(`(channels) handler took ${handlerMs}ms, returned ${channels.length} channels`);
       }
       return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels }));
     }
@@ -6677,6 +8017,7 @@ const server = http.createServer(async (req, res) => {
       res.write(`event: ${name}\n`);
       res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
     };
+    messageStreamSenders.add(sendEvent);
     sendEvent("ready", { ok: true, lastRowId });
     let countersBusy = false;
     let ranksBusy = false;
@@ -6775,7 +8116,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (u.pathname === "/api/bot-stream") {
+    if (!isBotAuthorized(req)) {
+      return send(res, 403, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "not authorized" }));
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    res.write("\n");
+    let closed = false;
+    const sendEvent = (name, payload) => {
+      if (closed) return;
+      res.write(`event: ${name}\n`);
+      res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
+    };
+    sendEvent("ready", { ok: true, ts: Date.now() });
+    botStreamSenders.add(sendEvent);
+    const ping = setInterval(() => {
+      if (!closed) res.write("event: ping\ndata: {}\n\n");
+    }, 15000);
+    req.on("close", () => {
+      closed = true;
+      botStreamSenders.delete(sendEvent);
+      clearInterval(ping);
+    });
+    return;
+  }
+
   if (u.pathname === "/api/messages") {
+    // On load: never block. If cache is empty, return empty immediately so the site loads; build cache in background, messages arrive realtime via /api/message-stream.
+    // #region agent log
+    const cacheEmpty = !channelMessagesCache.payload;
+    _debugLog({ location: "server.js:api-messages-entry", message: "api/messages handler", data: { cacheEmpty }, hypothesisId: "H2" });
+    // #endregion
     const channel = u.searchParams.get("channel");
     const limitRaw = u.searchParams.get("limit");
     const beforeRaw = u.searchParams.get("before");
@@ -6785,23 +8161,105 @@ const server = http.createServer(async (req, res) => {
       const beforeDate = parseIso(beforeRaw);
       if (beforeDate) beforeTs = beforeDate.getTime();
     }
+    if (!channelMessagesCache.payload) {
+      if (!messagesCacheBuildScheduled) {
+        messagesCacheBuildScheduled = true;
+        // Defer the initial cache build so the site loads immediately.
+        setTimeout(() => buildChannelMessages().catch(() => {}), 10000);
+      }
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: [], messages: [] }));
+    }
     const user = getSessionUser(req);
     const db = getDb();
     const blockedSet = loadBlockedChannels(db);
     const restrictChannels = !channel && user ? getUserChannels(user.id) : null;
-    const payload = await buildMessagesPayload({
-      channel,
-      limit,
-      beforeTs,
-      restrictChannels,
-      blockedSet,
-      includeBlocked: !!user?.isAdmin
-    });
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
+    
+    // Return cached messages immediately if available, trigger refresh in background
+    if (channelMessagesCache.payload && !channel && !beforeTs) {
+      // Fast path: return cached data for general requests
+      const cached = channelMessagesCache.payload;
+      let list = cached.messages || [];
+      if (Array.isArray(restrictChannels) && restrictChannels.length) {
+        const allowed = new Set(restrictChannels.map(normalizeChannelName).filter(Boolean));
+        list = list.filter((m) => allowed.has(normalizeChannelName(m.channelName)));
+      }
+      if (blockedSet && blockedSet.size) {
+        list = list.filter((m) => !blockedSet.has(normalizeChannelName(m.channelName)));
+      }
+      // No periodic refresh – new messages arrive in realtime via DB poll / file watch and broadcast
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ channels: cached.channels || [], messages: list }));
+    }
+    
+    // Slow path: return cached data immediately, trigger refresh in background
+    // This prevents 504 timeouts when buildChannelMessages() takes too long
+    if (channelMessagesCache.payload) {
+      const cached = channelMessagesCache.payload;
+      let list = cached.messages || [];
+      
+      // Filter by channel if specified
+      if (channel) {
+        const channelName = String(channel).startsWith("#") ? channel : `#${channel}`;
+        list = list.filter((m) => normalizeChannelName(m.channelName) === normalizeChannelName(channelName));
+      }
+      
+      // Filter by beforeTs if specified
+      if (beforeTs) {
+        list = list.filter((m) => {
+          const ts = m.ts ? new Date(m.ts).getTime() : 0;
+          return ts < beforeTs;
+        });
+      }
+      
+      // Apply limit
+      if (limit && limit > 0) {
+        list = list.slice(0, limit);
+      }
+      
+      // Apply restrictions
+      if (Array.isArray(restrictChannels) && restrictChannels.length) {
+        const allowed = new Set(restrictChannels.map(normalizeChannelName).filter(Boolean));
+        list = list.filter((m) => allowed.has(normalizeChannelName(m.channelName)));
+      }
+      
+      // Apply blocked channels
+      if (blockedSet && blockedSet.size && !includeBlocked) {
+        list = list.filter((m) => !blockedSet.has(normalizeChannelName(m.channelName)));
+      }
+      
+      // Trigger background refresh
+      setImmediate(() => {
+        buildMessagesPayload({
+          channel,
+          limit,
+          beforeTs,
+          restrictChannels,
+          blockedSet,
+          includeBlocked: !!user?.isAdmin
+        }).catch(() => {});
+      });
+      
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ 
+        channels: cached.channels || [], 
+        messages: list 
+      }));
+    }
   }
 
   if (u.pathname === "/api/rotm") {
-    const payload = await buildRotmData();
+    // Non-blocking: return cached data immediately, trigger refresh in background
+    const now = Date.now();
+    const last = rotmCache.builtAt || 0;
+    const force = u.searchParams.get("refresh") === "1";
+    
+    // Trigger background refresh if stale or forced
+    if (force || !last || (now - last) >= ROTM_CACHE_MS) {
+      setImmediate(() => {
+        buildRotmData().catch(() => {});
+      });
+    }
+    
+    // Return cached data immediately (may be stale if refresh in progress)
+    const payload = rotmCache.payload || { updatedAt: new Date().toISOString(), feed: [], leaderboard: [], qsos: 0 };
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
@@ -6862,15 +8320,21 @@ const server = http.createServer(async (req, res) => {
     const skipRaw = u.searchParams.get("_skip");
     const limit = limitRaw ? Number(limitRaw) : 0;
     const skip = skipRaw ? Number(skipRaw) : 0;
-    if (force || !last) {
-      await refreshRankCache(true);
-    } else if (now - last >= RANK_REFRESH_MS) {
-      refreshRankCache(false).catch(() => {});
+    
+    // Non-blocking: trigger refresh in background, return current cache immediately
+    if (isRankRefreshAllowed()) {
+      if (force || !last) {
+        refreshRankCache(true).catch(() => {}); // Fire and forget
+      } else if (now - last >= RANK_REFRESH_MS) {
+        refreshRankCache(false).catch(() => {}); // Background refresh
+      }
     }
-    let payloadItems = rankCache.items;
+    
+    // Return current cache immediately (may be stale if refresh in progress)
+    let payloadItems = Array.isArray(rankCache.items) ? rankCache.items : [];
     if (limit > 0) {
       const start = Number.isFinite(skip) && skip > 0 ? skip : 0;
-      payloadItems = rankCache.items.slice(start, start + limit);
+      payloadItems = payloadItems.slice(start, start + limit);
     }
     const payload = limit > 0
       ? { ...rankCache, items: payloadItems }
@@ -6883,11 +8347,17 @@ const server = http.createServer(async (req, res) => {
     const force = u.searchParams.get("refresh") === "1";
     const limitRaw = u.searchParams.get("limit");
     const limit = limitRaw ? Number(limitRaw) : 100;
-    if (force || !last) {
-      await refreshRankCache(true);
-    } else if (now - last >= RANK_REFRESH_MS) {
-      refreshRankCache(false).catch(() => {});
+    
+    // Non-blocking: trigger refresh in background, return current cache immediately
+    if (isRankRefreshAllowed()) {
+      if (force || !last) {
+        refreshRankCache(true).catch(() => {}); // Fire and forget
+      } else if (now - last >= RANK_REFRESH_MS) {
+        refreshRankCache(false).catch(() => {}); // Background refresh
+      }
     }
+    
+    // Return current cache immediately (may be stale if refresh in progress)
     const excluded = Array.isArray(rankCache.excluded) ? rankCache.excluded : [];
     const payload = {
       updatedAt: rankCache.updatedAt,
@@ -6931,13 +8401,19 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/repeater-rank-summary") {
     const now = Date.now();
     const last = rankSummaryCache.updatedAt ? new Date(rankSummaryCache.updatedAt).getTime() : 0;
-    if (!last || now - last >= RANK_REFRESH_MS) {
-      await refreshRankCache(true);
+    
+    // Non-blocking: trigger refresh in background, return current cache immediately
+    if (isRankRefreshAllowed()) {
+      if (!last || now - last >= RANK_REFRESH_MS) {
+        refreshRankCache(true).catch(() => {}); // Fire and forget
+      }
     }
+    
+    // Return current cache immediately (may be stale if refresh in progress)
     const summary = {
-      updatedAt: rankSummaryCache.updatedAt,
-      count: rankSummaryCache.totals ? rankSummaryCache.totals.total : rankCache.count,
-      totals: rankSummaryCache.totals || { total: rankCache.count, active: 0, total24h: 0 }
+      updatedAt: rankSummaryCache.updatedAt || rankCache.updatedAt,
+      count: rankSummaryCache.totals ? rankSummaryCache.totals.total : (rankCache.count || 0),
+      totals: rankSummaryCache.totals || { total: rankCache.count || 0, active: 0, total24h: 0 }
     };
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
   }
@@ -7042,16 +8518,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === "/api/mesh-live") {
-    const now = Date.now();
-    const last = rankCache.updatedAt ? new Date(rankCache.updatedAt).getTime() : 0;
-    const force = u.searchParams.get("refresh") === "1";
-    if (force || !last) {
-      await refreshRankCache(true);
-    } else if (now - last >= RANK_REFRESH_MS) {
-      refreshRankCache(false).catch(() => {});
+    // NEW: Direct connection to current_repeaters table - no cache needed
+    try {
+      const payload = await buildMeshHeatPayload();
+      return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, ...payload }));
+    } catch (err) {
+      console.error("(mesh-live) Failed:", err?.message || err);
+      return send(res, 500, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: String(err?.message || err), repeaters: [] }));
     }
-    const payload = await buildMeshHeatPayload();
-    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, ...payload }));
   }
 
   if (u.pathname === "/api/repeater-hide" && req.method === "POST") {
@@ -7173,6 +8647,7 @@ const server = http.createServer(async (req, res) => {
       writeJsonSafe(devicesPath, devices);
       try {
         const db = getDb();
+        // Update devices table
         db.prepare(`
           INSERT INTO devices (pub, hidden_on_map, updated_at)
           VALUES (?, ?, ?)
@@ -7180,6 +8655,12 @@ const server = http.createServer(async (req, res) => {
             hidden_on_map = excluded.hidden_on_map,
             updated_at = excluded.updated_at
         `).run(pub, flagged ? 1 : 0, devices.updatedAt);
+        // Update current_repeaters table (the "lovely snapshot")
+        db.prepare(`
+          UPDATE current_repeaters
+          SET hidden_on_map = ?, gps_implausible = ?, updated_at = ?
+          WHERE pub = ?
+        `).run(flagged ? 1 : 0, flagged ? 1 : 0, devices.updatedAt, pub);
       } catch {}
       devicesCache = { readAt: 0, data: null };
       rankCache = { updatedAt: null, count: 0, items: [], excluded: [], cachedAt: null };
@@ -7342,6 +8823,62 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(payload));
   }
 
+  if (u.pathname === "/api/message" && req.method === "GET") {
+    const hash = u.searchParams.get("hash");
+    if (!hash || !String(hash).trim()) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "hash required" }));
+    }
+    const db = getDb();
+    if (!hasMessagesDb(db)) {
+      return send(res, 503, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "messages database unavailable" }));
+    }
+    const row = findMessageRow(db, String(hash).trim());
+    if (!row) {
+      return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "message not found" }));
+    }
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+      ok: true,
+      sender: row.sender || null,
+      body: row.body || null,
+      channelName: row.channel_name || null,
+      messageHash: row.message_hash || row.frame_hash || null
+    }));
+  }
+
+  if (u.pathname === "/api/message-lookup" && req.method === "GET") {
+    const channel = u.searchParams.get("channel");
+    const body = u.searchParams.get("body");
+    const minutes = Math.min(60, Math.max(1, Number(u.searchParams.get("minutes")) || 5));
+    if (!body || !String(body).trim()) {
+      return send(res, 400, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "body required" }));
+    }
+    const db = getDb();
+    if (!hasMessagesDb(db)) {
+      return send(res, 503, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "messages database unavailable" }));
+    }
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+    const channelName = channel && String(channel).trim() ? String(channel).trim() : null;
+    const bodyTrim = String(body).trim();
+    const row = channelName
+      ? db.prepare(
+          "SELECT message_hash, sender, body, channel_name, ts FROM messages WHERE channel_name = ? AND body = ? AND ts >= ? ORDER BY ts DESC LIMIT 1"
+        ).get(channelName, bodyTrim, cutoff)
+      : db.prepare(
+          "SELECT message_hash, sender, body, channel_name, ts FROM messages WHERE body = ? AND ts >= ? ORDER BY ts DESC LIMIT 1"
+        ).get(bodyTrim, cutoff);
+    if (!row) {
+      return send(res, 404, "application/json; charset=utf-8", JSON.stringify({ ok: false, error: "no matching message" }));
+    }
+    return send(res, 200, "application/json; charset=utf-8", JSON.stringify({
+      ok: true,
+      sender: row.sender || null,
+      messageHash: row.message_hash || null,
+      channelName: row.channel_name || null,
+      body: row.body || null,
+      ts: row.ts || null
+    }));
+  }
+
   if (u.pathname === "/api/message-routes") {
     const hash = u.searchParams.get("hash");
     const hours = u.searchParams.get("hours");
@@ -7428,15 +8965,20 @@ const server = http.createServer(async (req, res) => {
     const now = Date.now();
     const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
     const force = u.searchParams.get("refresh") === "1";
+    const waitForRefresh = u.searchParams.get("wait") === "1";
     const limitRaw = u.searchParams.get("_limit");
     const limit = limitRaw ? Number(limitRaw) : 0;
+    // Never await cache rebuild on load - it hangs. Return current cache immediately; refresh in background after warmup.
     if (!observerRankCache.items?.length) {
+      scheduleObserverRankRefreshAfterWarmup();
+    } else if (force && waitForRefresh && isCacheWarmupPast()) {
       await refreshObserverRankCache(true);
     } else if (force) {
-      await refreshObserverRankCache(true);
+      if (isCacheWarmupPast()) refreshObserverRankCache(true).catch(() => {});
     } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
-      refreshObserverRankCache(false).catch(() => {});
+      if (isCacheWarmupPast()) refreshObserverRankCache(false).catch(() => {});
     }
+    
     const payload = limit > 0
       ? { ...observerRankCache, items: observerRankCache.items.slice(0, limit) }
       : observerRankCache;
@@ -7445,17 +8987,25 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/api/observer-rank-summary") {
     const now = Date.now();
     const last = observerRankCache.updatedAt ? new Date(observerRankCache.updatedAt).getTime() : 0;
+    const waitForRefresh = u.searchParams.get("wait") === "1";
+    const force = u.searchParams.get("refresh") === "1";
+    // Never await cache rebuild on load - return current cache immediately; refresh after warmup.
     if (!observerRankCache.items?.length) {
+      scheduleObserverRankRefreshAfterWarmup();
+    } else if (force && waitForRefresh && isCacheWarmupPast()) {
       await refreshObserverRankCache(true);
     } else if (!last || (now - last) >= OBSERVER_RANK_REFRESH_MS) {
-      refreshObserverRankCache(false).catch(() => {});
+      if (isCacheWarmupPast()) refreshObserverRankCache(false).catch(() => {});
     }
+    
+    const packetsTotal = observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0);
     const summary = {
       updatedAt: observerRankCache.updatedAt,
       count: observerRankCache.items.length,
       totals: {
         active: observerRankCache.items.filter((o) => o.ageHours < OBSERVER_OFFLINE_HOURS).length,
-        packetsToday: observerRankCache.items.reduce((sum, o) => sum + (o.packetsToday || 0), 0)
+        packetsToday: packetsTotal,
+        packets24h: packetsTotal
       }
     };
     return send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
@@ -7590,6 +9140,19 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, "text/plain; charset=utf-8", "Not found");
 });
 
+// Add global error handler to catch unhandled errors
+server.on("error", (err) => {
+  console.error("(server) Server error:", err?.message || err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("(server) Uncaught exception:", err?.message || err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("(server) Unhandled rejection:", reason);
+});
+
 const exported = {
   refreshGeoscoreObserverProfiles,
   buildRepeaterRank,
@@ -7612,23 +9175,126 @@ const exported = {
   isValidGps
 };
 
+// Track server start time to defer heavy operations (never rebuild cache on load - it hangs)
+const serverStartTime = Date.now();
+const CACHE_WARMUP_MS = 5 * 60 * 1000; // 5 minutes - no heavy cache refresh until server has been up this long
+const RANK_DEFER_MS = 15 * 60 * 1000; // 15 minutes - before starting scheduleAutoRefresh loop
+
+function isRankRefreshAllowed() {
+  return (Date.now() - serverStartTime) >= RANK_DEFER_MS;
+}
+
+function isCacheWarmupPast() {
+  return (Date.now() - serverStartTime) >= CACHE_WARMUP_MS;
+}
+
+function scheduleObserverRankRefreshAfterWarmup() {
+  const elapsed = Date.now() - serverStartTime;
+  const delay = Math.max(0, CACHE_WARMUP_MS - elapsed);
+  if (delay > 0) {
+    setTimeout(() => {
+      refreshObserverRankCache(true).catch(() => {});
+    }, delay);
+  } else {
+    refreshObserverRankCache(true).catch(() => {});
+  }
+}
+
 if (require.main === module) {
+  startupTimings.moduleLoadEnd = logTiming("Module load END", startupTimings.moduleLoadStart);
+  startupTimings.serverListenStart = process.hrtime.bigint();
+  logTiming("Server listen START", startupTimings.serverListenStart);
+  // #region agent log
+  server.on("error", (err) => {
+    _debugLog({ location: "server.js:listen-error", message: "listen error", data: { errMessage: err && err.message, code: err && err.code }, hypothesisId: "H5" });
+  });
+  // #endregion
   server.listen(port, host, () => {
+    // #region agent log
+    _debugLog({ location: "server.js:listen-callback", message: "listen callback (bound)", data: { port, host }, hypothesisId: "H5" });
+    // #endregion
+    startupTimings.serverListenEnd = logTiming("Server listen END (callback)", startupTimings.serverListenStart);
     console.log(`(observer-demo) http://${host}:${port}`);
-    startObserverHitsTailer();
-    startStatsRollupUpdater();
-    hydrateRepeaterRankCache();
-    hydrateObserverRankCache();
-    refreshRankCache(true).catch(() => {});
-    hydrateMeshScoreCache();
-    try {
-      const updated = refreshGeoscoreObserverProfiles();
-      console.log("(geoscore) observer profiles loaded", updated.count);
-    } catch (err) {
-      console.error("(geoscore) observer profile load failed", err);
+    // Re-hydrate cache after server starts to ensure database is ready
+    // FIX: Make cache hydration non-blocking so requests can be handled immediately
+    console.log("(cache) Scheduling cache hydration in background...");
+    // Warm DB in background so first API request does not block on getDb()
+    setTimeout(() => {
+      try {
+        getDb();
+        console.log("(startup) DB warmed");
+      } catch (e) {
+        console.error("(startup) DB warm failed:", e?.message);
+      }
+    }, 2000);
+    // Messages cache first: build as soon as DB is warm so messages are up without fail
+    function tryBuildMessagesCache() {
+      if (channelMessagesCache.payload) return;
+      console.log("(startup) Building messages cache (priority - first up)...");
+      buildChannelMessages().then((payload) => {
+        if (payload && (payload.channels?.length || payload.messages?.length)) {
+          console.log("(startup) Messages cache ready:", (payload.channels?.length || 0), "channels,", (payload.messages?.length || 0), "messages");
+        } else {
+          console.log("(startup) Messages cache built (empty source)");
+        }
+      }).catch((e) => {
+        console.error("(startup) Messages cache build failed:", e?.message);
+      });
     }
-    // TODO M4: nightly recalibration + systemd timer hook
-    scheduleAutoRefresh().catch(() => {});
+    setTimeout(tryBuildMessagesCache, 3000);
+    // Retry every 15s until cache has data (handles overloaded event loop or transient failures)
+    const messagesRetryInterval = setInterval(() => {
+      if (channelMessagesCache.payload) {
+        clearInterval(messagesRetryInterval);
+        return;
+      }
+      tryBuildMessagesCache();
+    }, 15000);
+    // Defer cache load so first requests are not blocked by getDb() / DB work
+    setTimeout(() => {
+      console.log("(cache) Loading persisted caches (no rebuild)...");
+      hydrateRepeaterRankCache();
+      hydrateObserverRankCache();
+    }, 30 * 1000);
+    logTiming("Server ready to accept requests", startupTimings.serverListenEnd);
+    console.log(`(observer-demo) Server ready to accept requests`);
+    
+    // SEPARATE TASK: Start repeater scoring task
+    // Runs independently to update scores in current_repeaters table
+    const SCORE_UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    const SCORE_UPDATE_DELAY_MS = 30 * 1000; // Start after 30 seconds
+    
+    setTimeout(() => {
+      console.log("(scoring) Starting repeater scoring task...");
+      // Run immediately on startup
+      updateRepeaterScores().catch(err => {
+        console.error("(scoring) Initial score update failed:", err?.message || err);
+      });
+      
+      // Then run periodically
+      setInterval(() => {
+        updateRepeaterScores().catch(err => {
+          console.error("(scoring) Periodic score update failed:", err?.message || err);
+        });
+      }, SCORE_UPDATE_INTERVAL_MS);
+    }, SCORE_UPDATE_DELAY_MS);
+    
+    // MINIMAL STARTUP: Only schedule essential background tasks with long delays
+    // Heavy operations (cache hydration, rank refresh) are disabled to reduce CPU
+    
+    // Start lightweight tailers after 60 seconds
+    setTimeout(() => {
+      console.log("(startup) Starting background tailers...");
+      startObserverHitsTailer();
+      startStatsRollupUpdater();
+      console.log("(startup) Background tailers started");
+    }, 60000);
+    
+    // Schedule auto-refresh after 15 minutes (when rank refresh is allowed)
+    setTimeout(() => {
+      console.log("(startup) Rank refresh now allowed, starting auto-refresh...");
+      scheduleAutoRefresh().catch(() => {});
+    }, RANK_DEFER_MS);
   });
 }
 

@@ -28,6 +28,7 @@ let rfInsertCount = 0;
 let msgInsert = null;
 let msgObserverInsert = null;
 let deviceUpsert = null;
+let currentRepeaterUpsert = null;
 let observerUpsert = null;
 let rejectAdvertInsert = null;
 let ingestMetricUpsert = null;
@@ -104,6 +105,19 @@ function sanitizeRepeaterName(value) {
     ? stripped.slice(0, MAX_REPEATER_NAME_LENGTH).trimEnd()
     : stripped;
   if (!cleaned) return { ok: false, reason: "empty_after_clean" };
+  
+  // Detect potential decoding corruption (but don't filter - just log for awareness)
+  // Look for patterns like unexpected special chars, mixed case corruption, etc.
+  const suspiciousPatterns = [
+    /'[$&@#%]/g,  // Special chars after apostrophe (like "Newcastlb'$T5")
+    /[^\x20-\x7E\u00A0-\uFFFF]/g,  // Non-printable or unexpected unicode
+  ];
+  const hasSuspiciousPattern = suspiciousPatterns.some(pattern => pattern.test(cleaned));
+  if (hasSuspiciousPattern && cleaned.length > 3) {
+    // Log for awareness but don't filter - user wants to see these
+    logIngest("WARN", `Potential name decoding issue detected: "${cleaned}" (original: "${trimmed}")`);
+  }
+  
   return { ok: true, cleaned };
 }
 
@@ -112,6 +126,62 @@ function normalizePubKey(value) {
   const raw = String(value).trim().toUpperCase();
   if (!/^[0-9A-F]{64}$/.test(raw)) return null;
   return raw;
+}
+
+/** Number of bytes that differ between two 64-char hex pub keys. Returns Infinity if length mismatch. */
+function pubKeyByteDiff(pubA, pubB) {
+  const a = String(pubA || "").trim().toUpperCase();
+  const b = String(pubB || "").trim().toUpperCase();
+  if (a.length !== 64 || b.length !== 64 || !/^[0-9A-F]{64}$/.test(a) || !/^[0-9A-F]{64}$/.test(b)) return Infinity;
+  let diff = 0;
+  for (let i = 0; i < 64; i += 2) {
+    if (a.slice(i, i + 2) !== b.slice(i, i + 2)) diff += 1;
+  }
+  return diff;
+}
+
+/** Levenshtein edit distance between two strings (for decode-error duplicate detection). */
+function nameEditDistance(a, b) {
+  const s = String(a || "").trim();
+  const t = String(b || "").trim();
+  if (!s.length) return t.length;
+  if (!t.length) return s.length;
+  const n = s.length;
+  const m = t.length;
+  const d = Array(n + 1).fill(null).map(() => Array(m + 1).fill(0));
+  for (let i = 0; i <= n; i++) d[i][0] = i;
+  for (let j = 0; j <= m; j++) d[0][j] = j;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  return d[n][m];
+}
+
+const DECODE_ERROR_PUB_BYTE_DIFF_MAX = 10;
+const DECODE_ERROR_NAME_EDIT_DISTANCE_MAX = 4;
+
+/**
+ * If the decoded pub/name look like a decode-error duplicate of an existing repeater
+ * (same device, corrupted packet), return the canonical pub so we update that device instead.
+ */
+function findCanonicalPubForDecodeError(decodedPub, decodedName, byPub) {
+  if (!decodedPub || !decodedName || !byPub || typeof byPub !== "object") return null;
+  const decodedNameStr = String(decodedName).trim();
+  if (!decodedNameStr.length) return null;
+  for (const [existingPub, entry] of Object.entries(byPub)) {
+    if (!entry?.isRepeater || !existingPub || existingPub === decodedPub) continue;
+    const existingName = String(entry.name || "").trim();
+    if (!existingName.length) continue;
+    const nameDist = nameEditDistance(decodedNameStr, existingName);
+    if (nameDist > DECODE_ERROR_NAME_EDIT_DISTANCE_MAX) continue;
+    const byteDiff = pubKeyByteDiff(decodedPub, existingPub);
+    if (byteDiff > DECODE_ERROR_PUB_BYTE_DIFF_MAX) continue;
+    return existingPub;
+  }
+  return null;
 }
 
 function validateGps(value) {
@@ -364,7 +434,34 @@ function initRfDb() {
         updated_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_devices_last_advert_heard_ms ON devices(last_advert_heard_ms);
+      CREATE INDEX IF NOT EXISTS idx_current_repeaters_visible ON current_repeaters(visible, last_advert_heard_ms);
       CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
+      CREATE TABLE IF NOT EXISTS current_repeaters (
+        pub TEXT PRIMARY KEY,
+        name TEXT,
+        gps_lat REAL,
+        gps_lon REAL,
+        last_advert_heard_ms INTEGER,
+        hidden_on_map INTEGER DEFAULT 0,
+        gps_implausible INTEGER DEFAULT 0,
+        visible INTEGER DEFAULT 1,
+        is_observer INTEGER DEFAULT 0,
+        best_rssi REAL,
+        best_snr REAL,
+        avg_rssi REAL,
+        avg_snr REAL,
+        total24h INTEGER DEFAULT 0,
+        score INTEGER,
+        color TEXT,
+        quality TEXT,
+        quality_reason TEXT,
+        is_live INTEGER DEFAULT 0,
+        stale INTEGER DEFAULT 0,
+        last_seen TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_current_repeaters_last_advert ON current_repeaters(last_advert_heard_ms);
+      CREATE INDEX IF NOT EXISTS idx_current_repeaters_score ON current_repeaters(score);
       CREATE TABLE IF NOT EXISTS observers (
         observer_id TEXT PRIMARY KEY,
         name TEXT,
@@ -495,6 +592,46 @@ function initRfDb() {
         hidden_on_map = COALESCE(devices.hidden_on_map, excluded.hidden_on_map),
         updated_at = excluded.updated_at
     `);
+    currentRepeaterUpsert = rfDb.prepare(`
+      INSERT INTO current_repeaters (
+        pub, name, gps_lat, gps_lon, last_advert_heard_ms,
+        hidden_on_map, gps_implausible, visible, is_observer, last_seen, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(pub) DO UPDATE SET
+        name = COALESCE(excluded.name, current_repeaters.name),
+        last_advert_heard_ms = CASE
+          WHEN excluded.last_advert_heard_ms IS NULL THEN current_repeaters.last_advert_heard_ms
+          WHEN current_repeaters.last_advert_heard_ms IS NULL THEN excluded.last_advert_heard_ms
+          WHEN excluded.last_advert_heard_ms > current_repeaters.last_advert_heard_ms THEN excluded.last_advert_heard_ms
+          ELSE current_repeaters.last_advert_heard_ms
+        END,
+        -- GPS handling: only update if coordinates differ OR if gps_implausible is NOT set
+        gps_lat = CASE
+          WHEN current_repeaters.gps_implausible = 1 AND excluded.gps_lat = current_repeaters.gps_lat AND excluded.gps_lon = current_repeaters.gps_lon
+            THEN current_repeaters.gps_lat
+          ELSE COALESCE(excluded.gps_lat, current_repeaters.gps_lat)
+        END,
+        gps_lon = CASE
+          WHEN current_repeaters.gps_implausible = 1 AND excluded.gps_lat = current_repeaters.gps_lat AND excluded.gps_lon = current_repeaters.gps_lon
+            THEN current_repeaters.gps_lon
+          ELSE COALESCE(excluded.gps_lon, current_repeaters.gps_lon)
+        END,
+        -- Preserve hidden_on_map and gps_implausible flags (only update if explicitly changed)
+        hidden_on_map = COALESCE(current_repeaters.hidden_on_map, excluded.hidden_on_map),
+        gps_implausible = COALESCE(current_repeaters.gps_implausible, excluded.gps_implausible),
+        -- When reheard, set visible = 1 (repeater is active again)
+        visible = CASE
+          WHEN excluded.last_advert_heard_ms IS NOT NULL AND excluded.last_advert_heard_ms > (strftime('%s', 'now') * 1000 - 72*60*60*1000)
+            THEN 1
+          ELSE current_repeaters.visible
+        END,
+        is_observer = MAX(current_repeaters.is_observer, excluded.is_observer),
+        last_seen = CASE
+          WHEN excluded.last_seen > current_repeaters.last_seen THEN excluded.last_seen
+          ELSE current_repeaters.last_seen
+        END,
+        updated_at = excluded.updated_at
+    `);
     observerUpsert = rfDb.prepare(`
       INSERT INTO observers (
         observer_id, name, first_seen, last_seen, count, gps_lat, gps_lon, updated_at
@@ -519,6 +656,7 @@ function initRfDb() {
     msgInsert = null;
     msgObserverInsert = null;
     deviceUpsert = null;
+    currentRepeaterUpsert = null;
     observerUpsert = null;
     return false;
   }
@@ -645,10 +783,14 @@ function updateDeviceFromAdvert(record) {
     recordRejectedAdvert(verification.pub || adv.publicKey || adv.pub || adv.pubKey, verification.reason, record);
     return;
   }
-  const key = verification.pub;
-
   const devices = readJsonSafe(devicesPath, { byPub: {} });
   const byPub = devices.byPub || {};
+  // Collapse decode-error duplicates: if decoded pub/name look like a corrupted version of an existing repeater, use canonical pub
+  const canonicalPub = findCanonicalPubForDecodeError(verification.pub, verification.cleanedName, byPub);
+  const key = canonicalPub || verification.pub;
+  if (canonicalPub && canonicalPub !== verification.pub) {
+    logIngest("INFO", `Decode-error duplicate canonicalized: decoded pub ${verification.pub.slice(0, 16)}... name "${verification.cleanedName}" -> canonical pub ${canonicalPub.slice(0, 16)}... (existing name "${(byPub[canonicalPub] || {}).name}")`);
+  }
   const entry = byPub[key] || { pub: key };
   entry.lastSeen = record.archivedAt || entry.lastSeen || null;
   entry.verifiedAdvert = true;
@@ -681,18 +823,29 @@ function updateDeviceFromAdvert(record) {
     (Number.isInteger(adv.appFlags) ? adv.appFlags : null) ??
     (Number.isInteger(adv.appData?.flags) ? adv.appData.flags : null);
   const decodedFlags = Number.isFinite(appFlagsRaw) ? decodeAppFlags(appFlagsRaw) : null;
+  // Check deviceRole - exclude sensors (deviceRole 4) and room servers (deviceRole 3)
+  const deviceRole = Number.isFinite(adv?.appData?.deviceRole) ? adv.appData.deviceRole : null;
+  const isSensor = deviceRole === 4;
+  const isRoomServer = deviceRole === 3;
+  
   const heuristicIsRepeater =
-    adv.isRepeater ||
-    adv.appData?.isRepeater ||
-    adv.appData?.deviceRole === 2 ||
-    adv.appData?.nodeType === "repeater" ||
-    adv.appData?.type === "repeater";
+    !isSensor && !isRoomServer && (
+      adv.isRepeater ||
+      adv.appData?.isRepeater ||
+      adv.appData?.deviceRole === 2 ||
+      adv.appData?.nodeType === "repeater" ||
+      adv.appData?.type === "repeater"
+    );
   if (decodedFlags) {
     entry.appFlags = decodedFlags;
     entry.role = decodedFlags.roleName;
-    entry.isRepeater = decodedFlags.isRepeater;
+    // Don't mark as repeater if it's a sensor or room server
+    entry.isRepeater = decodedFlags.isRepeater && !isSensor && !isRoomServer;
   } else if (heuristicIsRepeater) {
     entry.isRepeater = true;
+  } else if (isSensor || isRoomServer) {
+    // Explicitly set to false for sensors and room servers
+    entry.isRepeater = false;
   }
 
   entry.gpsInvalidReason = verification.gpsInvalidReason || null;
@@ -727,6 +880,10 @@ function updateDeviceFromAdvert(record) {
   if (entry.name) {
     entry.meta.name = entry.name;
     entry.raw.meta.name = entry.name;
+    // Check if name contains 🚫 emoji - if so, set hiddenOnMap flag
+    if (String(entry.name).includes("🚫")) {
+      entry.hiddenOnMap = true;
+    }
   }
   recordAdvertSeen(heardMs);
   byPub[key] = entry;
@@ -747,6 +904,48 @@ function updateDeviceFromAdvert(record) {
       gps ? gps.lon : null,
       entry.raw ? JSON.stringify(entry.raw) : null,
       null,
+      new Date().toISOString()
+    );
+  }
+  // Upsert to current_repeaters table if this is a repeater (but NOT a room server or sensor)
+  // This creates the "lovely snapshot" that the website can read from quickly
+  // Room servers and sensors should be excluded from repeater rank
+  if (currentRepeaterUpsert && entry.isRepeater) {
+    // Double-check: exclude room servers and sensors from current_repeaters
+    const role = String(entry.role || "").toLowerCase();
+    const roleName = String(entry.appFlags?.roleName || "").toLowerCase();
+    const roleCode = Number.isFinite(entry.appFlags?.roleCode) ? entry.appFlags.roleCode : null;
+    const deviceRoleCheck = Number.isFinite(adv?.appData?.deviceRole) ? adv.appData.deviceRole : null;
+    const isRoomServer = 
+      role === "room_server" || 
+      roleName === "room_server" || 
+      roleCode === 0x03 ||
+      deviceRoleCheck === 3; // deviceRole 3 is room server
+    const isSensor = deviceRoleCheck === 4; // deviceRole 4 is sensor
+    
+    if (isRoomServer || isSensor) {
+      // Skip inserting room servers and sensors into current_repeaters
+      return;
+    }
+    
+    const gps = entry.gps && Number.isFinite(entry.gps.lat) && Number.isFinite(entry.gps.lon) ? entry.gps : null;
+    const gpsImplausible = entry.gpsImplausible || entry.gpsFlagged ? 1 : 0;
+    // Check if name contains 🚫 emoji - if so, hide from map
+    const hasHideEmoji = entry.name && String(entry.name).includes("🚫");
+    const hiddenOnMap = entry.hiddenOnMap || gpsImplausible || hasHideEmoji ? 1 : 0;
+    // visible = 1 when reheard (SQL will handle 72h check, but we set it to 1 here since we just heard it)
+    const visible = 1; // Always visible when we just heard an advert
+    currentRepeaterUpsert.run(
+      key,
+      entry.name || null,
+      gps ? gps.lat : null,
+      gps ? gps.lon : null,
+      entry.lastAdvertHeardMs ?? null,
+      hiddenOnMap,
+      gpsImplausible,
+      visible,
+      entry.isObserver ? 1 : 0,
+      entry.lastSeen || null,
       new Date().toISOString()
     );
   }

@@ -11,20 +11,21 @@ DEBUG_PERF=1 DEBUG_SQL=1 node tools/observer_demo/server.js
 ```
 
 ## Runbook (live site)
+**Use `meshrank.service`** (port 5199). The legacy `meshrank-server.service` must stay **disabled** or it will conflict on 5199.
 ```bash
 . /root/.nvm/nvm.sh && nvm use 20
 cd /root/Meshcore-Observer
-sudo systemctl restart meshrank-server.service
+sudo systemctl restart meshrank
 ```
 
 Logs:
-- `/root/observer_demo.log`
+- `journalctl -u meshrank -f` or `/root/observer_demo.log` if configured
 
 Status checks:
 ```bash
-systemctl status meshrank-server.service --no-pager -l | head -n 10
+systemctl status meshrank --no-pager -l | head -n 10
 ss -lntp | grep 5199
-curl -i http://127.0.0.1:5199/api/admin/status
+curl -i http://127.0.0.1:5199/api/health
 curl -i "http://127.0.0.1:5199/api/dashboard?channel=public"
 curl -N http://127.0.0.1:5199/api/message-stream | head -n 20
 ```
@@ -48,7 +49,7 @@ curl -i "http://127.0.0.1:5200/api/dashboard?channel=public"
 curl -N http://127.0.0.1:5200/api/message-stream | head -n 20
 ```
 
-> **Note:** `meshrank.net` now proxies to port `5199` (`meshrank-server.service`), while `test.meshrank.net` points to the sandbox on port `5200` (`meshrank-test.service`). The old test site should not be exposed on `meshrank.net`.
+> **Note:** `meshrank.net` proxies to port `5199` (`meshrank.service`). **Disable `meshrank-server.service`** so it doesn't fight for 5199. `test.meshrank.net` uses port `5200` (`meshrank-test.service`).
 
 ## MQTT ingest (optional)
 ```bash
