@@ -9504,8 +9504,7 @@
     function handleShareRoute() {
       const match = window.location.pathname.match(/^\/(?:s|msg)\/([0-9]{5})$/);
       if (match) {
-        const mobile = window.matchMedia?.("(max-width: 860px)")?.matches;
-        loadSharedRoute(match[1], { showOverlay: !!mobile, preventAutoClose: true });
+        loadSharedRoute(match[1], { showOverlay: false, preventAutoClose: true });
       }
     }
 
