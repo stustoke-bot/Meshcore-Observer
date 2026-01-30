@@ -860,6 +860,35 @@
       display: grid;
       grid-template-rows: 240px 1fr;
       min-height: 0;
+      position: relative;
+    }
+    .route-loading {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(10, 11, 14, 0.6);
+      color: #fff;
+      z-index: 4;
+      text-align: center;
+      padding: 12px;
+    }
+    .route-loading.active {
+      display: flex;
+    }
+    .route-spinner {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
     .route-backdrop {
       display: none;
@@ -4128,6 +4157,10 @@
         </div>
       </div>
       <div class="analysis">
+        <div class="route-loading" id="routeLoading">
+          <div class="route-spinner" aria-hidden="true"></div>
+          <div class="route-loading-text" id="routeLoadingText">Loading route…</div>
+        </div>
         <div id="routeMap"></div>
         <div id="routeLegend" class="route-legend"></div>
         <div class="analysis-body">
@@ -7325,6 +7358,7 @@
     async function showRoute(msgId) {
       const msg = appData.messages.find((m) => (m.frameHash || m.id) === msgId || m.id === msgId);
       if (!msg) return;
+      setRouteLoading(false);
       if (!map) initMap();
       appData.routeActiveId = msgId;
       appData.routeActiveMsg = msg;
@@ -7549,8 +7583,16 @@
 
     const routeClose = document.getElementById("routeClose");
     const routeBackdrop = document.getElementById("routeBackdrop");
+    const routeLoading = document.getElementById("routeLoading");
+    const routeLoadingText = document.getElementById("routeLoadingText");
+    function setRouteLoading(active, message) {
+      if (!routeLoading) return;
+      if (routeLoadingText && message) routeLoadingText.textContent = message;
+      routeLoading.classList.toggle("active", !!active);
+    }
     function closeRouteOverlay() {
       document.body.classList.remove("route-open");
+      setRouteLoading(false);
       preventRouteAutoClose = false;
       if (window.history.replaceState) {
         const path = window.location.pathname || "";
@@ -9409,6 +9451,9 @@
       shareObservers.innerHTML = "";
       if (showOverlay && shareLanding) {
         document.body.classList.add("share-active");
+      } else {
+        document.body.classList.add("route-open");
+        setRouteLoading(true, "Loading route…");
       }
       try {
         const res = await fetch(`/api/share/${encodeURIComponent(code)}`);
@@ -9476,11 +9521,13 @@
         if (!showOverlay) {
           closeShareLanding(false);
         }
+        setRouteLoading(false);
       } catch (err) {
         shareError.textContent = err?.message || "Unable to load this share link.";
         shareStatus.textContent = "";
         sharePathList.innerHTML = `<div class="share-path-item muted">Route data unavailable.</div>`;
         shareObservers.innerHTML = "";
+        setRouteLoading(false);
       }
     }
 
