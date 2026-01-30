@@ -1772,6 +1772,7 @@ function readDevices() {
         const manual = fallback.byPub?.[pub];
         if (manual) {
         if (manual.gpsReported && !entry.gpsReported) entry.gpsReported = manual.gpsReported;
+        if (manual.gpsInvalidReason && !entry.gpsInvalidReason) entry.gpsInvalidReason = manual.gpsInvalidReason;
         if (typeof manual.gpsImplausible === "boolean") entry.gpsImplausible = manual.gpsImplausible;
         if (typeof manual.gpsFlagged === "boolean") entry.gpsFlagged = manual.gpsFlagged;
         if (manual.gpsFlaggedAt) entry.gpsFlaggedAt = manual.gpsFlaggedAt;
