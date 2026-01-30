@@ -6013,6 +6013,7 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
   const keys = loadKeys();
   const keyMap = new Map((keys.channels || []).map((row) => [normalizeChannelName(row.name), row.secretHex || row.hashByte || ""]));
   const catalog = loadChannelCatalog();
+  const catalogNames = new Set(catalog.map((entry) => normalizeChannelName(entry.name)).filter(Boolean));
   const counts24h = getChannelCounts24h();
   const knownGroups = getKnownChannelGroups(getDb());
   const grouped = {};
@@ -6048,6 +6049,7 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
     const name = normalizeChannelName(ch.name || "");
     if (!name || fixedChannels.has(name)) return;
     if (!includeBlocked && isChannelBlocked(name, blockedSet)) return;
+    if (catalogNames.has(name)) return;
     const listed = Object.values(defaults).some((list) =>
       list.some((item) => normalizeChannelName(item.name) === name)
     );
@@ -6072,6 +6074,11 @@ async function buildChannelDirectoryGroups(blockedSet = new Set(), includeBlocke
     const group = normalizeChannelGroup(entry.group, knownGroups) || "Other";
     if (!grouped[group]) grouped[group] = [];
     if (!groupFlags[group]) groupFlags[group] = { newChannelCount: 0 };
+    if (grouped.Other && group !== "Other") {
+      grouped.Other = grouped.Other.filter((item) =>
+        normalizeChannelName(item.name) !== normalizeChannelName(entry.name)
+      );
+    }
     const exists = grouped[group].some((item) => normalizeChannelName(item.name) === normalizeChannelName(entry.name));
     if (!exists) {
       grouped[group].push({
